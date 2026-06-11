@@ -26,16 +26,32 @@ FIELDS = ["aweme_id", "category", "keyword", "desc", "author", "author_unique_id
           "create_time", "has_product_anchor", "video_url", "local_file"]
 
 KEYWORDS = {
-    "Baby": ["viral baby gadgets", "newborn must haves viral", "baby essentials tiktok", "viral stroller", "baby toys viral tiktok"],
-    "Hair": ["viral hair dryer brush", "hair mask viral tiktok", "viral wig tiktok", "hair straightener viral", "viral nail products tiktok", "press on nails viral"],
-    "Outdoor": ["viral outdoor gadgets", "hiking gear viral tiktok", "viral garden products", "viral pool finds", "fishing gear viral"],
-    "Factory": ["factory tour viral", "inside the factory tiktok", "how its made factory", "china factory viral", "factory process satisfying", "manufacturing process viral", "behind the scenes factory", "candy factory viral", "shoe factory tiktok", "toy factory viral", "food factory process", "garment factory tiktok", "production line satisfying", "factory machines viral"],
+    "Factory": ["factory direct price video", "guangzhou factory", "yiwu market supplier", "shenzhen factory tour", "factory quality control", "export factory china", "b2b supplier factory", "factory making process satisfying", "industrial machine viral", "production process viral", "factory automation viral", "robot factory viral", "textile mill process", "leather factory process", "denim factory process", "sock factory machine", "glove factory process", "umbrella factory process", "balloon factory process", "crayon factory process", "pencil factory process", "marble factory process", "tile factory process", "brick factory process", "cement factory viral"],
+    "Beauty": ["viral primer makeup", "viral bronzer", "lash serum viral", "viral pimple patch", "snail mucin viral"],
+    "Fashion": ["viral romper", "linen pants viral", "viral graphic tees", "viral blazer tiktok"],
+    "Home": ["viral fan tiktok", "viral heater tiktok", "sunset lamp viral", "viral bookshelf", "viral trash can"],
+    "Kitchen": ["viral spice rack", "viral pan tiktok", "viral kettle", "viral food chopper"],
+    "Electronics": ["viral power bank", "viral car stereo", "viral smart glasses", "viral electric scooter"],
+    "Health": ["viral collagen", "viral greens powder", "viral heating pad", "viral neck stretcher"],
+    "Baby": ["viral baby swing", "montessori toys viral", "viral baby blanket", "kids tablet viral"],
+    "Pets": ["viral fish tank", "viral hamster cage", "bird toys viral", "viral reptile setup"],
+    "Hair": ["viral scrunchie", "hair extensions viral", "viral dry shampoo", "bonnet viral tiktok"],
+    "Food": ["viral cookies tiktok", "viral ice cream products", "korean snacks viral", "viral energy drink"],
+    "Fitness": ["viral jump rope", "viral foam roller", "weighted vest viral", "viral exercise bike"],
+    "Car": ["viral steering wheel cover", "car air freshener viral", "viral jump starter", "tire shine viral"],
+    "Cleaning": ["viral drain cleaner", "viral lint roller", "viral window cleaner", "magic eraser viral"],
+    "Jewelry": ["viral pearl jewelry", "viral nose ring", "crystal jewelry viral", "viral charm bracelet"],
+    "Shoes_Bags": ["viral heels tiktok", "viral wallet tiktok", "viral gym shoes", "viral mini bag"],
+    "Toys_Gifts": ["viral water gun", "viral drone toy", "viral bubble machine", "viral craft kit"],
+    "Outdoor": ["viral kayak", "viral solar lights", "viral grill gadgets", "viral beach chair"],
+    "Office": ["viral mouse pad", "viral standing desk", "viral notebook tiktok", "viral paper shredder"],
+    "Misc": ["viral products november 2026", "tiktok shop black friday viral", "viral kitchen finds 2026", "5 star amazon finds", "tiktok shop gems"],
 }
 
 MIN_LIKES = 10_000
 MIN_COMMENTS = 2_000
-TARGET = 500
-MAX_PAGES = 10
+TARGET = 1000
+MAX_PAGES = 12
 
 lock = threading.Lock()
 results = {}
