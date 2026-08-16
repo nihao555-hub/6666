@@ -2,11 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <p class="page-kicker">货盘</p>
         <h2>商品库</h2>
-        <p class="muted">
-          图和识别结果存在这里，和店铺无关。勾选商品再勾选店铺，一次铺出去；同一张图不会对每个店重新识别。
-        </p>
+        <p class="muted">图只识别一次，再勾店铺铺出去。日常投料会自动入库，一般不用单独打开这页。</p>
       </div>
       <div>
         <el-button :disabled="!selected.length" type="primary" @click="openDistribute">
@@ -17,6 +14,7 @@
       </div>
     </div>
 
+    <div class="advanced-note">这页不在日常导航里。只有概览判断「货已在库、直接铺店」时才会带你过来。</div>
     <div class="toolbar">
       <el-input v-model="keyword" placeholder="搜货号或品名" clearable style="width: 240px" @change="reload" />
       <div class="spacer"></div>

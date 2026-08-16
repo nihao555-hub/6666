@@ -2,15 +2,13 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <p class="page-kicker">货盘</p>
-        <h2>刊登模板</h2>
-        <p class="muted">
-          按店铺 + 叶子类目固化经营字段（产地、物流、样品、运费）。套用时只填空，已经手填或 AI 填过的不会被覆盖。
-        </p>
+        <h2>类目模板</h2>
+        <p class="muted">少数类目要单独固化字段时才用。日常在店铺里填一次默认值即可。</p>
       </div>
       <el-button type="primary" :disabled="!store.shopId" @click="openNew">新建模板</el-button>
     </div>
 
+    <div class="advanced-note">这页不在日常导航里。店铺默认值已经覆盖大多数字段。</div>
     <el-table :data="rows" v-loading="loading">
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="category_id" label="类目 ID" width="140" />

@@ -2,9 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <p class="page-kicker">发布</p>
         <h2>草稿箱</h2>
-        <p class="muted">只处理红项和黄项。绿的勾上直接进队列，不用逐条点开。</p>
+        <p class="muted">只处理红项和黄项。绿的勾上直接进队列。</p>
       </div>
       <div>
         <el-button :disabled="!selected.length" @click="publishSelected">
@@ -77,7 +76,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <div class="empty">还没有草稿。去「投料」丢图，或到「商品库」勾店铺铺货。</div>
+        <div class="empty">还没有草稿。去「投料」丢图即可。</div>
       </template>
     </el-table>
   </div>

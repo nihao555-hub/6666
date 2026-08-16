@@ -2,11 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <p class="page-kicker">工作台</p>
         <h2>店铺</h2>
-        <p class="muted">
-          一个账号可以绑多个国际站店铺。授权走阿里官方 OAuth，我们只拿到 token 并加密保存，拿不到你的密码。
-        </p>
+        <p class="muted">官方 OAuth 授权，只保存加密 token。每个店填一次默认值，后面不用再问。</p>
       </div>
       <div>
         <el-button v-if="showDevBind" @click="bindEnv">用环境 token 接入（本地调试）</el-button>

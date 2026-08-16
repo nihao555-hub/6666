@@ -2,11 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <p class="page-kicker">发布</p>
         <h2>在线商品</h2>
-        <p class="muted">
-          实时打当前店铺的接口，不是平台公共库。改价、上下架需要额外的接口权限，当前应用还没有开通。
-        </p>
+        <p class="muted">老店复制已过审的类目和属性，AI 只改文案。日常新店不用来这里。</p>
       </div>
       <el-select v-model="filterType" style="width: 160px" @change="reload">
         <el-option label="在售" value="onSelling" />
@@ -14,6 +11,7 @@
       </el-select>
     </div>
 
+    <div class="advanced-note">这页不在日常导航里。只有店里已经有不少在线品、复制更快时，概览才会带你过来。</div>
     <el-table :data="rows" v-loading="loading">
       <el-table-column label="图" width="70">
         <template #default="{ row }">

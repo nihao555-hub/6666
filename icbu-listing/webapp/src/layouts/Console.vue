@@ -1,71 +1,74 @@
 <template>
   <div class="console">
     <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">A</div>
-        <div class="brand-copy">
-          <strong>AUTO SHOPER</strong>
-          <small>国际站上品工作台</small>
-        </div>
+      <div class="sidebar-brand">
+        <Brand />
       </div>
 
-      <div class="nav-group">工作台</div>
-      <router-link class="nav-link" :class="{ 'is-active': on('/overview') }" to="/overview">
-        <span class="nav-ico">▣</span>概览
-      </router-link>
-      <router-link class="nav-link" :class="{ 'is-active': on('/shops') }" to="/shops">
-        <span class="nav-ico">⌂</span>店铺
-      </router-link>
+      <div class="shop-switcher">
+        <el-select
+          v-model="shopId"
+          placeholder="先授权店铺"
+          :no-data-text="'还没有店铺'"
+          @change="onShopChange"
+        >
+          <el-option v-for="shop in store.shops" :key="shop.id" :label="shop.name" :value="shop.id" />
+        </el-select>
+      </div>
 
-      <div class="nav-group">货盘</div>
-      <router-link class="nav-link" :class="{ 'is-active': on('/feed') }" to="/feed">
-        <span class="nav-ico">＋</span>投料
-      </router-link>
-      <router-link class="nav-link" :class="{ 'is-active': on('/products') }" to="/products">
-        <span class="nav-ico">▤</span>商品库
-      </router-link>
-      <router-link class="nav-link" :class="{ 'is-active': on('/templates') }" to="/templates">
-        <span class="nav-ico">☰</span>刊登模板
-      </router-link>
+      <nav class="nav-list">
+        <router-link class="nav-link" :class="{ 'is-active': on('/overview') }" to="/overview">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+          概览
+        </router-link>
+        <router-link class="nav-link" :class="{ 'is-active': on('/shops') }" to="/shops">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M3 10.5 12 4l9 6.5" />
+            <path d="M5 10v9h14v-9" />
+          </svg>
+          店铺
+        </router-link>
+        <router-link class="nav-link" :class="{ 'is-active': on('/feed') }" to="/feed">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          投料
+        </router-link>
+        <router-link class="nav-link" :class="{ 'is-active': on('/drafts') }" to="/drafts">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M7 3h7l5 5v13H7z" />
+            <path d="M14 3v5h5" />
+          </svg>
+          草稿箱
+        </router-link>
+        <router-link class="nav-link" :class="{ 'is-active': on('/queue') }" to="/queue">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M4 12a8 8 0 1 0 2.3-5.7" />
+            <path d="M4 4v4h4" />
+          </svg>
+          队列
+        </router-link>
+      </nav>
 
-      <div class="nav-group">发布</div>
-      <router-link class="nav-link" :class="{ 'is-active': on('/drafts') }" to="/drafts">
-        <span class="nav-ico">✎</span>草稿箱
-      </router-link>
-      <router-link class="nav-link" :class="{ 'is-active': on('/queue') }" to="/queue">
-        <span class="nav-ico">↻</span>发布队列
-      </router-link>
-      <router-link class="nav-link" :class="{ 'is-active': on('/online') }" to="/online">
-        <span class="nav-ico">◉</span>在线商品
-      </router-link>
-
-      <div class="sidebar-foot">只填图、价格、起订量<br />其余按官方 Schema 自动补</div>
+      <div class="sidebar-foot">
+        <div class="sidebar-user">
+          <span class="avatar">{{ initials }}</span>
+          <span>{{ store.user?.email }}</span>
+        </div>
+        <el-button text @click="logout">退出</el-button>
+      </div>
     </aside>
 
     <div class="workspace">
       <header class="topbar">
-        <div class="topbar-left">
-          <div class="crumb">工作台 / <b>{{ pageTitle }}</b></div>
-          <el-select
-            v-model="shopId"
-            class="shop-switch"
-            placeholder="选择店铺"
-            :no-data-text="'先去店铺授权'"
-            @change="onShopChange"
-          >
-            <el-option v-for="shop in store.shops" :key="shop.id" :label="shop.name" :value="shop.id">
-              <span>{{ shop.name }}</span>
-              <el-tag v-if="shop.publish_mode === 'draft'" size="small" type="info" style="margin-left: 8px">草稿</el-tag>
-            </el-option>
-          </el-select>
-          <el-tag v-if="store.shop && store.shop.status !== 'active'" type="danger" size="small">授权异常</el-tag>
-        </div>
+        <div class="topbar-title">{{ pageTitle }}</div>
         <div class="topbar-right">
-          <div class="user-chip">
-            <span class="avatar">{{ initials }}</span>
-            <span>{{ store.user?.email }}</span>
-          </div>
-          <el-button text @click="logout">退出</el-button>
+          <el-tag v-if="store.shop && store.shop.status !== 'active'" type="danger" size="small">授权异常</el-tag>
         </div>
       </header>
       <main class="workspace-main">
@@ -79,24 +82,28 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import Brand from "../components/Brand.vue";
 import { api } from "../api";
 import { store } from "../store";
 
 const TITLES = {
   overview: "概览",
   shops: "店铺",
-  products: "商品库",
   feed: "投料",
-  templates: "刊登模板",
   drafts: "草稿箱",
-  queue: "发布队列",
+  queue: "队列",
+  products: "商品库",
+  templates: "类目模板",
   online: "在线商品",
 };
 
 const route = useRoute();
 const router = useRouter();
 const shopId = ref(store.shopId);
-const pageTitle = computed(() => TITLES[route.path.split("/")[1]] || "概览");
+const pageTitle = computed(() => {
+  if (route.path.startsWith("/drafts/")) return "审稿";
+  return TITLES[route.path.split("/")[1]] || "概览";
+});
 const initials = computed(() => (store.user?.email || "U").slice(0, 1).toUpperCase());
 
 onMounted(async () => {

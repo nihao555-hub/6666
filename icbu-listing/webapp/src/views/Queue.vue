@@ -2,9 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <p class="page-kicker">发布</p>
-        <h2>发布队列</h2>
-        <p class="muted">失败原因翻成人话，改完可以直接重发。任务在后台跑，关掉页面也不影响。</p>
+        <h2>队列</h2>
+        <p class="muted">失败原因翻成人话，改完可以直接重发。关掉页面也不影响。</p>
       </div>
       <el-button @click="reload">刷新</el-button>
     </div>

@@ -2,9 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <p class="page-kicker">货盘</p>
         <h2>投料</h2>
-        <p class="muted">先选你手头有什么。人只出图、价格、起订量；类目和标题由 AI 按官方规则补。</p>
+        <p class="muted">人只出图、价格、起订量。类目和标题由 AI 按官方规则补。</p>
       </div>
     </div>
 
@@ -20,18 +19,18 @@
 
     <div class="path-grid">
       <div class="path-card" :class="{ 'is-active': tab === 'single' || tab === 'batch' }" @click="tab = 'single'">
-        <small>路径 01</small>
+        <small>最常见</small>
         <b>有实拍图</b>
-        <p class="muted">单条或按货号前缀批量。工厂最常见。</p>
+        <p class="muted">单条或按货号前缀批量。</p>
       </div>
       <div class="path-card" :class="{ 'is-active': tab === 'ai' }" @click="tab = 'ai'">
-        <small>路径 02</small>
-        <b>没图，先出提示词</b>
-        <p class="muted">按类目复制 6 条，自己生图后再投。</p>
+        <small>没图时</small>
+        <b>先出套图提示词</b>
+        <p class="muted">复制 6 条，自己生图后再投。</p>
       </div>
       <div class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="tab = 'excel'">
-        <small>路径 03</small>
-        <b>已有 Excel</b>
+        <small>已有表格</small>
+        <b>Excel 导入</b>
         <p class="muted">领星 / 店小秘 / 马帮 / 官方类目表。</p>
       </div>
     </div>
@@ -116,7 +115,7 @@
                   :value="item.id"
                 />
               </el-select>
-              <div class="muted">没有模板就去「刊登模板」建一个。表格里不用再填类目和物流。</div>
+              <div class="muted">没有模板就先在店铺里填默认值。表格里不用再填类目和物流。</div>
             </el-form-item>
             <el-form-item label="Excel 模板">
               <el-button @click="downloadTemplate">下载 {{ currentStyle?.label || "" }} 模板</el-button>
@@ -189,10 +188,7 @@
               {{ excelProgress.done }} 个。
             </p>
             <el-progress :percentage="excelPercent" :stroke-width="14" />
-            <el-button style="margin-top: 12px" @click="$router.push('/products')">去商品库</el-button>
-            <el-button v-if="excel.batch.create_drafts" style="margin-top: 12px" @click="$router.push('/drafts')">
-              去草稿箱
-            </el-button>
+            <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱</el-button>
           </div>
         </div>
       </el-tab-pane>

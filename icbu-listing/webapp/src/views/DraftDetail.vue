@@ -2,9 +2,8 @@
   <div class="page" v-loading="loading">
     <div class="page-head">
       <div>
-        <p class="page-kicker">发布 / 草稿箱</p>
         <h2>审稿 · {{ draft.sku || draft.id?.slice(0, 8) }}</h2>
-        <p class="muted">只有红黄项需要你动手。绿的已经按官方规则校验过了，折叠在下面。</p>
+        <p class="muted">只有红黄项需要你动手。绿的已经校验过，折叠在下面。</p>
       </div>
       <div>
         <el-button @click="$router.push('/drafts')">返回草稿箱</el-button>
