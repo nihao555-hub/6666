@@ -39,6 +39,10 @@ export const api = {
   deleteTemplate: (id) => http.delete(`/templates/${id}`),
   applyTemplate: (id, draftIds) => http.post(`/templates/${id}/apply`, { draft_ids: draftIds }),
 
+  imageTemplates: () => http.get("/image-templates"),
+  planImages: (body) => http.post("/image-templates/plan", body),
+  generateImageSlot: (form) => http.post("/image-templates/generate", form, { timeout: 180000 }),
+
   feed: (form) => http.post("/listings/feed", form),
   feedBatch: (form) => http.post("/listings/batch", form),
   batchProgress: (batchId) => http.get(`/batches/${batchId}`),

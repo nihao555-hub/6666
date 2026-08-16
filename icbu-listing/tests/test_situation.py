@@ -46,5 +46,6 @@ class SituationTests(unittest.TestCase):
         ids = [item["id"] for item in result["alternatives"]]
         self.assertIn("excel", ids)
         self.assertIn("official", ids)
+        self.assertIn("ai_images", ids)
         self.assertNotIn("clone", ids)
         self.assertNotIn("photos", ids)

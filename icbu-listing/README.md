@@ -20,6 +20,7 @@
 - 字段来源：手改和 Excel 填过的值，重新成稿不会覆盖
 - 刊登模板：按店铺 + 叶子类目固化经营字段，只填空不覆盖标题/图/价
 - 提交前本地自检（必填、字节长度、正则、选项合法性）
+- 按类目套 6 张高转化图（白底主图 / 尺寸 / 细节 / 场景 / 外箱 / OEM），配 `IMAGE_MODEL` 后可直接生图
 - 重复铺货风险预检
 - 发布队列，失败原因翻成中文
 
@@ -37,7 +38,7 @@ icbu-listing/
     ping.py           拿环境变量探活
     smoke_draft.py    单图端到端演练（不发布）
   server/             多租户 FastAPI 服务
-    routers/          auth / shops / products / templates / excel / listings / overview
+    routers/          auth / shops / products / templates / excel / listings / overview / image-templates
     services/         shop_client · catalog · pipeline · images · publisher · dedup
                       products · distribution · templates · sources · excel_import
   webapp/             Vue 3 + Element Plus 控制台

@@ -65,6 +65,7 @@ def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) 
         "success": jobs.get("success", 0),
         "failed": jobs.get("failed", 0),
         "ai_enabled": settings.ai_enabled,
+        "image_enabled": settings.image_enabled,
         "platform_ready": settings.has_platform_app,
         "situation": situation,
     }

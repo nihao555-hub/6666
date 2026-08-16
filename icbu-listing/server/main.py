@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ROOT, settings
 from .db import init_db
-from .routers import auth, excel, listings, overview, products, shops, templates
+from .routers import auth, excel, image_templates, listings, overview, products, shops, templates
 
 app = FastAPI(title="Auto Shoper · 国际站批量上品", version="0.2.0")
 
@@ -29,6 +29,7 @@ app.include_router(templates.router)
 app.include_router(excel.router)
 app.include_router(listings.router)
 app.include_router(overview.router)
+app.include_router(image_templates.router)
 
 
 @app.on_event("startup")
@@ -42,6 +43,7 @@ def health() -> dict[str, object]:
         "ok": True,
         "platform_ready": settings.has_platform_app,
         "ai_enabled": settings.ai_enabled,
+        "image_enabled": settings.image_enabled,
     }
 
 
