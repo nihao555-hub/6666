@@ -1,5 +1,7 @@
 # 托管 5 个 LINE 官方账号：取密钥 + 公网部署（图文教程）
 
+**建议直接打开 HTML 版阅读（侧边目录 + 全部配图）：** [index.html](index.html)
+
 一台小 VPS 就能同时托管 5 个 LINE Official Account。每个账号一套独立密钥、一条独立 webhook 路径；服务端按路径分流、按账号验签、按账号回复。
 
 配套代码在仓库根目录的 [`line-hub/`](../../line-hub/)。
@@ -328,7 +330,8 @@ line-hub/
   .env.example
   tests/test_signature.py
 docs/line-multi-account/
-  README.md            # 本教程
+  index.html           # HTML 图文教程（推荐用浏览器打开）
+  README.md            # Markdown 版
   images/              # 配图
   tools/               # 重新生成配图的脚本
 ```
