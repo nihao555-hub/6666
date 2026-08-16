@@ -272,6 +272,46 @@ class AiClient:
             confidence=_confidence(payload.get("confidence")),
         )
 
+    def shortlist(
+        self,
+        question: str,
+        options: Sequence[str],
+        context: Mapping[str, Any],
+        limit: int = 3,
+    ) -> list[str]:
+        """Narrow a level of the category tree instead of committing to one branch.
+
+        A single wrong turn near the root cannot be recovered from later, so the
+        caller keeps several branches alive and reranks the leaves at the end.
+        """
+        if not options:
+            return []
+        prompt = (
+            f"{question}\n"
+            "Choose the branches that could plausibly contain this product. "
+            f"Return at most {limit}, best first. Copy the option text exactly.\n\n"
+            f"Product: {json.dumps(dict(context), ensure_ascii=False)}\n"
+            f"Options: {json.dumps(list(options)[:120], ensure_ascii=False)}\n\n"
+            '{"choices": ["...", "..."]}'
+        )
+        payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
+        return _str_list(payload.get("choices"))[:limit]
+
+    def rank_categories(self, paths: Sequence[str], context: Mapping[str, Any]) -> dict[str, Any]:
+        """Final pick between full root-to-leaf paths."""
+        prompt = (
+            "Pick the single Alibaba.com leaf category this wholesale product belongs in.\n"
+            f"Product: {json.dumps(dict(context), ensure_ascii=False)}\n"
+            f"Candidates: {json.dumps(list(paths)[:40], ensure_ascii=False)}\n\n"
+            "Copy one candidate exactly. confidence is how sure you are it is the right leaf.\n"
+            '{"choice": "", "confidence": 0.0}'
+        )
+        payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
+        return {
+            "choice": str(payload.get("choice") or "").strip(),
+            "confidence": _confidence(payload.get("confidence")),
+        }
+
     def pick_option(self, question: str, options: Sequence[str], context: Mapping[str, Any]) -> dict[str, Any]:
         """Last resort for an attribute that fuzzy matching could not resolve."""
         prompt = (

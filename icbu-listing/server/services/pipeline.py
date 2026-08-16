@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ai import AiClient, AiUnavailable, ImageInput, Understanding  # noqa: E402
@@ -32,6 +33,8 @@ from . import catalog
 from .images import BankImage
 
 MAX_DESCENT_DEPTH = 6
+BEAM_WIDTH = 3
+LEARNING_PRODUCTS = 20
 CONFIDENT = 0.85
 UNCERTAIN = 0.6
 
@@ -81,26 +84,114 @@ def _match_child(children: Sequence[Any], text: str) -> Any | None:
     for node in children:
         if _norm(node.name) == needle or _norm(node.cn_name) == needle:
             return node
+    # Substring matching only on names long enough to be meaningful; short
+    # branch names like "Art" match far too much near the root.
     for node in children:
         name = _norm(node.name)
-        if name and (name in needle or needle in name):
+        if len(name) >= 5 and (name in needle or needle in name):
             return node
     return None
 
 
-def _ai_choose(ai: AiClient | None, node_label: str, children: Sequence[Any], context: Mapping[str, Any]) -> tuple[Any | None, float]:
-    if ai is None or not children:
-        return None, 0.0
-    options = [catalog.label(child) for child in children]
-    try:
-        answer = ai.pick_option(f"Alibaba.com category under «{node_label}»", options, context)
-    except AiUnavailable:
-        return None, 0.0
-    picked = answer.get("option") or ""
-    for child, option in zip(children, options):
-        if option == picked or _norm(option) == _norm(picked):
-            return child, float(answer.get("confidence") or 0.0)
-    return _match_child(children, picked), float(answer.get("confidence") or 0.0) * 0.8
+def _context_of(understanding: Understanding) -> dict[str, Any]:
+    return {
+        "product": understanding.product_name,
+        "category_hint": understanding.category_hint,
+        "material": understanding.material,
+        "usage": understanding.usage,
+        "features": understanding.features[:4],
+    }
+
+
+def _resolve_labels(nodes: Sequence[Any], picked: Sequence[str]) -> list[Any]:
+    by_label = {catalog.label(node): node for node in nodes}
+    chosen: list[Any] = []
+    for label in picked:
+        node = by_label.get(label)
+        if node is None:
+            node = _match_child(nodes, label)
+        if node is not None and node not in chosen:
+            chosen.append(node)
+    return chosen
+
+
+def collect_leaf_candidates(
+    db: Session,
+    api: IcbuApi,
+    understanding: Understanding,
+    ai: AiClient | None,
+    beam_width: int = BEAM_WIDTH,
+) -> list[Any]:
+    """Walk down the official tree keeping several branches alive.
+
+    Greedy descent cannot recover from a bad turn near the root — a paint brush
+    that goes into «Home & Garden» at level one can only ever end up in the
+    wrong leaf. Keeping a few branches and reranking the leaves at the end fixes
+    the common failure without crawling the whole tree.
+    """
+    root = catalog.get_node(db, api, catalog.ROOT_ID)
+    if root is None:
+        return []
+
+    context = _context_of(understanding)
+    frontier = [root]
+    leaves: list[Any] = []
+
+    for _ in range(MAX_DESCENT_DEPTH):
+        if not frontier:
+            break
+        children: list[Any] = []
+        for node in frontier:
+            children.extend(catalog.get_children(db, api, node))
+        if not children:
+            break
+
+        direct = [
+            node
+            for node in (
+                _match_child(children, understanding.category_hint),
+                _match_child(children, understanding.product_name),
+            )
+            if node is not None
+        ]
+        picked: list[Any] = list(dict.fromkeys(direct))
+
+        if len(picked) < beam_width and ai is not None:
+            try:
+                labels = ai.shortlist(
+                    "Alibaba.com wholesale category tree", [catalog.label(c) for c in children], context, beam_width
+                )
+            except (AiUnavailable, ValueError):
+                labels = []
+            for node in _resolve_labels(children, labels):
+                if node not in picked:
+                    picked.append(node)
+
+        picked = picked[:beam_width]
+        if not picked:
+            break
+
+        leaves.extend(node for node in picked if node.is_leaf and node not in leaves)
+        frontier = [node for node in picked if not node.is_leaf]
+
+    return leaves
+
+
+def shop_category_hints(db: Session, api: IcbuApi, shop: Shop, limit: int = 8) -> list[Any]:
+    """Categories this shop already sells in — a strong prior for the next product."""
+    remembered = (
+        db.query(CategoryMemory)
+        .filter(CategoryMemory.shop_id == shop.id)
+        .order_by(CategoryMemory.hits.desc())
+        .limit(limit)
+        .all()
+    )
+    nodes = []
+    for row in remembered:
+        node = catalog.get_node(db, api, row.category_id)
+        if node is not None and node.is_leaf:
+            nodes.append(node)
+    return nodes
 
 
 def resolve_category(
@@ -111,7 +202,7 @@ def resolve_category(
     ai: AiClient | None,
     forced_category_id: str = "",
 ) -> tuple[str, str, float, list[dict[str, Any]]]:
-    """Return (category_id, display name, confidence, sibling candidates)."""
+    """Return (category_id, display name, confidence, other plausible leaves)."""
     if forced_category_id:
         node = catalog.get_node(db, api, forced_category_id)
         if node is not None:
@@ -129,41 +220,47 @@ def resolve_category(
             db.commit()
             return remembered.category_id, remembered.category_name, 0.95, []
 
-    context = {
-        "product": understanding.product_name,
-        "category_hint": understanding.category_hint,
-        "material": understanding.material,
-        "usage": understanding.usage,
-    }
-
-    node = catalog.get_node(db, api, catalog.ROOT_ID)
-    if node is None:
+    candidates = collect_leaf_candidates(db, api, understanding, ai)
+    for node in shop_category_hints(db, api, shop):
+        if node not in candidates:
+            candidates.append(node)
+    if not candidates:
         return "", "", 0.0, []
 
-    scores: list[float] = []
-    candidates: list[dict[str, Any]] = []
-    for _ in range(MAX_DESCENT_DEPTH):
-        children = catalog.get_children(db, api, node)
-        if not children:
-            break
-        direct = _match_child(children, understanding.category_hint) or _match_child(children, understanding.product_name)
-        if direct is not None:
-            chosen, score = direct, 0.9
-        else:
-            chosen, score = _ai_choose(ai, catalog.label(node), children, context)
-        if chosen is None:
-            break
-        candidates = catalog.summarise(children[:40])
-        scores.append(score)
-        node = chosen
-        if node.is_leaf:
-            break
+    # English leaf names are often ambiguous ("Paint Brushes" is both an
+    # artist's brush and a decorator's brush), so the Chinese name goes into the
+    # candidate text as well — it disambiguates most of those pairs.
+    paths = {}
+    for node in candidates:
+        trail = catalog.path_of(db, api, node.category_id)
+        text = " > ".join(catalog.label(item) for item in trail) or catalog.label(node)
+        paths[text] = node
 
-    if not node.is_leaf:
-        return node.category_id, catalog.label(node), 0.0, candidates
+    if len(candidates) == 1 or ai is None:
+        node = candidates[0]
+        return node.category_id, catalog.label(node), 0.5 if ai is None else 0.7, catalog.summarise(candidates)
 
-    confidence = min(scores) if scores else 0.0
-    return node.category_id, catalog.label(node), confidence, candidates
+    try:
+        answer = ai.rank_categories(list(paths), _context_of(understanding))
+    except (AiUnavailable, ValueError):
+        answer = {}
+
+    chosen = paths.get(str(answer.get("choice") or ""))
+    confidence = float(answer.get("confidence") or 0.0)
+    if chosen is None:
+        chosen, confidence = candidates[0], min(confidence, 0.5)
+
+    return chosen.category_id, catalog.label(chosen), confidence, catalog.summarise(candidates)
+
+
+def _still_learning(db: Session, shop: Shop) -> bool:
+    confirmed = (
+        db.query(func.coalesce(func.sum(CategoryMemory.hits), 0))
+        .filter(CategoryMemory.shop_id == shop.id)
+        .scalar()
+        or 0
+    )
+    return int(confirmed) < LEARNING_PRODUCTS
 
 
 def remember_category(db: Session, shop: Shop, understanding: Understanding, category_id: str, category_name: str) -> None:
@@ -525,8 +622,13 @@ def build_draft(
 
     result.values = values
 
+    # Attribute alignment already reported the unresolved required attributes,
+    # with their option lists attached; the generic "required and empty" row
+    # from the validator would only duplicate them.
+    reported = {issue["path"] for issue in result.issues}
     for issue in validate_values(fields, values):
-        result.issues.append(issue.as_dict())
+        if issue.path not in reported:
+            result.issues.append(issue.as_dict())
 
     if not images:
         result.add_issue("scImages", "产品图片", "red", "至少要一张图片")
@@ -539,6 +641,11 @@ def build_draft(
         result.add_issue("category", "商品类目", "red", f"类目「{category_name}」置信度只有 {confidence:.0%}，确认一下")
     elif category_id and confidence < CONFIDENT:
         result.add_issue("category", "商品类目", "yellow", f"类目「{category_name}」置信度 {confidence:.0%}")
+    elif category_id and not forced_category_id and _still_learning(db, shop):
+        # A wrong category invalidates every attribute under it, and the model
+        # is confidently wrong often enough that a new shop should eyeball the
+        # first listings. Once the shop has confirmed enough, this stops.
+        result.add_issue("category", "商品类目", "yellow", f"新店铺前 {LEARNING_PRODUCTS} 条建议核对类目：{category_name}")
 
     if understanding.image_quality not in {"ok", ""}:
         result.add_issue("scImages", "产品图片", "yellow", f"图片质量提示：{understanding.image_quality}")

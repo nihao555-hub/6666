@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator, Mapping
 from xml.etree import ElementTree as ET
 
+GENERIC_OPTIONS = {"other", "others", "customized", "custom", "其他", "其它"}
 MULTI_VALUE_TYPES = {"multiCheck", "multiInput"}
 COMPLEX_TYPES = {"complex", "multiComplex"}
 VALUE_KEY = "$value"
@@ -117,9 +118,13 @@ class SchemaField:
         for option in self.options:
             if _normalise(option.display_name) == needle or _normalise(option.value) == needle:
                 return option
+        # Loose pass. "Other" is never a good guess: picking it silently ships a
+        # wrong attribute instead of asking the seller, so it stays opt-in.
         for option in self.options:
             display = _normalise(option.display_name)
-            if display and (needle in display or display in needle):
+            if len(display) < 3 or display in GENERIC_OPTIONS or option.value == "-1":
+                continue
+            if needle in display or display in needle:
                 return option
         return None
 
