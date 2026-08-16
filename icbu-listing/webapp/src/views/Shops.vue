@@ -2,7 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>店铺授权</h2>
+        <p class="page-kicker">工作台</p>
+        <h2>店铺</h2>
         <p class="muted">
           一个账号可以绑多个国际站店铺。授权走阿里官方 OAuth，我们只拿到 token 并加密保存，拿不到你的密码。
         </p>

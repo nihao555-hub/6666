@@ -1,53 +1,78 @@
 <template>
-  <el-container class="console">
-    <el-aside width="216px" class="sidebar">
+  <div class="console">
+    <aside class="sidebar">
       <div class="brand">
-        AUTO SHOPER
-        <small>阿里国际站 · AI 批量上品</small>
+        <div class="brand-mark">A</div>
+        <div class="brand-copy">
+          <strong>AUTO SHOPER</strong>
+          <small>国际站上品工作台</small>
+        </div>
       </div>
-      <el-menu :default-active="active" router>
-        <el-menu-item index="/overview">概览</el-menu-item>
-        <el-menu-item index="/shops">店铺授权</el-menu-item>
-        <el-menu-item index="/products">商品库</el-menu-item>
-        <el-menu-item index="/feed">投料上品</el-menu-item>
-        <el-menu-item index="/templates">刊登模板</el-menu-item>
-        <el-menu-item index="/drafts">草稿箱</el-menu-item>
-        <el-menu-item index="/queue">发布队列</el-menu-item>
-        <el-menu-item index="/online">在线商品</el-menu-item>
-      </el-menu>
-    </el-aside>
 
-    <el-container>
-      <el-header height="56px" class="topbar">
+      <div class="nav-group">工作台</div>
+      <router-link class="nav-link" :class="{ 'is-active': on('/overview') }" to="/overview">
+        <span class="nav-ico">▣</span>概览
+      </router-link>
+      <router-link class="nav-link" :class="{ 'is-active': on('/shops') }" to="/shops">
+        <span class="nav-ico">⌂</span>店铺
+      </router-link>
+
+      <div class="nav-group">货盘</div>
+      <router-link class="nav-link" :class="{ 'is-active': on('/feed') }" to="/feed">
+        <span class="nav-ico">＋</span>投料
+      </router-link>
+      <router-link class="nav-link" :class="{ 'is-active': on('/products') }" to="/products">
+        <span class="nav-ico">▤</span>商品库
+      </router-link>
+      <router-link class="nav-link" :class="{ 'is-active': on('/templates') }" to="/templates">
+        <span class="nav-ico">☰</span>刊登模板
+      </router-link>
+
+      <div class="nav-group">发布</div>
+      <router-link class="nav-link" :class="{ 'is-active': on('/drafts') }" to="/drafts">
+        <span class="nav-ico">✎</span>草稿箱
+      </router-link>
+      <router-link class="nav-link" :class="{ 'is-active': on('/queue') }" to="/queue">
+        <span class="nav-ico">↻</span>发布队列
+      </router-link>
+      <router-link class="nav-link" :class="{ 'is-active': on('/online') }" to="/online">
+        <span class="nav-ico">◉</span>在线商品
+      </router-link>
+
+      <div class="sidebar-foot">只填图、价格、起订量<br />其余按官方 Schema 自动补</div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
         <div class="topbar-left">
-          <span class="muted">当前店铺</span>
+          <div class="crumb">工作台 / <b>{{ pageTitle }}</b></div>
           <el-select
             v-model="shopId"
-            placeholder="还没有店铺"
-            style="width: 240px"
-            :no-data-text="'先去店铺授权绑定一个店'"
+            class="shop-switch"
+            placeholder="选择店铺"
+            :no-data-text="'先去店铺授权'"
             @change="onShopChange"
           >
             <el-option v-for="shop in store.shops" :key="shop.id" :label="shop.name" :value="shop.id">
               <span>{{ shop.name }}</span>
-              <el-tag v-if="shop.publish_mode === 'draft'" size="small" type="info" style="margin-left: 8px">草稿模式</el-tag>
+              <el-tag v-if="shop.publish_mode === 'draft'" size="small" type="info" style="margin-left: 8px">草稿</el-tag>
             </el-option>
           </el-select>
-          <el-tag v-if="store.shop && store.shop.status !== 'active'" type="danger" size="small">
-            授权异常
-          </el-tag>
+          <el-tag v-if="store.shop && store.shop.status !== 'active'" type="danger" size="small">授权异常</el-tag>
         </div>
-        <div class="topbar-left">
-          <span class="muted">{{ store.user?.email }}</span>
+        <div class="topbar-right">
+          <div class="user-chip">
+            <span class="avatar">{{ initials }}</span>
+            <span>{{ store.user?.email }}</span>
+          </div>
           <el-button text @click="logout">退出</el-button>
         </div>
-      </el-header>
-
-      <el-main style="padding: 0">
+      </header>
+      <main class="workspace-main">
         <router-view :key="store.shopId" />
-      </el-main>
-    </el-container>
-  </el-container>
+      </main>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -57,10 +82,22 @@ import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { store } from "../store";
 
+const TITLES = {
+  overview: "概览",
+  shops: "店铺",
+  products: "商品库",
+  feed: "投料",
+  templates: "刊登模板",
+  drafts: "草稿箱",
+  queue: "发布队列",
+  online: "在线商品",
+};
+
 const route = useRoute();
 const router = useRouter();
 const shopId = ref(store.shopId);
-const active = computed(() => `/${route.path.split("/")[1] || "overview"}`);
+const pageTitle = computed(() => TITLES[route.path.split("/")[1]] || "概览");
+const initials = computed(() => (store.user?.email || "U").slice(0, 1).toUpperCase());
 
 onMounted(async () => {
   try {
@@ -71,6 +108,10 @@ onMounted(async () => {
     ElMessage.error(error.message);
   }
 });
+
+function on(path) {
+  return route.path === path || route.path.startsWith(`${path}/`);
+}
 
 function onShopChange(value) {
   store.selectShop(value);

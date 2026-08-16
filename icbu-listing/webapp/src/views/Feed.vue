@@ -2,11 +2,9 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>投料上品</h2>
-        <p class="muted">
-          没图时先出 6 条套图提示词，拿到你自己的生图工具里出图，再回到「单条 / 批量」投料。
-          有实拍就直接投。价格和起订量仍要你定。
-        </p>
+        <p class="page-kicker">货盘</p>
+        <h2>投料</h2>
+        <p class="muted">先选你手头有什么。人只出图、价格、起订量；类目和标题由 AI 按官方规则补。</p>
       </div>
     </div>
 
@@ -15,12 +13,30 @@
       type="warning"
       show-icon
       :closable="false"
-      title="先绑一个店铺"
-      description="投料需要用店铺的授权去拿类目规则和上传图片银行。"
+      title="先授权一个店铺"
+      description="投料要用店铺 token 拉类目规则并上传图片银行。"
       style="margin-bottom: 14px"
     />
 
-    <el-tabs v-model="tab">
+    <div class="path-grid">
+      <div class="path-card" :class="{ 'is-active': tab === 'single' || tab === 'batch' }" @click="tab = 'single'">
+        <small>路径 01</small>
+        <b>有实拍图</b>
+        <p class="muted">单条或按货号前缀批量。工厂最常见。</p>
+      </div>
+      <div class="path-card" :class="{ 'is-active': tab === 'ai' }" @click="tab = 'ai'">
+        <small>路径 02</small>
+        <b>没图，先出提示词</b>
+        <p class="muted">按类目复制 6 条，自己生图后再投。</p>
+      </div>
+      <div class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="tab = 'excel'">
+        <small>路径 03</small>
+        <b>已有 Excel</b>
+        <p class="muted">领星 / 店小秘 / 马帮 / 官方类目表。</p>
+      </div>
+    </div>
+
+    <el-tabs v-model="tab" class="feed-tabs">
       <el-tab-pane label="套图提示词" name="ai">
         <div class="card">
           <p class="muted" style="margin-bottom: 14px">
@@ -180,8 +196,15 @@
           </div>
         </div>
       </el-tab-pane>
-      <el-tab-pane label="单条上品" name="single">
+      <el-tab-pane label="有实拍 · 单条" name="single">
         <div class="card">
+          <div class="toolbar" style="margin-top: 0">
+            <el-radio-group v-model="photoMode">
+              <el-radio-button value="single">单条</el-radio-button>
+              <el-radio-button value="batch">按货号批量</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div v-if="photoMode === 'single'">
           <el-form label-width="96px" style="max-width: 620px">
             <el-form-item label="产品图">
               <el-upload
@@ -221,14 +244,10 @@
               正在看图、定类目、拉规则、写文案，大约 20～40 秒
             </span>
           </el-form>
-        </div>
-      </el-tab-pane>
-
-      <el-tab-pane label="批量上品" name="batch">
-        <div class="card">
+          </div>
+          <div v-else>
           <p class="muted" style="margin-bottom: 14px">
-            按工厂习惯来：图片名以货号开头，<code>SKU-1001_1.jpg</code> 和 <code>SKU-1001_2.jpg</code>
-            会自动归成同一个商品，并写入商品库。价格和起订量整批统一，进草稿箱后可以逐条改。
+            图片名以货号开头，<code>SKU-1001_1.jpg</code> 会自动归成同一个商品。
           </p>
           <el-form label-width="96px" style="max-width: 620px">
             <el-form-item label="图片">
@@ -263,6 +282,7 @@
             <el-progress :percentage="percent" :stroke-width="14" />
             <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱</el-button>
           </div>
+          </div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -278,7 +298,8 @@ import { store } from "../store";
 
 const router = useRouter();
 const route = useRoute();
-const tab = ref(route.query.tab === "excel" ? "excel" : route.query.tab === "ai" ? "ai" : "single");
+const tab = ref(route.query.tab === "excel" ? "excel" : route.query.tab === "ai" ? "ai" : route.query.tab === "batch" ? "single" : "single");
+const photoMode = ref(route.query.tab === "batch" ? "batch" : "single");
 const templates = ref({ families: [], sources: [] });
 const plan = ref(null);
 const aiForm = reactive({
@@ -514,6 +535,9 @@ async function poll() {
 </script>
 
 <style scoped>
+.feed-tabs :deep(.el-tabs__header) {
+  display: none;
+}
 .style-grid {
   display: flex;
   flex-wrap: wrap;

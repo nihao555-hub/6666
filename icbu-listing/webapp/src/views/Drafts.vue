@@ -2,8 +2,9 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <p class="page-kicker">发布</p>
         <h2>草稿箱</h2>
-        <p class="muted">只处理红项和黄项。绿的勾上直接进发布队列，不用逐条点开。</p>
+        <p class="muted">只处理红项和黄项。绿的勾上直接进队列，不用逐条点开。</p>
       </div>
       <div>
         <el-button :disabled="!selected.length" @click="publishSelected">

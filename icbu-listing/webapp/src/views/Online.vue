@@ -2,6 +2,7 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <p class="page-kicker">发布</p>
         <h2>在线商品</h2>
         <p class="muted">
           实时打当前店铺的接口，不是平台公共库。改价、上下架需要额外的接口权限，当前应用还没有开通。

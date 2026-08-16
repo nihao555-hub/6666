@@ -2,6 +2,7 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <p class="page-kicker">货盘</p>
         <h2>商品库</h2>
         <p class="muted">
           图和识别结果存在这里，和店铺无关。勾选商品再勾选店铺，一次铺出去；同一张图不会对每个店重新识别。

@@ -2,6 +2,7 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <p class="page-kicker">货盘</p>
         <h2>刊登模板</h2>
         <p class="muted">
           按店铺 + 叶子类目固化经营字段（产地、物流、样品、运费）。套用时只填空，已经手填或 AI 填过的不会被覆盖。
