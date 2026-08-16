@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
@@ -52,6 +53,18 @@ class DefaultsIn(BaseModel):
     name: str | None = None
 
 
+def _oauth_error(reason: str, message: str) -> RedirectResponse:
+    """Send the seller back with something they can act on.
+
+    A silent bounce back to the shop list is the worst outcome here: the most
+    common failure is a redirect_uri that was never registered on the open
+    platform, and nothing on screen would say so.
+    """
+    separator = "&" if "?" in settings.oauth_error_url else "?"
+    query = urlencode({"reason": reason, "message": message})
+    return RedirectResponse(f"{settings.oauth_error_url}{separator}{query}", status_code=302)
+
+
 def shop_view(shop: Shop) -> dict[str, Any]:
     return {
         "id": shop.id,
@@ -87,12 +100,12 @@ def oauth_start(user: User = Depends(current_user)) -> dict[str, str]:
 def oauth_callback(code: str = "", state: str = "", db: Session = Depends(get_db)) -> RedirectResponse:
     payload = read_state(state)
     if not code or payload is None:
-        return RedirectResponse(f"{settings.oauth_error_url}&reason=state", status_code=302)
+        return _oauth_error("state", "授权回跳的校验参数无效或已过期，请重新点一次授权")
 
     user_id = str(payload.get("user_id") or "")
     user = db.get(User, user_id)
     if user is None:
-        return RedirectResponse(f"{settings.oauth_error_url}&reason=user", status_code=302)
+        return _oauth_error("user", "找不到发起授权的账号，请重新登录后再试")
 
     try:
         raw = platform_client().execute(
@@ -101,7 +114,7 @@ def oauth_callback(code: str = "", state: str = "", db: Session = Depends(get_db
             access_token=None,
         )
     except (GopError, ShopNotConnected) as exc:
-        return RedirectResponse(f"{settings.oauth_error_url}&reason=exchange", status_code=302)
+        return _oauth_error("exchange", f"换取店铺 token 失败：{exc}")
 
     body = raw if isinstance(raw, dict) else {}
     seller_id = str(body.get("seller_id") or body.get("user_id") or body.get("userId") or "")

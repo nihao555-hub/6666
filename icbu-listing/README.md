@@ -1,49 +1,83 @@
-# 阿里国际站 AI 批量上品
+# Auto Shoper · 阿里国际站多租户批量上品
 
-目标：用户尽量少填，AI 按官方 Schema 自动成稿并发布。
+每个用户自己注册账号、自己授权自己的国际站店铺，一个账号可以绑多个店。平台只持有 AppKey/AppSecret，店铺 `access_token` 加密后按租户隔离存储。
 
-## 为什么没有直接「下载官方 SDK 压缩包」
+用户每条商品只提供机器推不出来的东西：**图 + 价格 + 起订量**。类目、类目属性、英文标题、关键词、详情、图片银行、物流默认值由系统和 AI 补齐，人只审红黄项。
 
-淘宝开放平台的完整 SDK **按应用权限在控制台生成**，不提供固定公网下载地址：
+## 现在能跑通什么
 
-1. 打开 [open.taobao.com](https://open.taobao.com)
-2. 开发 → 应用管理 → 你的国际站应用
-3. SDK 下载 → 生成 Python / Java
+已用真实店铺（1227 条在线商品）验证：
 
-公网 PyPI 的 `topsdk` 是淘宝客（联盟）包，里面没有 `alibaba.icbu.product.schema.*`，不能用。
+- 注册登录、多租户隔离、一个账号绑多个店铺
+- 店铺默认设置（产地、计量单位、物流属性、样品、运费模板）
+- 拉真实类目树、真实发布规则 schema、真实在线商品、真实图片银行
+- 投料 → AI 看图 → 定叶子类目 → 属性对齐官方选项 → 生成英文标题/关键词/详情 → 图片进图片银行 → 产出通过校验的 `itemParam`
+- 提交前本地自检（必填、字节长度、正则、选项合法性）
+- 重复铺货风险预检
+- 发布队列，失败原因翻成中文
 
-新版国际站走 GOP 网关 `https://openapi-api.alibaba.com/rest`，签名是 `HMAC-SHA256(secret, api_path + 排序参数)`，授权字段是 `access_token`，不是旧 TOP 的 `session`。`backend/gop_client.py` 实现这一层。旧 TOP 客户端仍留在 `top_client.py` 作对照。
-
-把控制台下好的压缩包放到 `vendor/official-sdk/` 即可，代码不用改。
+`backend/smoke_draft.py` 可以把一张图跑到「将要提交的 XML」为止，不会真的发品。
 
 ## 目录
 
 ```text
 icbu-listing/
-  USER_FLOW.md          用户三屏和接口对照
-  web/index.html        流程对照页
-  backend/gop_client.py 新版 GOP 协议客户端（发品用这个）
-  backend/top_client.py 旧 TOP 协议对照
-  backend/icbu_api.py   发品用到的 ICBU 方法
-  backend/schema.py     Schema XML 解析/回填
-  backend/flow.py       流程步骤（和页面对齐）
-  backend/ping.py       用环境变量探活
+  backend/            协议层，也能当脚本单独跑
+    gop_client.py     新版 GOP 签名与网关
+    icbu_api.py       ICBU 方法
+    schema.py         规则解析 / itemParam 生成 / 本地校验
+    ai.py             看图理解、类目候选、文案生成
+    ping.py           拿环境变量探活
+    smoke_draft.py    单图端到端演练（不发布）
+  server/             多租户 FastAPI 服务
+    routers/          auth / shops / listings / overview
+    services/         shop_client · catalog · pipeline · images · publisher · dedup
+  webapp/             Vue 3 + Element Plus 控制台
+  tests/
 ```
 
-## 本地探活
+## 启动
 
 ```bash
 cd icbu-listing
-cp .env.example .env   # 填 APP_KEY / APP_SECRET，不要提交
-set -a && source .env && set +a
+cp .env.example .env          # 填 AppKey / AppSecret / 模型 key，不要提交
 python3 -m pip install -r backend/requirements.txt
-python3 backend/ping.py
+cd webapp && npm install && npm run build && cd ..
+
+set -a && source .env && set +a
+python3 -m uvicorn server.main:app --host 127.0.0.1 --port 8000
 ```
 
-没有 `ALIBABA_SESSION_KEY` 时，`ping.py` 只打 `taobao.time.get` 验证密钥，并打印 OAuth 链接。
+打开 `http://127.0.0.1:8000`，用 `REGISTRATION_CODES` 里的注册码开一个租户。
+
+前后端分开开发时：
+
+```bash
+python3 -m uvicorn server.main:app --reload --port 8000
+cd webapp && npm run dev          # http://127.0.0.1:5173，已配 /api 代理
+```
+
+## 店铺授权
+
+正式租户走官方 OAuth：`店铺授权 → 授权新店铺`。
+
+`ALIBABA_OAUTH_REDIRECT_URI` 必须和开放平台控制台里登记的回调地址**完全一致**，并且指向本服务的 `/api/v1/alibaba/oauth/callback`，不能指向 alibaba.com。不一致时阿里会直接报 `Redirect uri does not match the callback url of the APP`。
+
+本地调试可以用「用环境 token 接入」，把 `ALIBABA_ACCESS_TOKEN` 直接绑成一个店铺，跳过 OAuth。
+
+## 发布模式
+
+每个店铺有一个开关，默认 `只发草稿`：提交到官方草稿箱，不上架。跑顺了再切 `直接上架`。
 
 ## 测试
 
 ```bash
-python3 -m unittest discover -s icbu-listing/tests -v
+python3 -m unittest discover -s tests -v
 ```
+
+不需要密钥，也不会打网络。
+
+## 文档
+
+- `API_MAP.md`：实测通了哪些接口、哪些没权限、schema 的结构坑
+- `USER_FLOW.md`：用户三屏和每步对应的官方接口

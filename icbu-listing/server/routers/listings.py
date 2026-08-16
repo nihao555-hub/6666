@@ -16,7 +16,7 @@ from gop_client import GopError  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, owned_draft, shop_for
 from ..models import Draft, Job, Shop, User, new_id
-from ..services import catalog, images as image_service, pipeline, publisher
+from ..services import catalog, dedup, images as image_service, pipeline, publisher
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1", tags=["listings"])
@@ -126,6 +126,14 @@ def _store_draft(
     draft.status = result.status
     draft.updated_at = datetime.utcnow()
     db.commit()
+
+    # Needs the row committed so it can be compared against its siblings.
+    risk = dedup.check(db, draft)
+    if risk is not None:
+        issues = list(result.issues) + [risk.as_issue()]
+        draft.issues_json = json.dumps(issues, ensure_ascii=False)
+        draft.status = pipeline.status_of(issues)
+        db.commit()
     return draft
 
 
