@@ -12,7 +12,7 @@
 
 公网 PyPI 的 `topsdk` 是淘宝客（联盟）包，里面没有 `alibaba.icbu.product.schema.*`，不能用。
 
-官方文档同时允许按 [TOP 协议](https://developer.alibaba.com/docs/doc.htm?articleId=101617&docType=1) 自己封装 HTTP 调用。`backend/top_client.py` 就是这一层：签名、网关、session、图片上传。控制台 SDK 只是它上面的类型包装。
+新版国际站走 GOP 网关 `https://openapi-api.alibaba.com/rest`，签名是 `HMAC-SHA256(secret, api_path + 排序参数)`，授权字段是 `access_token`，不是旧 TOP 的 `session`。`backend/gop_client.py` 实现这一层。旧 TOP 客户端仍留在 `top_client.py` 作对照。
 
 把控制台下好的压缩包放到 `vendor/official-sdk/` 即可，代码不用改。
 
@@ -22,7 +22,8 @@
 icbu-listing/
   USER_FLOW.md          用户三屏和接口对照
   web/index.html        流程对照页
-  backend/top_client.py 官方 TOP 协议客户端
+  backend/gop_client.py 新版 GOP 协议客户端（发品用这个）
+  backend/top_client.py 旧 TOP 协议对照
   backend/icbu_api.py   发品用到的 ICBU 方法
   backend/schema.py     Schema XML 解析/回填
   backend/flow.py       流程步骤（和页面对齐）

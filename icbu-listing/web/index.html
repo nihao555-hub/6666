@@ -106,7 +106,7 @@
       <div>
         <h3>授权店铺</h3>
         <p>跳转官方 OAuth，不收集密码。</p>
-        <p><code>oauth.taobao.com</code> → <code>taobao.top.auth.token.create</code></p>
+        <p><code>openapi-auth.alibaba.com</code> → <code>/auth/token/create</code></p>
       </div>
     </article>
     <article class="step">
@@ -129,7 +129,7 @@
       <div>
         <h3>看图 → 类目 → 属性 → 英文内容</h3>
         <p>先理解，再在类目树里检索叶子类目，再按 schema 对齐属性，最后写标题和详情。</p>
-        <p><code>category.get.new</code> → <code>product.schema.get</code></p>
+        <p>叶子类目 → <code>/alibaba/icbu/product/schema/get</code>（顶层 cat_id）</p>
       </div>
     </article>
     <article class="step">
@@ -137,7 +137,7 @@
       <div>
         <h3>图片银行 + 质检</h3>
         <p>原图上传拿 url/fileId。标题长度、违禁、必填空在提交前拦掉。</p>
-        <p><code>photobank.upload</code></p>
+        <p><code>/alibaba/icbu/photobank/upload</code></p>
       </div>
     </article>
     <article class="step">
@@ -152,7 +152,7 @@
       <div>
         <h3>排队发布</h3>
         <p>把填好的 XML 交给官方。限流、重试、记下 product_id。</p>
-        <p><code>product.schema.add</code></p>
+        <p><code>/icbu/product/schema/add</code>（publish_request）</p>
       </div>
     </article>
 

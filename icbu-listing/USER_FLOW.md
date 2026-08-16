@@ -20,17 +20,17 @@
 
 | 步 | 谁做 | 用户填什么 | 官方接口 |
 |---|---|---|---|
-| 1 授权店铺 | 用户点一次 | 官方 OAuth 确认，不交密码 | `oauth.taobao.com` → `taobao.top.auth.token.create` |
+| 1 授权店铺 | 用户点一次 | 官方 OAuth 确认，不交密码 | `openapi-auth.alibaba.com` → `/auth/token/create` |
 | 2 店铺默认 | 用户填一次 | 询盘/一口价、币种、港口、付款、交期、运费模板、包装 | `product.group.get`、`shippingline.template.list` |
 | 3 投料 | 用户每条做 | **图**；建议货号、FOB/售价、MOQ | 无 |
 | 4 看图理解 | AI | 无 | 无（多模态模型） |
-| 5 预测叶子类目 | AI，低置信度才问 | 偶尔选一下类目 | `alibaba.icbu.category.get.new` |
-| 6 拉发布规则 | 系统 | 无 | `alibaba.icbu.product.schema.get` |
+| 5 预测叶子类目 | AI，低置信度才问 | 偶尔选一下类目 | 先从已有商品/`schema.get` 拿 `category_id`（`category.get.new` 在新网关无效） |
+| 6 拉发布规则 | 系统 | 无 | `/alibaba/icbu/product/schema/get` |
 | 7 属性对齐 | AI，对不上标红 | 点选对不上的属性 | 无（对 schema option） |
 | 8 写英文内容 | AI | 无 | 无，但必须过 schema 规则 |
-| 9 图进图片银行 | 系统 | 无 | `alibaba.icbu.photobank.upload` |
+| 9 图进图片银行 | 系统 | 无 | `/alibaba/icbu/photobank/upload` |
 | 10 审稿 | 用户 | 确认红黄项，核对价格/MOQ | 无 |
-| 11 排队发布 | 系统 | 点发布 | `alibaba.icbu.product.schema.add` |
+| 11 排队发布 | 系统 | 点发布 | `/alibaba/icbu/product/schema/add` |
 | 12 在线商品 | 第二期 | 改价、上下架 | `schema.render` / `schema.update` / `batch.update.display` |
 
 ## 用户每条商品最少填什么

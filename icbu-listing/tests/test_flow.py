@@ -19,7 +19,7 @@ class FlowTests(unittest.TestCase):
 
     def test_schema_add_is_the_only_publish_api(self) -> None:
         publish = next(step for step in FLOW if step.id == "publish")
-        self.assertEqual(publish.apis, ("alibaba.icbu.product.schema.add",))
+        self.assertEqual(publish.apis, ("/icbu/product/schema/add",))
 
 
 if __name__ == "__main__":
