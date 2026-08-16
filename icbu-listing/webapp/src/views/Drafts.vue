@@ -14,6 +14,10 @@
     </div>
 
     <div class="toolbar">
+      <el-select v-model="shopFilter" placeholder="全部店铺" clearable style="width: 200px" @change="reload">
+        <el-option label="全部店铺" value="" />
+        <el-option v-for="shop in store.shops" :key="shop.id" :label="shop.name" :value="shop.id" />
+      </el-select>
       <el-radio-group v-model="status" @change="reload">
         <el-radio-button value="">全部 {{ counts.all }}</el-radio-button>
         <el-radio-button value="red">红 {{ counts.red }}</el-radio-button>
@@ -40,6 +44,9 @@
         </template>
       </el-table-column>
       <el-table-column prop="sku" label="货号" width="130" show-overflow-tooltip />
+      <el-table-column v-if="!shopFilter" label="店铺" width="140" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.shop_name || "—" }}</template>
+      </el-table-column>
       <el-table-column label="标题 / 类目" min-width="300">
         <template #default="{ row }">
           <div>{{ row.title || "（还没有标题）" }}</div>
@@ -77,15 +84,18 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { store } from "../store";
 
+const route = useRoute();
 const rows = ref([]);
 const all = ref([]);
 const loading = ref(false);
 const status = ref("");
 const selected = ref([]);
+const shopFilter = ref(route.query.shop === "all" ? "" : store.shopId || "");
 
 const counts = computed(() => {
   const base = { all: all.value.length, red: 0, yellow: 0, green: 0, failed: 0, published: 0 };
@@ -108,10 +118,9 @@ function isSelectable(row) {
 }
 
 async function reload() {
-  if (!store.shopId) return;
   loading.value = true;
   try {
-    all.value = await api.drafts({ shop_id: store.shopId });
+    all.value = await api.drafts(shopFilter.value ? { shop_id: shopFilter.value } : {});
     rows.value = status.value ? all.value.filter((item) => item.status === status.value) : all.value;
   } catch (error) {
     ElMessage.error(error.message);

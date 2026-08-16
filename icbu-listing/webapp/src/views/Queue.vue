@@ -8,6 +8,13 @@
       <el-button @click="reload">刷新</el-button>
     </div>
 
+    <div class="toolbar">
+      <el-select v-model="shopFilter" placeholder="全部店铺" clearable style="width: 200px" @change="reload">
+        <el-option label="全部店铺" value="" />
+        <el-option v-for="shop in store.shops" :key="shop.id" :label="shop.name" :value="shop.id" />
+      </el-select>
+    </div>
+
     <el-table :data="rows" v-loading="loading">
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
@@ -18,6 +25,9 @@
         <template #default="{ row }">{{ row.mode === "online" ? "直接上架" : "官方草稿" }}</template>
       </el-table-column>
       <el-table-column prop="sku" label="货号" width="130" show-overflow-tooltip />
+      <el-table-column v-if="!shopFilter" label="店铺" width="140" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.shop_name || "—" }}</template>
+      </el-table-column>
       <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip />
       <el-table-column label="商品 ID" width="160">
         <template #default="{ row }">{{ row.product_id || "—" }}</template>
@@ -49,6 +59,7 @@ import { store } from "../store";
 
 const rows = ref([]);
 const loading = ref(false);
+const shopFilter = ref("");
 let timer = null;
 
 function tagType(value) {
@@ -60,10 +71,9 @@ function label(value) {
 }
 
 async function reload() {
-  if (!store.shopId) return;
   loading.value = true;
   try {
-    rows.value = await api.jobs({ shop_id: store.shopId });
+    rows.value = await api.jobs(shopFilter.value ? { shop_id: shopFilter.value } : {});
   } catch (error) {
     ElMessage.error(error.message);
   } finally {

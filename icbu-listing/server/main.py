@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ROOT, settings
 from .db import init_db
-from .routers import auth, listings, overview, shops
+from .routers import auth, listings, overview, products, shops, templates
 
 app = FastAPI(title="Auto Shoper · 国际站批量上品", version="0.2.0")
 
@@ -24,6 +24,8 @@ if settings.cors_origin_regex:
 
 app.include_router(auth.router)
 app.include_router(shops.router)
+app.include_router(products.router)
+app.include_router(templates.router)
 app.include_router(listings.router)
 app.include_router(overview.router)
 

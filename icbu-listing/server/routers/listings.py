@@ -15,8 +15,16 @@ from gop_client import GopError  # noqa: E402
 
 from ..db import SessionLocal
 from ..deps import current_user, get_db, owned_draft, shop_for
-from ..models import Draft, Job, Shop, User, new_id
-from ..services import catalog, dedup, images as image_service, pipeline, publisher
+from ..models import Draft, Job, Product, Shop, User, new_id
+from ..services import (
+    catalog,
+    dedup,
+    distribution,
+    images as image_service,
+    pipeline,
+    products as catalogue,
+    publisher,
+)
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1", tags=["listings"])
@@ -38,10 +46,11 @@ class PublishBatchIn(BaseModel):
     draft_ids: list[str]
 
 
-def draft_view(draft: Draft, detailed: bool = False) -> dict[str, Any]:
+def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dict[str, Any]:
     view: dict[str, Any] = {
         "id": draft.id,
         "shop_id": draft.shop_id,
+        "shop_name": shop_name,
         "batch_id": draft.batch_id,
         "sku": draft.sku,
         "title": draft.title,
@@ -53,6 +62,7 @@ def draft_view(draft: Draft, detailed: bool = False) -> dict[str, Any]:
         "category_confidence": draft.category_confidence,
         "issues": _json(draft.issues_json, []),
         "images": _json(draft.images_json, []),
+        "product_id": draft.product_id,
         "product_online_id": draft.product_online_id,
         "updated_at": draft.updated_at.isoformat(),
     }
@@ -63,11 +73,12 @@ def draft_view(draft: Draft, detailed: bool = False) -> dict[str, Any]:
     return view
 
 
-def job_view(job: Job) -> dict[str, Any]:
+def job_view(job: Job, shop_name: str = "") -> dict[str, Any]:
     return {
         "id": job.id,
         "draft_id": job.draft_id,
         "shop_id": job.shop_id,
+        "shop_name": shop_name,
         "batch_id": job.batch_id,
         "status": job.status,
         "mode": job.mode,
@@ -80,6 +91,14 @@ def job_view(job: Job) -> dict[str, Any]:
         "created_at": job.created_at.isoformat(),
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
     }
+
+
+def _shop_names(db: Session, user: User, shop_ids: list[str]) -> dict[str, str]:
+    ids = [item for item in set(shop_ids) if item]
+    if not ids:
+        return {}
+    rows = db.query(Shop).filter(Shop.user_id == user.id, Shop.id.in_(ids)).all()
+    return {shop.id: shop.name or shop.account or "未命名店铺" for shop in rows}
 
 
 def _json(raw: str, fallback: Any) -> Any:
@@ -150,45 +169,48 @@ def _generate(
     category_id: str = "",
     batch_id: str = "",
 ) -> Draft:
-    api = shop_api(shop)
-    defaults = shop_defaults(shop)
-    ai = AiClient.from_env_or_none()
+    """Feeding always lands a catalogue product first.
 
+    The draft is then produced from that product, so the same photos and the
+    same recognition can be reused when the seller sends it to another shop.
+    """
+    ai = AiClient.from_env_or_none()
     understanding, ai_error = pipeline.understand(
         ai, [ImageInput(filename=name, content=content) for name, content in uploads], note
     )
 
-    bank_images: list[image_service.BankImage] = []
-    upload_errors: list[str] = []
-    for name, content in uploads[:MAX_IMAGES]:
-        try:
-            bank_images.append(image_service.upload(api, name, content))
-        except (GopError, RuntimeError) as exc:
-            upload_errors.append(f"{name}: {exc}")
-
-    result = pipeline.build_draft(
-        db,
-        api,
-        shop,
-        understanding=understanding,
-        images=bank_images,
+    product = Product(
+        user_id=user.id,
+        sku=sku,
+        name=understanding.product_name,
         price=price,
         moq=moq,
-        defaults=defaults,
-        ai=ai,
-        forced_category_id=category_id,
-        language=str(defaults.get("language") or "en_US"),
+        note=note,
+        understanding_json=json.dumps(understanding.raw, ensure_ascii=False),
     )
-    if ai_error:
-        result.add_issue("ai", "AI 成稿", "red", ai_error)
-        result.status = pipeline.status_of(result.issues)
-    for message in upload_errors:
-        result.add_issue("scImages", "产品图片", "red", f"图片没能进图片银行：{message}")
-        result.status = "red"
+    db.add(product)
+    db.commit()
+    catalogue.save_images(db, user, product, uploads[:MAX_IMAGES])
 
-    return _store_draft(
-        db, user, shop, result, sku=sku, price=price, moq=moq, bank_images=bank_images, batch_id=batch_id
+    draft = distribution.build_draft_for_shop(
+        db,
+        user,
+        shop,
+        product,
+        price=price,
+        moq=moq,
+        ai=ai,
+        batch_id=batch_id,
+        forced_category_id=category_id,
     )
+
+    if ai_error:
+        issues = _json(draft.issues_json, [])
+        issues.append({"field_id": "ai", "field_name": "AI 成稿", "level": "red", "message": ai_error, "path": "ai"})
+        draft.issues_json = json.dumps(issues, ensure_ascii=False)
+        draft.status = "red"
+        db.commit()
+    return draft
 
 
 @router.post("/listings/feed")
@@ -341,7 +363,8 @@ def list_drafts(
     if batch_id:
         query = query.filter(Draft.batch_id == batch_id)
     drafts = query.order_by(Draft.updated_at.desc()).limit(500).all()
-    return [draft_view(draft) for draft in drafts]
+    names = _shop_names(db, user, [draft.shop_id for draft in drafts])
+    return [draft_view(draft, shop_name=names.get(draft.shop_id, "")) for draft in drafts]
 
 
 @router.get("/drafts/{draft_id}")
@@ -552,7 +575,9 @@ def list_jobs(
         query = query.filter(Job.shop_id == shop_id)
     if status:
         query = query.filter(Job.status == status)
-    return [job_view(job) for job in query.order_by(Job.created_at.desc()).limit(300).all()]
+    jobs = query.order_by(Job.created_at.desc()).limit(300).all()
+    names = _shop_names(db, user, [job.shop_id for job in jobs])
+    return [job_view(job, shop_name=names.get(job.shop_id, "")) for job in jobs]
 
 
 @router.post("/jobs/{job_id}/retry")

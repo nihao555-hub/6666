@@ -11,7 +11,10 @@
 - 注册登录、多租户隔离、一个账号绑多个店铺
 - 店铺默认设置（产地、计量单位、物流属性、样品、运费模板）
 - 拉真实类目树、真实发布规则 schema、真实在线商品、真实图片银行
-- 投料 → AI 看图 → 定叶子类目 → 属性对齐官方选项 → 生成英文标题/关键词/详情 → 图片进图片银行 → 产出通过校验的 `itemParam`
+- 商品库（SPU）：图和识别结果只存一次，和店铺无关
+- 投料 → 同时入库 → AI 看图 → 定叶子类目 → 属性对齐官方选项 → 生成英文标题/关键词/详情 → 图片进图片银行 → 产出通过校验的 `itemParam`
+- 一键多店铺铺货：勾商品 × 勾店铺；第二家店起换文案角度，降低重铺风险
+- 刊登模板：按店铺 + 叶子类目固化经营字段，只填空不覆盖标题/图/价
 - 提交前本地自检（必填、字节长度、正则、选项合法性）
 - 重复铺货风险预检
 - 发布队列，失败原因翻成中文
@@ -30,8 +33,9 @@ icbu-listing/
     ping.py           拿环境变量探活
     smoke_draft.py    单图端到端演练（不发布）
   server/             多租户 FastAPI 服务
-    routers/          auth / shops / listings / overview
+    routers/          auth / shops / products / templates / listings / overview
     services/         shop_client · catalog · pipeline · images · publisher · dedup
+                      products · distribution · templates
   webapp/             Vue 3 + Element Plus 控制台
   tests/
 ```

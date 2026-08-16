@@ -554,6 +554,7 @@ def build_draft(
     ai: AiClient | None,
     forced_category_id: str = "",
     language: str = "en_US",
+    copy_angle: str = "",
 ) -> DraftResult:
     result = DraftResult(ai={"understanding": understanding.raw})
 
@@ -603,6 +604,7 @@ def build_draft(
                 title_limit=title_limit,
                 keyword_count=keyword_count,
                 extra_facts={"category": category_name, "moq": moq, "unit_price": price},
+                angle=copy_angle,
             )
             copy_confidence = copy.confidence
             result.ai["copy"] = {

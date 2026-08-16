@@ -98,6 +98,41 @@ class Product(Base):
     __table_args__ = (Index("ix_products_user_sku", "user_id", "sku"),)
 
 
+class ProductImage(Base):
+    """The seller's original file, stored once and reused for every shop."""
+
+    __tablename__ = "product_images"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    product_id: Mapped[str] = mapped_column(String(32), ForeignKey("products.id", ondelete="CASCADE"), index=True)
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    path: Mapped[str] = mapped_column(String(500), default="")
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PhotobankAsset(Base):
+    """Where one local image ended up in one shop's image bank.
+
+    The image bank is per shop: the same picture published to three shops has
+    to be uploaded three times and yields three different file ids. Caching the
+    mapping is what stops a re-publish from re-uploading everything.
+    """
+
+    __tablename__ = "photobank_assets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    image_id: Mapped[str] = mapped_column(String(32), ForeignKey("product_images.id", ondelete="CASCADE"), index=True)
+    shop_id: Mapped[str] = mapped_column(String(32), ForeignKey("shops.id", ondelete="CASCADE"), index=True)
+    file_id: Mapped[str] = mapped_column(String(64), default="")
+    url: Mapped[str] = mapped_column(String(500), default="")
+    file_name: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (UniqueConstraint("image_id", "shop_id", name="uq_photobank_image_shop"),)
+
+
 class Template(Base):
     """Per-category trade and logistics defaults. Filled once, reused."""
 

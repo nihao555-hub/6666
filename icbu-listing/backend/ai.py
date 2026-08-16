@@ -240,6 +240,7 @@ class AiClient:
         title_limit: int = 128,
         keyword_count: int = 3,
         extra_facts: Mapping[str, Any] | None = None,
+        angle: str = "",
     ) -> Copy:
         facts = {
             "product_name": understanding.product_name,
@@ -258,6 +259,14 @@ class AiClient:
             keyword_count=keyword_count,
             facts=json.dumps(facts, ensure_ascii=False, indent=2),
         )
+        if angle:
+            # Same goods listed in a second shop: the platform groups listings
+            # whose titles only differ in wording, so ask for a genuinely
+            # different angle rather than a paraphrase.
+            prompt += (
+                f"\n\nThis listing must not read like a reworded copy of another one. "
+                f"Lead with this angle and pick different keywords accordingly: {angle}"
+            )
         payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.4)
         faqs = []
         for item in payload.get("faqs") or []:

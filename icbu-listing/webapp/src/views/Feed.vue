@@ -5,6 +5,7 @@
         <h2>投料上品</h2>
         <p class="muted">
           你只提供机器推不出来的东西：图、价格、起订量。类目、属性、英文标题、关键词、详情由 AI 按官方规则生成。
+          投料会同时写入「商品库」——多店时不用重新丢图，去商品库勾店铺铺货即可。
         </p>
       </div>
     </div>
@@ -68,7 +69,7 @@
         <div class="card">
           <p class="muted" style="margin-bottom: 14px">
             按工厂习惯来：图片名以货号开头，<code>SKU-1001_1.jpg</code> 和 <code>SKU-1001_2.jpg</code>
-            会自动归成同一个商品。价格和起订量整批统一，进草稿箱后可以逐条改。
+            会自动归成同一个商品，并写入商品库。价格和起订量整批统一，进草稿箱后可以逐条改。
           </p>
           <el-form label-width="96px" style="max-width: 620px">
             <el-form-item label="图片">

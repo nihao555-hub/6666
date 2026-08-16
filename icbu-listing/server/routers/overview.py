@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..deps import current_user, get_db
-from ..models import Draft, Job, Shop, User
+from ..models import Draft, Job, Product, Shop, User
 
 router = APIRouter(prefix="/api/v1", tags=["overview"])
 
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/v1", tags=["overview"])
 @router.get("/overview")
 def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     shops = db.query(Shop).filter(Shop.user_id == user.id).count()
+    products = db.query(Product).filter(Product.user_id == user.id).count()
     by_status = dict(
         db.query(Draft.status, func.count(Draft.id)).filter(Draft.user_id == user.id).group_by(Draft.status).all()
     )
@@ -32,6 +33,7 @@ def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) 
 
     return {
         "shops": shops,
+        "products": products,
         "drafts": sum(by_status.values()),
         "drafts_by_status": by_status,
         "red": by_status.get("red", 0),

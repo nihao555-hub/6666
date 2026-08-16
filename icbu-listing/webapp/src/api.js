@@ -27,6 +27,18 @@ export const api = {
   onlineProducts: (shopId, params) => http.get(`/shops/${shopId}/online`, { params }),
   categories: (shopId, parent) => http.get(`/shops/${shopId}/categories`, { params: { shop_id: shopId, parent } }),
 
+  products: (params) => http.get("/products", { params }),
+  product: (id) => http.get(`/products/${id}`),
+  createProduct: (form) => http.post("/products", form),
+  deleteProduct: (id) => http.delete(`/products/${id}`),
+  distribute: (body) => http.post("/products/distribute", body),
+
+  templates: (params) => http.get("/templates", { params }),
+  createTemplate: (body) => http.post("/templates", body),
+  updateTemplate: (id, body) => http.patch(`/templates/${id}`, body),
+  deleteTemplate: (id) => http.delete(`/templates/${id}`),
+  applyTemplate: (id, draftIds) => http.post(`/templates/${id}/apply`, { draft_ids: draftIds }),
+
   feed: (form) => http.post("/listings/feed", form),
   feedBatch: (form) => http.post("/listings/batch", form),
   batchProgress: (batchId) => http.get(`/batches/${batchId}`),

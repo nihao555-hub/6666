@@ -8,7 +8,9 @@
       <el-menu :default-active="active" router>
         <el-menu-item index="/overview">概览</el-menu-item>
         <el-menu-item index="/shops">店铺授权</el-menu-item>
+        <el-menu-item index="/products">商品库</el-menu-item>
         <el-menu-item index="/feed">投料上品</el-menu-item>
+        <el-menu-item index="/templates">刊登模板</el-menu-item>
         <el-menu-item index="/drafts">草稿箱</el-menu-item>
         <el-menu-item index="/queue">发布队列</el-menu-item>
         <el-menu-item index="/online">在线商品</el-menu-item>
