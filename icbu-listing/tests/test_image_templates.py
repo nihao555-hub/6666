@@ -17,7 +17,6 @@ os.environ["REGISTRATION_CODES"] = "TEST-CODE"
 os.environ["ALIBABA_APP_KEY"] = "test-key"
 os.environ["ALIBABA_APP_SECRET"] = "test-secret"
 os.environ.pop("OPENAI_API_KEY", None)
-os.environ.pop("IMAGE_MODEL", None)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -90,16 +89,8 @@ class ImageTemplateTests(unittest.TestCase):
         catalog = client.get("/api/v1/image-templates")
         self.assertEqual(catalog.status_code, 200, catalog.text)
         self.assertGreaterEqual(len(catalog.json()["families"]), 8)
-        self.assertIn("image_enabled", catalog.json())
         planned = client.post("/api/v1/image-templates/plan", json={"product_name": "paint brush"})
         self.assertEqual(planned.status_code, 200, planned.text)
         self.assertEqual(planned.json()["family"]["id"], "tools")
         self.assertEqual(len(planned.json()["slots"]), 6)
-
-    def test_generate_without_image_model_is_rejected(self) -> None:
-        client = signup("img-generate@example.com")
-        response = client.post(
-            "/api/v1/image-templates/generate",
-            data={"slot_id": "main", "prompt": "white background product"},
-        )
-        self.assertEqual(response.status_code, 400)
+        self.assertTrue(all(item.get("prompt") for item in planned.json()["slots"]))

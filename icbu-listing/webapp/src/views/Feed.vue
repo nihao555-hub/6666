@@ -4,8 +4,8 @@
       <div>
         <h2>投料上品</h2>
         <p class="muted">
-          图也可以 AI 按类目高转化模板生成：白底主图、尺寸、细节、场景、外箱、OEM。
-          有实拍就当参考图锁外形；没有实拍就选类目套图。价格和起订量仍要你定。
+          没图时先出 6 条套图提示词，拿到你自己的生图工具里出图，再回到「单条 / 批量」投料。
+          有实拍就直接投。价格和起订量仍要你定。
         </p>
       </div>
     </div>
@@ -21,21 +21,12 @@
     />
 
     <el-tabs v-model="tab">
-      <el-tab-pane label="AI 套图" name="ai">
+      <el-tab-pane label="套图提示词" name="ai">
         <div class="card">
           <p class="muted" style="margin-bottom: 14px">
-            国际站图片银行最多 6 张。我们按类目套高转化槽位，不套亚马逊那套零售对比图。
-            主图强制白底无字；最后两张给外箱和定制，这是批发询盘真正看的。
+            只要提示词。按类目出国际站 6 张位（白底主图、尺寸、细节、场景、外箱、OEM），
+            复制到你常用的生图模型。出图后再来「单条 / 批量」投料。
           </p>
-          <el-alert
-            v-if="templates.image_enabled === false"
-            type="warning"
-            :closable="false"
-            show-icon
-            title="现在只能出套图提示词"
-            description="配好 IMAGE_MODEL 后才能一键生图。提示词仍可复制给别的生图工具。"
-            style="margin-bottom: 14px"
-          />
           <el-form label-width="108px" style="max-width: 760px">
             <el-form-item label="类目模板">
               <el-select v-model="aiForm.familyId" placeholder="不选则按品名自动匹配" clearable style="width: 360px">
@@ -56,16 +47,10 @@
                 v-model="aiForm.note"
                 type="textarea"
                 :rows="2"
-                placeholder="材质、色号、一盒几支、能否印 logo。没有实拍时这些决定像不像你们的货。"
+                placeholder="材质、色号、一盒几支、能否印 logo。写上后提示词会锁这些事实。"
               />
             </el-form-item>
-            <el-form-item label="参考实拍">
-              <el-upload v-model:file-list="aiRefs" list-type="picture-card" :auto-upload="false" :limit="4" accept="image/*">
-                <span style="font-size: 22px">+</span>
-              </el-upload>
-              <div class="muted">可选。有实拍会锁外形，避免生成另一款货。</div>
-            </el-form-item>
-            <el-button :loading="aiForm.planning" @click="planStack">生成 6 张位方案</el-button>
+            <el-button :loading="aiForm.planning" type="primary" @click="planStack">出 6 条提示词</el-button>
           </el-form>
 
           <div v-if="plan" class="stack">
@@ -73,6 +58,7 @@
               套用「{{ plan.family.name }}」· {{ plan.family.alibaba_hint }}
             </p>
             <p class="muted">{{ plan.platform_note }}</p>
+            <el-button style="margin: 10px 0" @click="copyAll">复制全部提示词</el-button>
             <div class="slot-grid">
               <div v-for="slot in plan.slots" :key="slot.id" class="slot-card">
                 <div class="slot-head">
@@ -80,50 +66,12 @@
                   <el-tag size="small">{{ slot.layout }} {{ slot.layout_name }}</el-tag>
                 </div>
                 <p class="muted">买手看这张：{{ slot.buyer_job }}</p>
-                <img v-if="generated[slot.id]" :src="generated[slot.id].url" :alt="slot.name" class="slot-img" />
-                <el-button
-                  size="small"
-                  type="primary"
-                  :loading="aiForm.generating === slot.id"
-                  :disabled="!templates.image_enabled"
-                  @click="generateOne(slot)"
-                >
-                  {{ generated[slot.id] ? "重生成" : "生成这张" }}
-                </el-button>
-                <details class="prompt">
-                  <summary>提示词</summary>
-                  <pre>{{ slot.prompt }}</pre>
-                </details>
+                <pre class="prompt-body">{{ slot.prompt }}</pre>
+                <el-button size="small" @click="copyOne(slot)">复制这条</el-button>
               </div>
             </div>
-            <el-button :disabled="!templates.image_enabled" :loading="aiForm.generating === 'all'" @click="generateAll">
-              按模板生成全部 6 张
-            </el-button>
-            <p v-if="plan.sources?.length" class="muted" style="margin-top: 12px">
-              槽位方法参考：
-              <a v-for="item in plan.sources" :key="item.repo" :href="item.url" target="_blank" rel="noreferrer">
-                {{ item.repo }}
-              </a>
-            </p>
+            <p class="muted">出图后去「单条上品」或「批量上品」把图投进来，后面类目和标题仍由 AI 填。</p>
           </div>
-
-          <el-divider v-if="generatedCount" />
-          <el-form v-if="generatedCount" label-width="108px" style="max-width: 620px">
-            <el-form-item label="货号">
-              <el-input v-model="form.sku" placeholder="留空则用主图文件名" />
-            </el-form-item>
-            <el-form-item label="单价">
-              <el-input v-model="form.price" placeholder="12.50">
-                <template #append>USD</template>
-              </el-input>
-            </el-form-item>
-            <el-form-item label="起订量">
-              <el-input v-model="form.moq" placeholder="100" />
-            </el-form-item>
-            <el-button type="primary" :loading="loading" :disabled="!store.shopId" @click="submitGenerated">
-              用这套图生成草稿
-            </el-button>
-          </el-form>
         </div>
       </el-tab-pane>
       <el-tab-pane label="Excel 导入" name="excel">
@@ -331,19 +279,15 @@ import { store } from "../store";
 const router = useRouter();
 const route = useRoute();
 const tab = ref(route.query.tab === "excel" ? "excel" : route.query.tab === "ai" ? "ai" : "single");
-const templates = ref({ families: [], image_enabled: false, sources: [] });
-const aiRefs = ref([]);
+const templates = ref({ families: [], sources: [] });
 const plan = ref(null);
-const generated = ref({});
 const aiForm = reactive({
   familyId: "",
   productName: "",
   note: "",
   planning: false,
-  generating: "",
 });
 const currentFamily = computed(() => (templates.value.families || []).find((item) => item.id === aiForm.familyId));
-const generatedCount = computed(() => Object.keys(generated.value).length);
 const loading = ref(false);
 const files = ref([]);
 const batchFiles = ref([]);
@@ -399,8 +343,7 @@ async function planStack() {
       note: aiForm.note,
     });
     aiForm.familyId = plan.value.family.id;
-    generated.value = {};
-    ElMessage.success(`已套「${plan.value.family.name}」6 张位`);
+    ElMessage.success(`已套「${plan.value.family.name}」6 条提示词`);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -408,73 +351,24 @@ async function planStack() {
   }
 }
 
-async function generateOne(slot) {
-  const body = new FormData();
-  body.append("slot_id", slot.id);
-  body.append("prompt", slot.prompt);
-  body.append("product_name", aiForm.productName);
-  body.append("family_id", plan.value?.family?.id || "");
-  aiRefs.value.forEach((item) => item.raw && body.append("references", item.raw));
-  aiForm.generating = slot.id;
+async function copyText(text, ok) {
   try {
-    const result = await api.generateImageSlot(body);
-    generated.value = { ...generated.value, [slot.id]: result };
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    aiForm.generating = "";
+    await navigator.clipboard.writeText(text);
+    ElMessage.success(ok);
+  } catch {
+    ElMessage.error("复制失败，请手动选中");
   }
 }
 
-async function generateAll() {
-  if (!plan.value?.slots?.length) return;
-  aiForm.generating = "all";
-  try {
-    for (const slot of plan.value.slots) {
-      aiForm.generating = slot.id;
-      await generateOne(slot);
-    }
-    ElMessage.success(`已生成 ${Object.keys(generated.value).length} 张`);
-  } finally {
-    aiForm.generating = "";
-  }
+function copyOne(slot) {
+  copyText(slot.prompt, `已复制「${slot.name}」`);
 }
 
-async function submitGenerated() {
-  const slots = plan.value?.slots || [];
-  const files = [];
-  for (const slot of slots) {
-    const item = generated.value[slot.id];
-    if (!item) continue;
-    const response = await fetch(item.url, { credentials: "include" });
-    if (!response.ok) {
-      ElMessage.error(`读取 ${slot.name} 失败`);
-      return;
-    }
-    const blob = await response.blob();
-    files.push(new File([blob], item.filename || `${slot.id}.png`, { type: "image/png" }));
-  }
-  if (!files.length) {
-    ElMessage.warning("至少先生成一张图");
-    return;
-  }
-  const body = new FormData();
-  body.append("shop_id", store.shopId);
-  body.append("sku", form.sku);
-  body.append("price", form.price);
-  body.append("moq", form.moq);
-  body.append("note", aiForm.note || aiForm.productName);
-  files.forEach((file) => body.append("files", file));
-  loading.value = true;
-  try {
-    const draft = await api.feed(body);
-    ElMessage.success(`草稿已生成：${draft.category_name || "待定类目"}`);
-    router.push(`/drafts/${draft.id}`);
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    loading.value = false;
-  }
+function copyAll() {
+  const text = (plan.value?.slots || [])
+    .map((slot) => `# ${slot.index}. ${slot.name}\n${slot.prompt}`)
+    .join("\n\n");
+  copyText(text, "6 条提示词已复制");
 }
 
 function styleLabel(id) {
@@ -647,25 +541,17 @@ async function poll() {
   gap: 8px;
   margin-bottom: 8px;
 }
-.slot-img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 8px;
-  margin: 8px 0;
-  background: #f4f6f9;
-}
-.prompt {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #8a94a6;
-}
-.prompt pre {
+.prompt-body {
   white-space: pre-wrap;
   font-size: 11px;
   line-height: 1.45;
-  max-height: 140px;
+  max-height: 160px;
   overflow: auto;
+  margin: 8px 0;
+  color: #4b5563;
+  background: #f4f6f9;
+  padding: 8px;
+  border-radius: 6px;
 }
 .stack a {
   margin-right: 10px;

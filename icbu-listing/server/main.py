@@ -43,7 +43,6 @@ def health() -> dict[str, object]:
         "ok": True,
         "platform_ready": settings.has_platform_app,
         "ai_enabled": settings.ai_enabled,
-        "image_enabled": settings.image_enabled,
     }
 
 

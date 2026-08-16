@@ -109,26 +109,6 @@ def _confidence(value: Any) -> float:
     return max(0.0, min(1.0, number))
 
 
-def _image_bytes(payload: Mapping[str, Any]) -> bytes:
-    rows = payload.get("data") or []
-    if not rows:
-        raise AiUnavailable("生图接口没有返回图片")
-    row = rows[0] if isinstance(rows[0], Mapping) else {}
-    raw = row.get("b64_json") or row.get("b64") or ""
-    if raw:
-        return base64.b64decode(raw)
-    url = str(row.get("url") or "")
-    if url.startswith("data:"):
-        _, _, encoded = url.partition(",")
-        return base64.b64decode(encoded)
-    if url:
-        response = requests.get(url, timeout=60)
-        if response.status_code >= 400:
-            raise AiUnavailable("生图 URL 无法下载")
-        return response.content
-    raise AiUnavailable("生图结果里既没有 b64 也没有 url")
-
-
 def extract_json(text: str) -> dict[str, Any]:
     candidate = text.strip()
     fenced = JSON_FENCE.search(candidate)
@@ -340,66 +320,6 @@ class AiClient:
             "choice": str(payload.get("choice") or "").strip(),
             "confidence": _confidence(payload.get("confidence")),
         }
-
-    def image_model(self) -> str:
-        return os.environ.get("IMAGE_MODEL") or os.environ.get("OPENAI_IMAGE_MODEL") or ""
-
-    def generate_image(
-        self,
-        prompt: str,
-        *,
-        size: str = "1024x1024",
-        references: Sequence[ImageInput] | None = None,
-    ) -> bytes:
-        """OpenAI-compatible Images API. Used for the 6-slot listing stack.
-
-        Providers differ: some want `response_format=b64_json`, some return a
-        URL, some only accept edits when a reference photo is present. We try
-        the common shapes and keep the call site free of that mess.
-        """
-        model = self.image_model()
-        if not model:
-            raise AiUnavailable("IMAGE_MODEL 没有配置，无法生图")
-        refs = [item for item in (references or []) if item.content or item.url]
-        if refs:
-            try:
-                return self._image_edits(prompt, size, model, refs)
-            except AiUnavailable:
-                pass
-        return self._image_generations(prompt, size, model)
-
-    def _image_generations(self, prompt: str, size: str, model: str) -> bytes:
-        body = {"model": model, "prompt": prompt, "size": size, "n": 1}
-        last_error = ""
-        for extra in ({"response_format": "b64_json"}, {}):
-            payload = {**body, **extra}
-            response = requests.post(
-                f"{self.base_url}/images/generations",
-                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=self.timeout,
-            )
-            if response.status_code < 400:
-                return _image_bytes(response.json())
-            last_error = response.text[:240]
-        raise AiUnavailable(f"生图失败 {last_error}")
-
-    def _image_edits(self, prompt: str, size: str, model: str, refs: Sequence[ImageInput]) -> bytes:
-        first = refs[0]
-        files: dict[str, Any] = {}
-        if first.content:
-            files["image"] = (first.filename or "reference.png", first.content, _mime(first.filename))
-        data = {"model": model, "prompt": prompt, "size": size, "n": "1"}
-        response = requests.post(
-            f"{self.base_url}/images/edits",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            data=data,
-            files=files or None,
-            timeout=self.timeout,
-        )
-        if response.status_code >= 400:
-            raise AiUnavailable(f"参考图生图失败 {response.text[:240]}")
-        return _image_bytes(response.json())
 
     def pick_option(self, question: str, options: Sequence[str], context: Mapping[str, Any]) -> dict[str, Any]:
         """Last resort for an attribute that fuzzy matching could not resolve."""

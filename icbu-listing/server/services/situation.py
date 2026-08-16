@@ -119,7 +119,7 @@ def _primary(snap: Snapshot) -> dict[str, Any]:
 def _alternatives(snap: Snapshot, current: str) -> list[dict[str, str]]:
     options = [
         {"id": "photos", "label": "只有实拍图", "to": "/feed", "hint": "工厂最常见。按文件名前缀批量归货。"},
-        {"id": "ai_images", "label": "没实拍：按类目套图生成", "to": "/feed?tab=ai", "hint": "白底主图 + 尺寸 + 场景 + 外箱，按类目高转化模板生 6 张。"},
+        {"id": "ai_images", "label": "没实拍：先出套图提示词", "to": "/feed?tab=ai", "hint": "按类目复制 6 条提示词，自己生图后再投料。"},
         {"id": "excel", "label": "已有 Excel / 别的 ERP 表", "to": "/feed?tab=excel", "hint": "领星资料库、店小秘模板、马帮导出、官方类目表、智能探测。"},
         {"id": "clone", "label": "店里已有同类目在线品", "to": "/online", "hint": "复制已过审的类目和属性，AI 只改文案。"},
         {"id": "catalogue", "label": "货已在商品库", "to": "/products", "hint": "勾商品 × 勾店铺，一键铺多店。"},

@@ -67,12 +67,7 @@ class Settings:
 
     # ai
     ai_enabled: bool
-    image_model: str
     cors_origin_regex: str
-
-    @property
-    def image_enabled(self) -> bool:
-        return bool(self.ai_enabled and self.image_model)
 
     @property
     def has_platform_app(self) -> bool:
@@ -123,7 +118,6 @@ def load_settings() -> Settings:
         oauth_error_url=os.environ.get("ALIBABA_OAUTH_ERROR_URL", "/#/shops?alibaba=error"),
         dev_access_token=os.environ.get("ALIBABA_ACCESS_TOKEN", ""),
         ai_enabled=bool(os.environ.get("OPENAI_API_KEY")),
-        image_model=os.environ.get("IMAGE_MODEL") or os.environ.get("OPENAI_IMAGE_MODEL") or "",
         cors_origin_regex=os.environ.get("CORS_ALLOW_ORIGIN_REGEX", ""),
     )
 

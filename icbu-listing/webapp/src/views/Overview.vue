@@ -50,15 +50,6 @@
       title="没有配置模型，AI 成稿会跳过"
       description="填 OPENAI_API_KEY 后，投料才会自动出类目、属性、标题和详情。"
     />
-    <el-alert
-      v-if="data.ai_enabled && data.image_enabled === false"
-      type="info"
-      show-icon
-      :closable="false"
-      title="还没配生图模型，套图只能出提示词"
-      description="在环境变量加 IMAGE_MODEL 后，投料页「AI 套图」才能按类目模板直接出 6 张图。"
-      style="margin-bottom: 14px"
-    />
 
     <div class="card" v-if="data.situation">
       <h3>按你现在的情况，最快是这条</h3>

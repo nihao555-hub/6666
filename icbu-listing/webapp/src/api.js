@@ -41,7 +41,6 @@ export const api = {
 
   imageTemplates: () => http.get("/image-templates"),
   planImages: (body) => http.post("/image-templates/plan", body),
-  generateImageSlot: (form) => http.post("/image-templates/generate", form, { timeout: 180000 }),
 
   feed: (form) => http.post("/listings/feed", form),
   feedBatch: (form) => http.post("/listings/batch", form),
