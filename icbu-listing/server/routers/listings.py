@@ -24,6 +24,7 @@ from ..services import (
     pipeline,
     products as catalogue,
     publisher,
+    sources,
 )
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -70,6 +71,7 @@ def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dic
         view["values"] = _json(draft.values_json, {})
         view["ai"] = _json(draft.ai_json, {})
         view["category_candidates"] = _json(draft.category_candidates_json, [])
+        view["sources"] = sources.view(sources.parse(getattr(draft, "sources_json", None)))
     return view
 
 
@@ -126,6 +128,7 @@ def _store_draft(
     bank_images: list[image_service.BankImage],
     batch_id: str = "",
     draft: Draft | None = None,
+    field_sources: dict[str, str] | None = None,
 ) -> Draft:
     if draft is None:
         draft = Draft(user_id=user.id, shop_id=shop.id, batch_id=batch_id)
@@ -142,6 +145,7 @@ def _store_draft(
     draft.issues_json = json.dumps(result.issues, ensure_ascii=False)
     draft.images_json = json.dumps([item.as_dict() for item in bank_images], ensure_ascii=False)
     draft.ai_json = json.dumps(result.ai, ensure_ascii=False)
+    draft.sources_json = sources.dump(field_sources or sources.infer_initial(result.values))
     draft.status = result.status
     draft.updated_at = datetime.utcnow()
     db.commit()
@@ -341,10 +345,11 @@ def batch_progress(
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     drafts = db.query(Draft).filter(Draft.user_id == user.id, Draft.batch_id == batch_id).all()
+    products = db.query(Product).filter(Product.user_id == user.id, Product.batch_id == batch_id).count()
     counts = {"red": 0, "yellow": 0, "green": 0, "published": 0, "failed": 0}
     for draft in drafts:
         counts[draft.status] = counts.get(draft.status, 0) + 1
-    return {"batch_id": batch_id, "done": len(drafts), "counts": counts}
+    return {"batch_id": batch_id, "done": max(len(drafts), products), "products": products, "drafts": len(drafts), "counts": counts}
 
 
 @router.get("/drafts")
@@ -385,6 +390,11 @@ def patch_draft(
         stored = _json(draft.ai_json, {}).get("understanding") or {}
         understanding = Understanding.from_payload(stored)
         bank_images = [image_service.from_dict(item) for item in _json(draft.images_json, [])]
+        old_values = _json(draft.values_json, {})
+        field_sources = sources.parse(getattr(draft, "sources_json", None))
+        category_changed = bool(payload.category_id and payload.category_id != draft.category_id)
+        if category_changed:
+            field_sources = sources.unlock_for_category_change(field_sources)
         result = pipeline.build_draft(
             db,
             shop_api(shop),
@@ -398,6 +408,9 @@ def patch_draft(
             forced_category_id=payload.category_id or draft.category_id,
             language=str(shop_defaults(shop).get("language") or "en_US"),
         )
+        result.values = sources.keep_locked(old_values, result.values, field_sources)
+        if field_sources.get("productTitle") in sources.LOCKED and old_values.get("productTitle"):
+            result.title = str(old_values["productTitle"])
         _store_draft(
             db,
             user,
@@ -408,16 +421,21 @@ def patch_draft(
             moq=payload.moq if payload.moq is not None else draft.moq,
             bank_images=bank_images,
             draft=draft,
+            field_sources=field_sources,
         )
         return draft_view(draft, detailed=True)
 
     values = _json(draft.values_json, {})
+    field_sources = sources.parse(getattr(draft, "sources_json", None))
     if payload.values:
+        field_sources = sources.mark_user_edits(values, payload.values, field_sources)
         values.update(payload.values)
     if payload.price is not None:
         draft.price = payload.price
+        field_sources["ladderPrice"] = "user"
     if payload.moq is not None:
         draft.moq = payload.moq
+        field_sources["minOrderQuantity"] = "user"
     if payload.sku is not None:
         draft.sku = payload.sku
     if payload.price is not None or payload.moq is not None:
@@ -427,6 +445,7 @@ def patch_draft(
             values["minOrderQuantity"] = draft.moq
 
     draft.values_json = json.dumps(values, ensure_ascii=False)
+    draft.sources_json = sources.dump(field_sources)
     draft.title = str(values.get("productTitle") or draft.title)
 
     if draft.category_id:

@@ -234,6 +234,37 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(len(only_a), 2)
         self.assertTrue(all(item["shop_id"] == shop_a for item in only_a))
 
+    def test_excel_endpoints_are_tenant_scoped(self) -> None:
+        pat = signup("pat@example.com")
+        quin = signup("quin@example.com")
+        self.assertEqual(pat.get("/api/v1/excel/styles").status_code, 200)
+        template = pat.get("/api/v1/excel/template", params={"style": "lingxing"})
+        self.assertEqual(template.status_code, 200, template.text)
+        self.assertIn("spreadsheet", template.headers.get("content-type", ""))
+
+        preview = pat.post(
+            "/api/v1/excel/preview",
+            data={"style": "lingxing"},
+            files={"file": ("goods.xlsx", template.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertGreaterEqual(preview.json()["row_count"], 1)
+
+        with unittest.mock.patch("server.routers.excel.threading.Thread"):
+            imported = pat.post(
+                "/api/v1/excel/import",
+                data={"style": "lingxing", "mapping": "{}", "create_drafts": "false"},
+                files={"file": ("goods.xlsx", template.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            )
+        self.assertEqual(imported.status_code, 200, imported.text)
+        self.assertEqual(imported.json()["count"], preview.json()["row_count"])
+
+        foreign = quin.get(
+            "/api/v1/excel/template",
+            params={"style": "dianxiaomi", "listing_template_id": "not-yours"},
+        )
+        self.assertEqual(foreign.status_code, 404)
+
     def test_template_is_shop_scoped_and_isolated(self) -> None:
         mia = signup("mia@example.com")
         ned = signup("ned@example.com")

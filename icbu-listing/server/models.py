@@ -93,6 +93,7 @@ class Product(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     images_json: Mapped[str] = mapped_column(Text, default="[]")
     understanding_json: Mapped[str] = mapped_column(Text, default="{}")
+    batch_id: Mapped[str] = mapped_column(String(32), default="", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     __table_args__ = (Index("ix_products_user_sku", "user_id", "sku"),)
@@ -174,6 +175,7 @@ class Draft(Base):
     issues_json: Mapped[str] = mapped_column(Text, default="[]")
     images_json: Mapped[str] = mapped_column(Text, default="[]")
     ai_json: Mapped[str] = mapped_column(Text, default="{}")
+    sources_json: Mapped[str] = mapped_column(Text, default="{}")
     product_online_id: Mapped[str] = mapped_column(String(64), default="")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

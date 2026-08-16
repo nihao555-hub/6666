@@ -14,6 +14,8 @@
 - 商品库（SPU）：图和识别结果只存一次，和店铺无关
 - 投料 → 同时入库 → AI 看图 → 定叶子类目 → 属性对齐官方选项 → 生成英文标题/关键词/详情 → 图片进图片银行 → 产出通过校验的 `itemParam`
 - 一键多店铺铺货：勾商品 × 勾店铺；第二家店起换文案角度，降低重铺风险
+- Excel 导入：领星资料库 / 店小秘按模板 / 马帮导出 / 智能探测，先对表头再入库
+- 字段来源：手改和 Excel 填过的值，重新成稿不会覆盖
 - 刊登模板：按店铺 + 叶子类目固化经营字段，只填空不覆盖标题/图/价
 - 提交前本地自检（必填、字节长度、正则、选项合法性）
 - 重复铺货风险预检
@@ -33,9 +35,9 @@ icbu-listing/
     ping.py           拿环境变量探活
     smoke_draft.py    单图端到端演练（不发布）
   server/             多租户 FastAPI 服务
-    routers/          auth / shops / products / templates / listings / overview
+    routers/          auth / shops / products / templates / excel / listings / overview
     services/         shop_client · catalog · pipeline · images · publisher · dedup
-                      products · distribution · templates
+                      products · distribution · templates · sources · excel_import
   webapp/             Vue 3 + Element Plus 控制台
   tests/
 ```

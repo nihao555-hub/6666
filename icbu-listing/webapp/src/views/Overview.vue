@@ -55,14 +55,14 @@
       <el-steps :active="5" align-center style="margin-top: 18px">
         <el-step title="授权店铺" description="官方 OAuth，不交密码" />
         <el-step title="填一次默认" description="产地、单位、物流、样品" />
-        <el-step title="入库 / 投料" description="图 + 价格 + 起订量" />
+        <el-step title="入库 / 投料" description="图、Excel 或资料库" />
         <el-step title="铺到多店" description="勾商品 × 勾店铺" />
         <el-step title="审红黄项" description="绿项折叠不打断" />
         <el-step title="队列发布" description="失败可改再发" />
       </el-steps>
       <ol class="flow-list">
         <li>先在「店铺」里接入店铺，并填一次店铺默认值。</li>
-        <li>「投料」丢图片 + SKU / 价格 / 起订量。系统会同时写入商品库。</li>
+        <li>「投料」丢图片，或用 Excel（领星资料库 / 店小秘按模板 / 马帮导出 / 智能探测）。系统会同时写入商品库。</li>
         <li>多店时到「商品库」勾商品 × 勾店铺，一键铺货。第二家店起会换标题角度，降低重铺风险。</li>
         <li>到「草稿」只处理红项和黄项。可按店铺筛，也可看全部店铺。</li>
         <li>勾选后点「入队刊登」，到「队列」看结果。</li>

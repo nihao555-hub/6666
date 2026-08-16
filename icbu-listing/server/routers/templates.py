@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db, shop_for
 from ..models import Draft, Template, User
-from ..services import templates as service
+from ..services import sources, templates as service
 from ..services.pipeline import status_of
 
 router = APIRouter(prefix="/api/v1", tags=["templates"])
@@ -113,6 +113,8 @@ def apply_template(
         merged = service.fill_blank(service.values_of(row), values)
         if merged == values:
             continue
+        field_sources = sources.parse(getattr(draft, "sources_json", None))
+        draft.sources_json = sources.dump(sources.mark_template_fills(values, merged, field_sources))
         draft.values_json = json.dumps(merged, ensure_ascii=False)
         try:
             issues = json.loads(draft.issues_json or "[]")

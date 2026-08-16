@@ -60,19 +60,33 @@
           <el-form label-width="90px" style="margin-top: 12px">
             <el-form-item label="英文标题">
               <el-input v-model="title" type="textarea" :rows="2" />
-              <div class="muted">{{ titleBytes }} / 128 字节。禁中文、@、问号、邮箱和 HTML。</div>
+              <div class="muted">
+                {{ titleBytes }} / 128 字节。
+                <el-tag v-if="sourceOf('productTitle')" size="small" :type="sourceType('productTitle')" style="margin-left: 6px">
+                  {{ sourceOf('productTitle').label }}
+                </el-tag>
+              </div>
             </el-form-item>
             <el-form-item label="关键词">
               <el-input v-model="keywords" placeholder="用逗号分隔" />
+              <el-tag v-if="sourceOf('productKeywords')" size="small" :type="sourceType('productKeywords')" style="margin-top: 6px">
+                {{ sourceOf('productKeywords').label }}
+              </el-tag>
             </el-form-item>
             <el-form-item label="卖点描述">
               <el-input v-model="highlights" type="textarea" :rows="4" />
             </el-form-item>
             <el-form-item label="单价">
               <el-input v-model="price" style="width: 200px" />
+              <el-tag v-if="sourceOf('ladderPrice')" size="small" :type="sourceType('ladderPrice')" style="margin-left: 8px">
+                {{ sourceOf('ladderPrice').label }}
+              </el-tag>
             </el-form-item>
             <el-form-item label="起订量">
               <el-input v-model="moq" style="width: 200px" />
+              <el-tag v-if="sourceOf('minOrderQuantity')" size="small" :type="sourceType('minOrderQuantity')" style="margin-left: 8px">
+                {{ sourceOf('minOrderQuantity').label }}
+              </el-tag>
             </el-form-item>
             <el-button type="primary" :loading="saving" @click="save">保存</el-button>
           </el-form>
@@ -102,6 +116,7 @@
           <div style="margin-top: 10px">
             <el-button size="small" @click="browser = true">改类目</el-button>
             <el-button size="small" :loading="saving" @click="regenerate">按当前类目重新成稿</el-button>
+            <div class="muted" style="margin-top: 8px">手改和 Excel 填过的字段会保留，不会被 AI 盖掉。</div>
           </div>
         </div>
 
@@ -168,6 +183,15 @@ const issues = computed(() => draft.value.issues || []);
 const hasRed = computed(() => issues.value.some((item) => item.level === "red"));
 const percent = computed(() => `${Math.round((draft.value.category_confidence || 0) * 100)}%`);
 const titleBytes = computed(() => new TextEncoder().encode(title.value || "").length);
+
+function sourceOf(key) {
+  return draft.value.sources?.[key] || null;
+}
+
+function sourceType(key) {
+  const origin = sourceOf(key)?.origin;
+  return { user: "danger", excel: "warning", ai: "success", template: "info", shop: "", system: "info" }[origin] || "info";
+}
 
 const flatValues = computed(() => {
   const output = {};

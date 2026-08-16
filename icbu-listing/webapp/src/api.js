@@ -43,6 +43,14 @@ export const api = {
   feedBatch: (form) => http.post("/listings/batch", form),
   batchProgress: (batchId) => http.get(`/batches/${batchId}`),
 
+  excelStyles: () => http.get("/excel/styles"),
+  excelPreview: (form) => http.post("/excel/preview", form),
+  excelImport: (form) => http.post("/excel/import", form),
+  excelTemplateUrl: (style, listingTemplateId) =>
+    `/api/v1/excel/template?style=${encodeURIComponent(style || "lingxing")}${
+      listingTemplateId ? `&listing_template_id=${encodeURIComponent(listingTemplateId)}` : ""
+    }`,
+
   drafts: (params) => http.get("/drafts", { params }),
   draft: (id) => http.get(`/drafts/${id}`),
   patchDraft: (id, body) => http.patch(`/drafts/${id}`, body),

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ai import AiClient  # noqa: E402
 
 from ..models import Draft, Product, Shop, User
-from . import dedup, pipeline, products as catalogue, templates
+from . import dedup, pipeline, products as catalogue, sources, templates
 from .shop_client import shop_api, shop_defaults
 
 # A product listed in several shops must not read like the same listing
@@ -43,6 +43,8 @@ def build_draft_for_shop(
     angle: str = "",
     batch_id: str = "",
     forced_category_id: str = "",
+    seed_values: dict[str, Any] | None = None,
+    provided_sources: dict[str, str] | None = None,
 ) -> Draft:
     api = shop_api(shop)
     defaults = shop_defaults(shop)
@@ -66,9 +68,16 @@ def build_draft_for_shop(
         language=str(defaults.get("language") or "en_US"),
         copy_angle=angle,
     )
+    field_sources = sources.infer_initial(result.values, provided_sources)
+    if seed_values:
+        result.values, field_sources = sources.apply_incoming(result.values, seed_values, field_sources, "excel")
+        if seed_values.get("productTitle"):
+            result.title = str(seed_values["productTitle"])
     if result.category_id:
+        before = dict(result.values)
         filled = templates.apply_to_values(db, shop.id, result.category_id, result.values)
         if filled != result.values:
+            field_sources = sources.mark_template_fills(before, filled, field_sources)
             result.values = filled
             result.ai["template_applied"] = True
 
@@ -81,7 +90,7 @@ def build_draft_for_shop(
 
     draft = Draft(user_id=user.id, shop_id=shop.id, product_id=product.id, batch_id=batch_id)
     db.add(draft)
-    _apply(draft, result, sku=product.sku, price=final_price, moq=final_moq, bank=bank)
+    _apply(draft, result, sku=product.sku, price=final_price, moq=final_moq, bank=bank, field_sources=field_sources)
     db.commit()
 
     # Needs to be committed before it can be compared against its siblings.
@@ -113,7 +122,16 @@ def failed_draft(db: Session, user_id: str, shop_id: str, product: Product | Non
     db.commit()
 
 
-def _apply(draft: Draft, result: pipeline.DraftResult, *, sku: str, price: str, moq: str, bank: list[Any]) -> None:
+def _apply(
+    draft: Draft,
+    result: pipeline.DraftResult,
+    *,
+    sku: str,
+    price: str,
+    moq: str,
+    bank: list[Any],
+    field_sources: dict[str, str] | None = None,
+) -> None:
     draft.sku = sku
     draft.price = price
     draft.moq = moq
@@ -126,5 +144,6 @@ def _apply(draft: Draft, result: pipeline.DraftResult, *, sku: str, price: str, 
     draft.images_json = json.dumps([item.as_dict() for item in bank], ensure_ascii=False)
     draft.ai_json = json.dumps(result.ai, ensure_ascii=False)
     draft.issues_json = json.dumps(result.issues, ensure_ascii=False)
+    draft.sources_json = sources.dump(field_sources or sources.infer_initial(result.values))
     draft.status = result.status
     draft.updated_at = datetime.utcnow()
