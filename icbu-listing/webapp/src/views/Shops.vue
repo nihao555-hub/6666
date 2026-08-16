@@ -6,7 +6,7 @@
         <p class="muted">官方 OAuth 授权，只保存加密 token。每个店填一次默认值，后面不用再问。</p>
       </div>
       <div>
-        <el-button v-if="showDevBind" @click="bindEnv">用环境 token 接入（本地调试）</el-button>
+        <el-button v-if="showDevBind" text @click="bindEnv">本地接入</el-button>
         <el-button type="primary" @click="authorize">授权新店铺</el-button>
       </div>
     </div>
@@ -24,22 +24,25 @@
     <el-table :data="store.shops" v-loading="loading">
       <el-table-column label="店铺" min-width="200">
         <template #default="{ row }">
-          <b>{{ row.name }}</b>
-          <div class="muted">{{ row.account || row.seller_id || "—" }}</div>
+          <div class="record">
+            <span class="record-mark">{{ (row.name || "店").slice(0, 1) }}</span>
+            <div>
+              <div>{{ row.name }}</div>
+              <div class="muted">{{ row.account || row.seller_id || "官方 OAuth" }}</div>
+            </div>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <el-tag v-if="row.status === 'active' && row.connected" type="success" size="small">已授权</el-tag>
-          <el-tag v-else-if="row.status === 'expired'" type="warning" size="small">需重新授权</el-tag>
-          <el-tag v-else type="danger" size="small">异常</el-tag>
+          <span v-if="row.status === 'active' && row.connected" class="status-pill green">已授权</span>
+          <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新授权</span>
+          <span v-else class="status-pill red">异常</span>
         </template>
       </el-table-column>
       <el-table-column label="发布模式" width="130">
         <template #default="{ row }">
-          <el-tag :type="row.publish_mode === 'online' ? 'danger' : 'info'" size="small">
-            {{ row.publish_mode === "online" ? "直接上架" : "只发草稿" }}
-          </el-tag>
+          <span class="status-pill">{{ row.publish_mode === "online" ? "直接上架" : "只发草稿" }}</span>
         </template>
       </el-table-column>
       <el-table-column label="默认设置" min-width="280">

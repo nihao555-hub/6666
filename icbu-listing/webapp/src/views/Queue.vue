@@ -18,7 +18,7 @@
     <el-table :data="rows" v-loading="loading">
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="tagType(row.status)" size="small">{{ label(row.status) }}</el-tag>
+          <span class="status-pill" :class="row.status === 'success' ? 'green' : row.status === 'failed' ? 'red' : row.status === 'running' ? 'yellow' : ''">{{ label(row.status) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="模式" width="100">
@@ -61,10 +61,6 @@ const rows = ref([]);
 const loading = ref(false);
 const shopFilter = ref("");
 let timer = null;
-
-function tagType(value) {
-  return { success: "success", failed: "danger", running: "warning", queued: "info" }[value] || "info";
-}
 
 function label(value) {
   return { success: "成功", failed: "失败", running: "发布中", queued: "排队中" }[value] || value;

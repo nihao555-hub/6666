@@ -123,6 +123,13 @@ a {
   width: 100%;
 }
 
+.shop-switcher :deep(.el-select__wrapper),
+.shop-switcher .el-select__wrapper {
+  background: #ebebeb !important;
+  box-shadow: none !important;
+  min-height: 32px;
+}
+
 .nav-list {
   padding: 4px 8px;
 }
@@ -204,25 +211,12 @@ a {
   background: var(--bg);
 }
 
-.topbar {
-  height: var(--topbar);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
+.auth-warn {
+  padding: 8px 20px;
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: 12px;
   border-bottom: 1px solid var(--line);
-}
-
-.topbar-title {
-  font-size: 15px;
-  font-weight: 550;
-  letter-spacing: -0.02em;
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .workspace-main {
@@ -249,6 +243,81 @@ a {
   font-weight: 550;
   letter-spacing: -0.02em;
 }
+
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.filter-pill.is-on {
+  background: var(--active);
+  color: var(--ink);
+}
+
+.record {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.record-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 550;
+  flex: none;
+}
+
+.prop-form {
+  max-width: 640px;
+}
+
+.prop-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.prop-row label {
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--fill);
+  color: var(--ink-2);
+}
+
+.status-pill.green { background: var(--green-soft); color: var(--green); }
+.status-pill.yellow { background: var(--yellow-soft); color: var(--yellow); }
+.status-pill.red, .status-pill.failed { background: var(--red-soft); color: var(--red); }
 
 .page-kicker {
   display: none;
@@ -468,8 +537,13 @@ a {
   --el-table-header-text-color: #716f6c;
   --el-table-border-color: var(--line);
   --el-table-row-hover-bg-color: #f7f7f7;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  --el-table-text-color: var(--ink);
+  border: none;
+}
+
+.el-table th.el-table__cell {
+  font-size: 11px;
+  font-weight: 450;
 }
 
 .el-button--primary {

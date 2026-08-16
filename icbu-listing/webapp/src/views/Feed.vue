@@ -200,46 +200,53 @@
               <el-radio-button value="batch">按货号批量</el-radio-button>
             </el-radio-group>
           </div>
-          <div v-if="photoMode === 'single'">
-          <el-form label-width="96px" style="max-width: 620px">
-            <el-form-item label="产品图">
-              <el-upload
-                v-model:file-list="files"
-                list-type="picture-card"
-                :auto-upload="false"
-                :limit="6"
-                accept="image/*"
-              >
-                <span style="font-size: 22px">+</span>
-              </el-upload>
-              <div class="muted">1～6 张。第一张作主图，会先进图片银行再发布。</div>
-            </el-form-item>
-            <el-form-item label="货号">
+          <div v-if="photoMode === 'single'" class="prop-form">
+            <div class="prop-row">
+              <label>产品图</label>
+              <div>
+                <el-upload
+                  v-model:file-list="files"
+                  list-type="picture-card"
+                  :auto-upload="false"
+                  :limit="6"
+                  accept="image/*"
+                >
+                  <span style="font-size: 22px">+</span>
+                </el-upload>
+                <div class="muted">1～6 张。第一张作主图，会先进图片银行再发布。</div>
+              </div>
+            </div>
+            <div class="prop-row">
+              <label>货号</label>
               <el-input v-model="form.sku" placeholder="留空则用图片文件名" />
-            </el-form-item>
-            <el-form-item label="单价">
+            </div>
+            <div class="prop-row">
+              <label>单价</label>
               <el-input v-model="form.price" placeholder="12.50">
                 <template #append>USD</template>
               </el-input>
-            </el-form-item>
-            <el-form-item label="起订量">
+            </div>
+            <div class="prop-row">
+              <label>起订量</label>
               <el-input v-model="form.moq" placeholder="100" />
-            </el-form-item>
-            <el-form-item label="补充说明">
+            </div>
+            <div class="prop-row">
+              <label>补充</label>
               <el-input
                 v-model="form.note"
                 type="textarea"
                 :rows="2"
                 placeholder="可选。中文也行，例如：加厚款，可定制 logo"
               />
-            </el-form-item>
-            <el-button type="primary" :loading="loading" :disabled="!store.shopId" @click="submitOne">
-              生成草稿
-            </el-button>
-            <span v-if="loading" class="muted" style="margin-left: 12px">
-              正在看图、定类目、拉规则、写文案，大约 20～40 秒
-            </span>
-          </el-form>
+            </div>
+            <div style="padding-top: 16px">
+              <el-button type="primary" :loading="loading" :disabled="!store.shopId" @click="submitOne">
+                生成草稿
+              </el-button>
+              <span v-if="loading" class="muted" style="margin-left: 12px">
+                正在看图、定类目、拉规则、写文案，大约 20～40 秒
+              </span>
+            </div>
           </div>
           <div v-else>
           <p class="muted" style="margin-bottom: 14px">

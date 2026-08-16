@@ -14,44 +14,40 @@
     </div>
 
     <div class="toolbar">
-      <el-select v-model="shopFilter" placeholder="全部店铺" clearable style="width: 200px" @change="reload">
-        <el-option label="全部店铺" value="" />
-        <el-option v-for="shop in store.shops" :key="shop.id" :label="shop.name" :value="shop.id" />
-      </el-select>
-      <el-radio-group v-model="status" @change="reload">
-        <el-radio-button value="">全部 {{ counts.all }}</el-radio-button>
-        <el-radio-button value="red">红 {{ counts.red }}</el-radio-button>
-        <el-radio-button value="yellow">黄 {{ counts.yellow }}</el-radio-button>
-        <el-radio-button value="green">绿 {{ counts.green }}</el-radio-button>
-        <el-radio-button value="failed">失败 {{ counts.failed }}</el-radio-button>
-        <el-radio-button value="published">已发布 {{ counts.published }}</el-radio-button>
-      </el-radio-group>
+      <div class="filter-pills">
+        <button class="filter-pill" :class="{ 'is-on': status === '' }" @click="setStatus('')">全部 {{ counts.all }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'red' }" @click="setStatus('red')">红 {{ counts.red }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'yellow' }" @click="setStatus('yellow')">黄 {{ counts.yellow }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'green' }" @click="setStatus('green')">绿 {{ counts.green }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'failed' }" @click="setStatus('failed')">失败 {{ counts.failed }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'published' }" @click="setStatus('published')">已发布 {{ counts.published }}</button>
+      </div>
       <div class="spacer"></div>
       <el-button text @click="reload">刷新</el-button>
     </div>
 
     <el-table :data="rows" v-loading="loading" @selection-change="onSelect" row-key="id">
       <el-table-column type="selection" width="44" :selectable="isSelectable" />
-      <el-table-column label="图" width="70">
+      <el-table-column label="标题" min-width="280">
         <template #default="{ row }">
-          <img v-if="row.images?.[0]" :src="row.images[0].preview" class="thumb" />
-          <div v-else class="thumb"></div>
+          <div class="record">
+            <img v-if="row.images?.[0]" :src="row.images[0].preview" class="thumb" />
+            <span v-else class="record-mark">{{ (row.sku || "货").slice(0, 1) }}</span>
+            <div>
+              <div>{{ row.title || "（还没有标题）" }}</div>
+              <span class="muted">{{ row.category_name || "类目待定" }}</span>
+            </div>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="96">
         <template #default="{ row }">
-          <el-tag :type="tagType(row.status)" size="small">{{ label(row.status) }}</el-tag>
+          <span class="status-pill" :class="row.status">{{ label(row.status) }}</span>
         </template>
       </el-table-column>
       <el-table-column prop="sku" label="货号" width="130" show-overflow-tooltip />
       <el-table-column v-if="!shopFilter" label="店铺" width="140" show-overflow-tooltip>
         <template #default="{ row }">{{ row.shop_name || "—" }}</template>
-      </el-table-column>
-      <el-table-column label="标题 / 类目" min-width="300">
-        <template #default="{ row }">
-          <div>{{ row.title || "（还没有标题）" }}</div>
-          <span class="muted">{{ row.category_name || "类目待定" }}</span>
-        </template>
       </el-table-column>
       <el-table-column label="价格 / 起订" width="130">
         <template #default="{ row }">
@@ -105,8 +101,9 @@ const counts = computed(() => {
   return base;
 });
 
-function tagType(value) {
-  return { red: "danger", yellow: "warning", green: "success", published: "success", failed: "danger" }[value] || "info";
+function setStatus(value) {
+  status.value = value;
+  reload();
 }
 
 function label(value) {

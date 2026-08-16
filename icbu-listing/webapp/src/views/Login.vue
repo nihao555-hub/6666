@@ -80,6 +80,12 @@ async function submit() {
   margin-top: 22px;
 }
 
+.auth-card :deep(.el-input__wrapper),
+.auth-card :deep(.el-textarea__inner) {
+  background: #f1f1f1 !important;
+  box-shadow: none !important;
+}
+
 .auth-note {
   margin-top: 28px;
   text-align: center;

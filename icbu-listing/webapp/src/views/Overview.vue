@@ -2,9 +2,12 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>今天先做这一步</h2>
-        <p class="muted">系统按你现在的店况只推一条路。绿项自动过，你只处理红黄项。</p>
+        <h2>概览</h2>
+        <p class="muted">只推一条路。绿项自动过，你只处理红黄项。</p>
       </div>
+      <el-button type="primary" @click="$router.push(data.situation?.action?.to || '/feed')">
+        {{ data.situation?.action?.label || "去投料" }}
+      </el-button>
     </div>
 
     <el-alert

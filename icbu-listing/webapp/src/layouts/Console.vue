@@ -65,12 +65,7 @@
     </aside>
 
     <div class="workspace">
-      <header class="topbar">
-        <div class="topbar-title">{{ pageTitle }}</div>
-        <div class="topbar-right">
-          <el-tag v-if="store.shop && store.shop.status !== 'active'" type="danger" size="small">授权异常</el-tag>
-        </div>
-      </header>
+      <div v-if="store.shop && store.shop.status !== 'active'" class="auth-warn">当前店铺授权异常，先去店铺页重新授权。</div>
       <main class="workspace-main">
         <router-view :key="store.shopId" />
       </main>
@@ -86,24 +81,9 @@ import Brand from "../components/Brand.vue";
 import { api } from "../api";
 import { store } from "../store";
 
-const TITLES = {
-  overview: "概览",
-  shops: "店铺",
-  feed: "投料",
-  drafts: "草稿箱",
-  queue: "队列",
-  products: "商品库",
-  templates: "类目模板",
-  online: "在线商品",
-};
-
 const route = useRoute();
 const router = useRouter();
 const shopId = ref(store.shopId);
-const pageTitle = computed(() => {
-  if (route.path.startsWith("/drafts/")) return "审稿";
-  return TITLES[route.path.split("/")[1]] || "概览";
-});
 const initials = computed(() => (store.user?.email || "U").slice(0, 1).toUpperCase());
 
 onMounted(async () => {
