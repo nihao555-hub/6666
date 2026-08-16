@@ -12,11 +12,11 @@ from gop_client import GopClient
 METHODS = {
     "oauth_exchange": "/auth/token/create",
     "oauth_refresh": "/auth/token/refresh",
+    "category_get": "/icbu/product/category/get",
     "schema_get": "/alibaba/icbu/product/schema/get",
     "schema_add": "/icbu/product/schema/add",
     "schema_add_draft": "/icbu/product/schema/add/draft",
     "schema_render": "/icbu/product/schema/render",
-    "schema_update": "/icbu/product/schema/update",
     "photobank_upload": "/alibaba/icbu/photobank/upload",
     "photobank_list": "/icbu/product/photobank/list",
     "product_group_get": "/alibaba/icbu/product/group/get",
@@ -31,6 +31,14 @@ class IcbuApi:
 
     def exchange_code(self, code: str) -> dict[str, Any]:
         return self.client.execute(METHODS["oauth_exchange"], {"code": code}, access_token=None)
+
+    def get_category(self, cat_id: int | str) -> dict[str, Any]:
+        """Category node: name, cn_name, level, leaf_category, child_ids, parent_ids.
+
+        `cat_id=0` is the root. This is the only category endpoint this gateway
+        exposes; `category.get.new` and the suggestion endpoints are not routed.
+        """
+        return self.client.execute(METHODS["category_get"], {"cat_id": int(cat_id)})
 
     def schema_get(self, cat_id: int, language: str = "zh") -> dict[str, Any]:
         return self.client.execute(METHODS["schema_get"], {"cat_id": cat_id, "language": language})
@@ -55,12 +63,6 @@ class IcbuApi:
         return self.client.execute(
             METHODS["schema_render"],
             {"render_request": {"cat_id": cat_id, "product_id": product_id, "language": language}},
-        )
-
-    def schema_update(self, cat_id: int, product_id: int, xml: str) -> dict[str, Any]:
-        return self.client.execute(
-            METHODS["schema_update"],
-            {"cat_id": cat_id, "product_id": product_id, "xml": xml},
         )
 
     def upload_image(self, file_name: str, image_bytes: bytes, group_id: str | None = None) -> dict[str, Any]:
