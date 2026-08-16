@@ -31,6 +31,10 @@ def _ensure_columns() -> None:
         product_names = {row[1] for row in product_rows}
         if product_rows and "batch_id" not in product_names:
             conn.exec_driver_sql("ALTER TABLE products ADD COLUMN batch_id TEXT DEFAULT ''")
+        shop_rows = conn.exec_driver_sql("PRAGMA table_info(shops)").fetchall()
+        shop_names = {row[1] for row in shop_rows}
+        if shop_rows and "online_count" not in shop_names:
+            conn.exec_driver_sql("ALTER TABLE shops ADD COLUMN online_count INTEGER DEFAULT -1")
 
 
 def session_scope() -> Iterator[Session]:

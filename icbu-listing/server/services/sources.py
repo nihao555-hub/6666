@@ -21,11 +21,12 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-LOCKED = {"user", "excel"}
+LOCKED = {"user", "excel", "clone"}
 
 LABELS = {
     "user": "手改",
     "excel": "Excel",
+    "clone": "复制自在线",
     "ai": "AI",
     "template": "模板",
     "shop": "店铺默认",

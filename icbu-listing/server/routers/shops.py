@@ -15,6 +15,9 @@ from ..config import settings
 from ..crypto import encrypt_secret, read_state, sign_state
 from ..deps import current_user, get_db, owned_shop
 from ..models import Draft, Job, Shop, User
+from ai import AiClient  # noqa: E402
+
+from ..services import clone, templates as template_service
 from ..services.shop_client import (
     ShopNotConnected,
     authorize_url,
@@ -51,6 +54,13 @@ class DefaultsIn(BaseModel):
     defaults: dict[str, Any]
     publish_mode: str | None = None
     name: str | None = None
+
+
+class CloneIn(BaseModel):
+    product_id: str
+    category_id: str
+    differentiate: bool = True
+    name: str = ""
 
 
 def _oauth_error(reason: str, message: str) -> RedirectResponse:
@@ -231,9 +241,15 @@ def online_products(
                 "modified": item.get("gmt_modified") or item.get("gmt_create") or "",
             }
         )
+    total = result.get("total_item") or listing.get("total_item") or 0
+    try:
+        shop.online_count = int(total)
+        db.commit()
+    except (TypeError, ValueError):
+        pass
     return {
         "products": products,
-        "total": result.get("total_item") or listing.get("total_item") or 0,
+        "total": total,
         "page": page,
         "page_size": page_size,
     }
@@ -262,3 +278,56 @@ def photobank(
             for item in listing
         ]
     }
+
+
+@router.post("/shops/{shop_id}/online/clone")
+def clone_online(
+    payload: CloneIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+    shop: Shop = Depends(owned_shop),
+) -> dict[str, Any]:
+    """Official 'copy listing', but AI rewrites the title so it is not a repeat."""
+    from .listings import draft_view
+
+    try:
+        draft = clone.clone_to_draft(
+            db,
+            user,
+            shop,
+            product_id=payload.product_id,
+            category_id=payload.category_id,
+            ai=AiClient.from_env_or_none(),
+            differentiate=payload.differentiate,
+        )
+    except (GopError, ShopNotConnected, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return draft_view(draft, detailed=True)
+
+
+@router.post("/shops/{shop_id}/online/learn-defaults")
+def learn_defaults(
+    payload: CloneIn,
+    db: Session = Depends(get_db),
+    shop: Shop = Depends(owned_shop),
+) -> dict[str, Any]:
+    try:
+        return clone.learn_defaults(db, shop, product_id=payload.product_id, category_id=payload.category_id)
+    except (GopError, ShopNotConnected, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/shops/{shop_id}/online/learn-template")
+def learn_template(
+    payload: CloneIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+    shop: Shop = Depends(owned_shop),
+) -> dict[str, Any]:
+    try:
+        row = clone.learn_template(
+            db, user, shop, product_id=payload.product_id, category_id=payload.category_id, name=payload.name
+        )
+    except (GopError, ShopNotConnected, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return template_service.as_dict(row)

@@ -86,6 +86,16 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(rows[0].sku, "SKU-1001")
         self.assertEqual(rows[0].price, "1.80")
 
+    def test_official_alibaba_template_only_asks_for_what_ai_cannot_know(self) -> None:
+        payload = build_template(
+            "alibaba",
+            {"name": "油漆刷", "category_id": "21111112"},
+            [{"id": "productTitle", "name": "Product name", "who": "AI 生成"}],
+        )
+        result = preview(payload, "alibaba")
+        self.assertEqual(set(result["mapping"].values()), {"sku", "price", "moq", "images", "note"})
+        self.assertNotIn("英文标题", result["headers"])
+
     def test_dianxiaomi_template_stamps_the_listing_category(self) -> None:
         payload = build_template("dianxiaomi", {"name": "油漆刷", "category_id": "21111112"})
         result = preview(payload, "dianxiaomi")

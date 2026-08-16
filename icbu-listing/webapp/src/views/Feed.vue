@@ -34,6 +34,10 @@
           <p class="muted" style="margin: 12px 0 16px">{{ currentStyle?.summary }}</p>
 
           <el-form label-width="120px" style="max-width: 720px">
+            <el-form-item v-if="currentStyle?.needs_category" label="叶子类目 ID">
+              <el-input v-model="excel.categoryId" placeholder="官方是先选类目再下表，例如 21111112" style="width: 320px" />
+              <div class="muted">可从在线商品或草稿上抄。AI 按这个类目的官方 schema 补标题和属性。</div>
+            </el-form-item>
             <el-form-item v-if="currentStyle?.needs_listing_template" label="刊登模板">
               <el-select v-model="excel.listingTemplateId" placeholder="先选一个类目模板" style="width: 320px">
                 <el-option
@@ -233,8 +237,9 @@ const listingTemplates = ref([]);
 const excelFile = ref([]);
 const excelImages = ref([]);
 const excel = reactive({
-  style: "lingxing",
+  style: route.query.style || "lingxing",
   listingTemplateId: "",
+  categoryId: "",
   createDrafts: false,
   loading: false,
   preview: null,
@@ -272,7 +277,10 @@ function onStyleChange() {
 }
 
 function downloadTemplate() {
-  window.location.href = api.excelTemplateUrl(excel.style, excel.listingTemplateId);
+  window.location.href = api.excelTemplateUrl(excel.style, excel.listingTemplateId, {
+    categoryId: excel.categoryId,
+    shopId: store.shopId,
+  });
 }
 
 async function previewExcel() {
@@ -303,6 +311,7 @@ async function importExcel() {
   body.append("mapping", JSON.stringify(excel.mapping));
   body.append("create_drafts", excel.createDrafts ? "true" : "false");
   body.append("listing_template_id", excel.listingTemplateId);
+  body.append("category_id", excel.categoryId);
   body.append("file", excelFile.value[0].raw);
   excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
   excel.loading = true;

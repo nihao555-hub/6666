@@ -18,7 +18,7 @@ from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
 from ..services import distribution, excel_import, pipeline, products as catalogue, templates
-from ..services.shop_client import ShopNotConnected
+from ..services.shop_client import ShopNotConnected, shop_api
 
 router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
 
@@ -35,18 +35,37 @@ def list_styles() -> list[dict[str, Any]]:
 def download_template(
     style: str = "lingxing",
     listing_template_id: str = "",
+    category_id: str = "",
+    shop_id: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Response:
     if style not in excel_import.STYLES:
         raise HTTPException(status_code=400, detail="不支持的导入方式")
     listing = None
+    official_required: list[dict[str, str]] = []
     if listing_template_id:
         row = db.get(Template, listing_template_id)
         if row is None or row.user_id != user.id:
             raise HTTPException(status_code=404, detail="刊登模板不存在")
         listing = templates.as_dict(row)
-    payload = excel_import.build_template(style, listing)
+        category_id = category_id or row.category_id
+    if style == "alibaba" and category_id:
+        listing = listing or {"name": f"官方类目 {category_id}", "category_id": category_id}
+        if shop_id:
+            from schema import parse_schema  # noqa: E402
+
+            from ..services import catalog
+            from ..services.shop_client import shop_defaults
+
+            shop = shop_for(db, user, shop_id)
+            xml = catalog.get_schema_xml(db, shop_api(shop), category_id, str(shop_defaults(shop).get("language") or "en_US"))
+            official_required = [
+                {"id": item.id, "name": item.name, "who": excel_import.who_fills(item.id)}
+                for item in parse_schema(xml)
+                if item.required and item.type != "label"
+            ]
+    payload = excel_import.build_template(style, listing, official_required)
     filename = f"auto-shoper-{style}.xlsx"
     return Response(
         content=payload,
@@ -77,6 +96,7 @@ async def import_excel(
     mapping: str = Form("{}"),
     create_drafts: bool = Form(False),
     listing_template_id: str = Form(""),
+    category_id: str = Form(""),
     file: UploadFile = File(...),
     images: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
@@ -112,6 +132,10 @@ async def import_excel(
         raise HTTPException(status_code=400, detail=f"读不了这个表格：{exc}") from exc
     if not rows:
         raise HTTPException(status_code=400, detail="表格里没有有效行")
+    if category_id:
+        for row in rows:
+            if not row.category_id:
+                row.category_id = category_id
 
     uploads: dict[str, bytes] = {}
     for item in images:

@@ -32,7 +32,7 @@ FIELDS: dict[str, str] = {
     "keywords": "关键词",
     "price": "单价 USD",
     "moq": "起订量",
-    "images": "图片（URL 或文件名，分号分隔）",
+    "images": "图片",
     "note": "备注",
     "category_id": "叶子类目 ID",
     "origin": "产地",
@@ -117,6 +117,14 @@ STYLES: dict[str, dict[str, Any]] = {
         "summary": "按马帮「商品 → 库存SKU → 导出」的列名预设映射，粘贴或另存后直接导。",
         "columns": ["sku", "name", "title", "price", "images", "note"],
         "create_drafts_default": False,
+    },
+    "alibaba": {
+        "id": "alibaba",
+        "label": "阿里官方类目表",
+        "summary": "官方：选叶子类目 → 下模板 → 图先入图片银行 → 检测再导入。我们同样按类目出表，但标题/属性/物流由 AI 和店铺默认填，你只填货号、价格、起订量和图。",
+        "columns": ["sku", "price", "moq", "images", "note"],
+        "create_drafts_default": True,
+        "needs_category": True,
     },
 }
 
@@ -352,7 +360,21 @@ def match_uploads(sku: str, names: list[str], uploads: dict[str, bytes]) -> list
     return matched
 
 
-def build_template(style: str, listing_template: dict[str, Any] | None = None) -> bytes:
+def who_fills(field_id: str) -> str:
+    if field_id in {"productTitle", "productKeywords", "textDesc", "icbuCatProp", "saleProp", "superText"}:
+        return "AI 生成"
+    if field_id in {"ladderPrice", "fob", "scPrice", "minOrderQuantity", "scImages"}:
+        return "你在「填写」表填（价格、起订量、图）"
+    if field_id in {"origin", "priceUnit", "paymentMethod", "port", "shippingTemplateId", "pkgMeasure", "pkgWeight", "logisticsMode", "logisticsProperty", "marketSample", "market"}:
+        return "店铺默认 / 刊登模板"
+    return "系统按官方 schema 补齐"
+
+
+def build_template(
+    style: str,
+    listing_template: dict[str, Any] | None = None,
+    official_required: list[dict[str, str]] | None = None,
+) -> bytes:
     spec = STYLES.get(style) or STYLES["lingxing"]
     book = Workbook()
     sheet = book.active
@@ -377,7 +399,8 @@ def build_template(style: str, listing_template: dict[str, Any] | None = None) -
         cell.fill = fill
         cell.font = font
         cell.alignment = Alignment(wrap_text=True)
-        cell.comment = Comment(f"系统字段：{field_id}", "Auto Shoper")
+        hint = "URL 或文件名，分号分隔。官方要求先入图片银行；这里也可以导入时把图一起拖进来。" if field_id == "images" else f"系统字段：{field_id}"
+        cell.comment = Comment(hint, "Auto Shoper")
         sheet.cell(2, index, example.get(field_id, ""))
         sheet.column_dimensions[get_column_letter(index)].width = 28
     sheet.row_dimensions[1].height = 22
@@ -397,9 +420,19 @@ def build_template(style: str, listing_template: dict[str, Any] | None = None) -
     help_sheet.cell(row, 2, "填 http(s) 链接，或文件名。导入时把图一起拖进来，按货号前缀匹配，例如 SKU-1001_1.jpg。")
     if listing_template:
         row += 2
-        help_sheet.cell(row, 1, "绑定的刊登模板")
+        help_sheet.cell(row, 1, "绑定的类目 / 模板")
         help_sheet.cell(row, 2, f"{listing_template.get('name')} · 类目 {listing_template.get('category_id')}")
-        help_sheet.cell(row + 1, 1, "类目和物流不用填在表里，导入时套模板。")
+        help_sheet.cell(row + 1, 1, "类目和物流不用填在表里，导入时套用。")
+        row += 2
+    if official_required:
+        row += 1
+        help_sheet.cell(row, 1, "官方红星必填对照")
+        help_sheet.cell(row, 2, "官方 Excel 要你全填。这里只标谁来填，减少时间。")
+        row += 1
+        for item in official_required:
+            help_sheet.cell(row, 1, item.get("name") or item.get("id"))
+            help_sheet.cell(row, 2, item.get("who") or who_fills(item.get("id") or ""))
+            row += 1
     help_sheet.column_dimensions["A"].width = 24
     help_sheet.column_dimensions["B"].width = 80
 

@@ -46,10 +46,16 @@ export const api = {
   excelStyles: () => http.get("/excel/styles"),
   excelPreview: (form) => http.post("/excel/preview", form),
   excelImport: (form) => http.post("/excel/import", form),
-  excelTemplateUrl: (style, listingTemplateId) =>
-    `/api/v1/excel/template?style=${encodeURIComponent(style || "lingxing")}${
-      listingTemplateId ? `&listing_template_id=${encodeURIComponent(listingTemplateId)}` : ""
-    }`,
+  excelTemplateUrl: (style, listingTemplateId, extra = {}) => {
+    const params = new URLSearchParams({ style: style || "lingxing" });
+    if (listingTemplateId) params.set("listing_template_id", listingTemplateId);
+    if (extra.categoryId) params.set("category_id", extra.categoryId);
+    if (extra.shopId) params.set("shop_id", extra.shopId);
+    return `/api/v1/excel/template?${params.toString()}`;
+  },
+  cloneOnline: (shopId, body) => http.post(`/shops/${shopId}/online/clone`, body),
+  learnDefaults: (shopId, body) => http.post(`/shops/${shopId}/online/learn-defaults`, body),
+  learnTemplate: (shopId, body) => http.post(`/shops/${shopId}/online/learn-template`, body),
 
   drafts: (params) => http.get("/drafts", { params }),
   draft: (id) => http.get(`/drafts/${id}`),

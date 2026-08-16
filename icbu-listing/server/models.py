@@ -72,6 +72,7 @@ class Shop(Base):
     defaults_json: Mapped[str] = mapped_column(Text, default="{}")
     publish_mode: Mapped[str] = mapped_column(String(16), default="draft")  # draft | online
     last_error: Mapped[str] = mapped_column(Text, default="")
+    online_count: Mapped[int] = mapped_column(Integer, default=-1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="shops")

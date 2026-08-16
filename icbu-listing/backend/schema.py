@@ -380,6 +380,60 @@ def _check_children(spec: SchemaField, values: Mapping[str, Any], path: str, iss
             issues.append(ValidationIssue(child_id, child_id, "yellow", "该类目没有这个字段，提交时会被忽略", f"{path}.{child_id}"))
 
 
+def _read_leaf(node: ET.Element) -> Any:
+    value_node = node.find("./value")
+    if value_node is None:
+        return None
+    text = (value_node.text or "").strip()
+    attrs = {key: val for key, val in value_node.attrib.items() if val}
+    if attrs:
+        return {VALUE_KEY: text, ATTRS_KEY: attrs}
+    return text
+
+
+def _read_field(node: ET.Element) -> Any:
+    field_type = node.get("type") or ""
+    if field_type == "multiComplex":
+        rows = []
+        for entry in node.findall("./complex-values/complex-value"):
+            row = {child.get("id", ""): _read_field(child) for child in entry.findall("./field") if child.get("id")}
+            rows.append({key: val for key, val in row.items() if val not in (None, "", [], {})})
+        return rows
+    if field_type == "complex":
+        entry = node.find("./complex-value")
+        if entry is None:
+            return {}
+        return {
+            child.get("id", ""): _read_field(child)
+            for child in entry.findall("./field")
+            if child.get("id") and _read_field(child) not in (None, "", [], {})
+        }
+    if field_type in MULTI_VALUE_TYPES:
+        items = []
+        for value_node in node.findall("./values/value"):
+            text = (value_node.text or "").strip()
+            if text:
+                items.append(text)
+        return items
+    return _read_leaf(node)
+
+
+def extract_values(xml_text: str) -> dict[str, Any]:
+    """Read a rendered schema (with values) back into the draft JSON shape."""
+    if not (xml_text or "").strip():
+        return {}
+    root = ET.fromstring(xml_text)
+    values: dict[str, Any] = {}
+    for node in root.findall("./field"):
+        field_id = node.get("id") or ""
+        if not field_id or node.get("type") == "label":
+            continue
+        extracted = _read_field(node)
+        if extracted not in (None, "", [], {}):
+            values[field_id] = extracted
+    return values
+
+
 def validate_values(fields: Iterable[SchemaField], values: Mapping[str, Any]) -> list[ValidationIssue]:
     """Check a draft against the category rules before calling schema.add."""
     issues: list[ValidationIssue] = []

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from schema import (  # noqa: E402
     build_item_param,
+    extract_values,
     index_fields,
     parse_schema,
     validate_values,
@@ -139,6 +140,22 @@ class BuildTests(unittest.TestCase):
     def test_multi_complex_uses_complex_values(self) -> None:
         rows = self._build().findall("./field[@id='detailImage']/complex-values/complex-value")
         self.assertEqual(len(rows), 1)
+
+    def test_rendered_values_round_trip(self) -> None:
+        xml = build_item_param(
+            FIELDS,
+            {
+                "productTitle": "Colored Pencil Set",
+                "priceUnit": "17",
+                "icbuCatProp": {"p-1": "100000458", "p-9": ["12970290"]},
+                "ladderPrice": {"ladderPrice_0": {"quantity": "500", "price": "1.80"}},
+            },
+        )
+        values = extract_values(xml)
+        self.assertEqual(values["productTitle"], "Colored Pencil Set")
+        self.assertEqual(values["icbuCatProp"]["p-1"], "100000458")
+        self.assertEqual(values["icbuCatProp"]["p-9"], ["12970290"])
+        self.assertEqual(values["ladderPrice"]["ladderPrice_0"]["price"], "1.80")
 
     def test_image_file_id_is_carried_as_an_attribute(self) -> None:
         xml = build_item_param(

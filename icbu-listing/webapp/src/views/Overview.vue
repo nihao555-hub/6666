@@ -5,7 +5,9 @@
         <h2>概览</h2>
         <p class="muted">入库一次 → 勾商品 × 勾店铺 → 只审红黄项 → 队列发布。绿项系统直接采用，不打断你。</p>
       </div>
-      <el-button type="primary" @click="$router.push('/products')">去商品库</el-button>
+      <el-button type="primary" @click="$router.push(data.situation?.action?.to || '/products')">
+        {{ data.situation?.action?.label || "去商品库" }}
+      </el-button>
     </div>
 
     <div class="stat-grid">
@@ -50,6 +52,36 @@
       style="margin-bottom: 14px"
     />
 
+    <div class="card" v-if="data.situation">
+      <h3>按你现在的情况，最快是这条</h3>
+      <p style="margin: 10px 0 6px; font-size: 16px">{{ data.situation.title }}</p>
+      <p class="muted">{{ data.situation.why }}</p>
+      <p v-if="data.situation.official_note" class="muted" style="margin-top: 8px">
+        对照官方：{{ data.situation.official_note }}
+      </p>
+      <div v-if="data.situation.ai_does?.length" style="margin: 12px 0">
+        <span class="muted">AI 替你做：</span>
+        <el-tag v-for="item in data.situation.ai_does" :key="item" size="small" type="success" style="margin: 4px 6px 0 0">
+          {{ item }}
+        </el-tag>
+      </div>
+      <el-button type="primary" @click="$router.push(data.situation.action.to)">
+        {{ data.situation.action.label }}
+      </el-button>
+      <div v-if="data.situation.alternatives?.length" style="margin-top: 16px">
+        <p class="muted" style="margin-bottom: 8px">起点不一样就换一条，都是为了少填：</p>
+        <el-button
+          v-for="item in data.situation.alternatives"
+          :key="item.id"
+          @click="$router.push(item.to)"
+          style="margin: 0 8px 8px 0"
+        >
+          {{ item.label }}
+        </el-button>
+        <p class="muted" v-if="altHint">{{ altHint }}</p>
+      </div>
+    </div>
+
     <div class="card">
       <h3>这套系统怎么用</h3>
       <el-steps :active="5" align-center style="margin-top: 18px">
@@ -72,11 +104,12 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
 
 const data = ref({});
+const altHint = computed(() => data.value.situation?.alternatives?.[0]?.hint || "");
 
 onMounted(async () => {
   try {

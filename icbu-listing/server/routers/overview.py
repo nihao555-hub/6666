@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..deps import current_user, get_db
 from ..models import Draft, Job, Product, Shop, User
+from ..services.situation import Snapshot, recommend
 
 router = APIRouter(prefix="/api/v1", tags=["overview"])
 
@@ -31,6 +32,28 @@ def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) 
         except json.JSONDecodeError:
             continue
 
+    shop_row = db.query(Shop).filter(Shop.user_id == user.id).order_by(Shop.created_at).first()
+    defaults_untouched = True
+    online_count = None
+    if shop_row is not None:
+        raw = (shop_row.defaults_json or "").strip()
+        defaults_untouched = raw in {"", "{}"}
+        if shop_row.online_count >= 0:
+            online_count = shop_row.online_count
+
+    situation = recommend(
+        Snapshot(
+            shops=shops,
+            defaults_untouched=defaults_untouched,
+            products=products,
+            red=by_status.get("red", 0),
+            ready=by_status.get("green", 0) + by_status.get("yellow", 0),
+            drafts=sum(by_status.values()),
+            online_count=online_count,
+            ai_enabled=settings.ai_enabled,
+        )
+    )
+
     return {
         "shops": shops,
         "products": products,
@@ -43,4 +66,5 @@ def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) 
         "failed": jobs.get("failed", 0),
         "ai_enabled": settings.ai_enabled,
         "platform_ready": settings.has_platform_app,
+        "situation": situation,
     }
