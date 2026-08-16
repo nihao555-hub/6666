@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+  .wrap { width: 1200px; }
+  text { font-family: "Helvetica Neue", Helvetica, Arial, "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif; }
+  .t { font-size: 15px; font-weight: 700; fill: #1f2328; }
+  .s { font-size: 12.5px; fill: #6b7280; }
+  .m { font-size: 12.5px; fill: #1f2328; font-family: Menlo, Consolas, monospace; }
+  .lbl { font-size: 12px; fill: #067a37; font-family: Menlo, Consolas, monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="caption">
+    <h1>整体架构：5 个 LINE 官方账号 → 1 台服务器 → 按路径分流</h1>
+    <p>每个账号一条独立的 webhook 路径和一套独立密钥；服务端先用该账号的 channel secret 验签，再路由到对应业务逻辑，最后用该账号的 access token 回复</p>
+  </div>
+  <svg width="1200" height="620" viewBox="0 0 1200 620" class="frame" style="background:#fff;display:block">
+    <defs>
+      <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L9,3 z" fill="#9aa2ad"/>
+      </marker>
+    </defs>
+
+    <!-- 左：5 个官方账号 -->
+    <text x="40" y="40" class="t">5 个 LINE 官方账号</text>
+    <text x="40" y="60" class="s">用户在手机 LINE 里聊天</text>
+    <g>
+      <rect x="40" y="80" width="200" height="56" rx="8" fill="#f2fbf6" stroke="#b8ebcd"/>
+      <circle cx="66" cy="108" r="12" fill="#06c755"/><text x="88" y="105" class="t">客服一号 acc1</text><text x="88" y="123" class="s">@123abcde</text>
+      <rect x="40" y="152" width="200" height="56" rx="8" fill="#f2fbf6" stroke="#b8ebcd"/>
+      <circle cx="66" cy="180" r="12" fill="#06c755"/><text x="88" y="177" class="t">客服二号 acc2</text><text x="88" y="195" class="s">@223abcde</text>
+      <rect x="40" y="224" width="200" height="56" rx="8" fill="#f2fbf6" stroke="#b8ebcd"/>
+      <circle cx="66" cy="252" r="12" fill="#06c755"/><text x="88" y="249" class="t">客服三号 acc3</text><text x="88" y="267" class="s">@323abcde</text>
+      <rect x="40" y="296" width="200" height="56" rx="8" fill="#f2fbf6" stroke="#b8ebcd"/>
+      <circle cx="66" cy="324" r="12" fill="#06c755"/><text x="88" y="321" class="t">客服四号 acc4</text><text x="88" y="339" class="s">@423abcde</text>
+      <rect x="40" y="368" width="200" height="56" rx="8" fill="#f2fbf6" stroke="#b8ebcd"/>
+      <circle cx="66" cy="396" r="12" fill="#06c755"/><text x="88" y="393" class="t">客服五号 acc5</text><text x="88" y="411" class="s">@523abcde</text>
+    </g>
+
+    <!-- 中：LINE 平台 -->
+    <rect x="300" y="150" width="180" height="200" rx="12" fill="#ffffff" stroke="#cfd4da" stroke-dasharray="6 4"/>
+    <text x="330" y="185" class="t">LINE Platform</text>
+    <text x="330" y="207" class="s">Messaging API</text>
+    <text x="330" y="240" class="s">收到消息 → 按 channel</text>
+    <text x="330" y="258" class="s">配置的 Webhook URL</text>
+    <text x="330" y="276" class="s">POST 事件 + 签名头</text>
+    <text x="330" y="310" class="m">X-Line-Signature</text>
+
+    <path d="M240 108 C 270 108, 275 190, 300 200" fill="none" stroke="#9aa2ad" marker-end="url(#arrow)"/>
+    <path d="M240 180 C 270 180, 275 215, 300 222" fill="none" stroke="#9aa2ad" marker-end="url(#arrow)"/>
+    <path d="M240 252 L 300 250" fill="none" stroke="#9aa2ad" marker-end="url(#arrow)"/>
+    <path d="M240 324 C 270 324, 275 290, 300 280" fill="none" stroke="#9aa2ad" marker-end="url(#arrow)"/>
+    <path d="M240 396 C 270 396, 275 315, 300 302" fill="none" stroke="#9aa2ad" marker-end="url(#arrow)"/>
+
+    <!-- 右：你的服务器 -->
+    <rect x="620" y="60" width="540" height="440" rx="14" fill="#fbfcfd" stroke="#cfd4da"/>
+    <text x="648" y="92" class="t">你的服务器 line-hub（一台就够）</text>
+    <text x="648" y="112" class="s">https://line.example.com　单进程托管 5 个账号</text>
+
+    <rect x="648" y="130" width="484" height="52" rx="8" fill="#fff" stroke="#e5e7eb"/>
+    <text x="666" y="152" class="t">① Caddy / Nginx</text>
+    <text x="666" y="171" class="s">自动申请 Let's Encrypt 证书，443 端口 HTTPS 入口</text>
+
+    <rect x="648" y="194" width="484" height="118" rx="8" fill="#fff" stroke="#e5e7eb"/>
+    <text x="666" y="216" class="t">② 路径路由 + 逐账号验签</text>
+    <text x="666" y="238" class="lbl">POST /webhook/acc1 → secret1 验签 → handler(acc1)</text>
+    <text x="666" y="258" class="lbl">POST /webhook/acc2 → secret2 验签 → handler(acc2)</text>
+    <text x="666" y="278" class="lbl">…</text>
+    <text x="666" y="298" class="lbl">POST /webhook/acc5 → secret5 验签 → handler(acc5)</text>
+
+    <rect x="648" y="324" width="484" height="70" rx="8" fill="#fff" stroke="#e5e7eb"/>
+    <text x="666" y="346" class="t">③ 立刻回 200，业务放后台任务</text>
+    <text x="666" y="366" class="s">LINE 要求 webhook 快速响应；耗时逻辑异步做，避免超时重投</text>
+    <text x="666" y="384" class="s">回复消息时用该账号自己的 access token 调 reply API</text>
+
+    <rect x="648" y="406" width="484" height="62" rx="8" fill="#fff" stroke="#e5e7eb"/>
+    <text x="666" y="428" class="t">④ 密钥存储</text>
+    <text x="666" y="448" class="m">.env / Secrets Manager：ACC{n}_CHANNEL_SECRET / _TOKEN</text>
+    <text x="666" y="464" class="s">绝不写进代码仓库</text>
+
+    <path d="M480 250 L 618 250" fill="none" stroke="#06c755" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="500" y="240" class="lbl">HTTPS POST</text>
+    <path d="M618 470 C 560 470, 520 400, 480 300" fill="none" stroke="#9aa2ad" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+    <text x="490" y="420" class="s">reply / push 回程调用</text>
+  </svg>
+</div>
+</body>
+</html>

@@ -1,0 +1,104 @@
+:root {
+  --line-green: #06c755;
+  --ink: #1f2328;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --red: #e62828;
+  --bg: #ffffff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Helvetica Neue", Helvetica, Arial, "WenQuanYi Micro Hei",
+    "Droid Sans Fallback", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.caption {
+  background: #1e2024;
+  color: #fff;
+  padding: 14px 20px;
+}
+.caption h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: .2px; }
+.caption p { margin: 4px 0 0; font-size: 14px; color: #a8b0bc; }
+
+.frame { border: 1px solid var(--line); border-top: 0; }
+
+.topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px; border-bottom: 1px solid var(--line); background: #fff;
+}
+.logo { font-weight: 800; letter-spacing: -.5px; }
+.logo .badge {
+  background: #111; color: #fff; padding: 2px 6px; border-radius: 3px; margin-right: 6px;
+}
+.crumb { color: var(--muted); font-size: 13px; }
+
+.tabs { display: flex; gap: 26px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.tabs span { padding: 12px 0; color: var(--line-green); font-weight: 600; font-size: 14px; }
+.tabs span.active { color: var(--ink); box-shadow: inset 0 -3px 0 var(--line-green); }
+
+.body { padding: 22px 20px 26px; }
+h2.sec { font-size: 18px; margin: 0 0 14px; }
+
+.row {
+  display: grid; grid-template-columns: 220px 1fr; gap: 16px;
+  padding: 14px 0; border-bottom: 1px solid #f1f2f4; align-items: start;
+}
+.row .k { font-weight: 700; font-size: 14px; }
+.row .v { font-size: 14px; word-break: break-all; }
+.hint { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+
+.btn {
+  display: inline-block; padding: 6px 14px; border-radius: 4px; font-size: 13px;
+  border: 1px solid var(--line); background: #fff; cursor: default;
+}
+.btn.dark { background: #2b3038; color: #fff; border-color: #2b3038; }
+.btn.green { background: var(--line-green); color: #fff; border-color: var(--line-green); }
+
+.toggle {
+  width: 46px; height: 26px; border-radius: 13px; background: var(--line-green);
+  position: relative; display: inline-block;
+}
+.toggle::after {
+  content: ""; position: absolute; top: 3px; right: 3px; width: 20px; height: 20px;
+  border-radius: 50%; background: #fff;
+}
+.toggle.off { background: #cbd0d6; }
+.toggle.off::after { right: auto; left: 3px; }
+
+.mono { font-family: "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+
+/* 红框标注 */
+.mark { position: relative; outline: 3px solid var(--red); border-radius: 3px; }
+.callout {
+  display: inline-block; margin-left: 10px; padding: 3px 9px; border: 1px solid var(--red);
+  background: #fff6f0; color: #8c1e14; font-size: 13px; border-radius: 3px; vertical-align: middle;
+}
+.num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%; background: var(--red); color: #fff;
+  font-size: 14px; font-weight: 700; margin-right: 8px; vertical-align: middle;
+}
+
+/* 图示 */
+.diagram { padding: 26px 24px; }
+.card {
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: #fff;
+  box-shadow: 0 1px 2px rgba(16,24,40,.05);
+}
+.card .t { font-weight: 700; font-size: 14px; }
+.card .s { color: var(--muted); font-size: 12.5px; }
+.pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+  background: #eafaf0; color: #067a37; border: 1px solid #b8ebcd;
+}
+table.grid { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+table.grid th, table.grid td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; }
+table.grid th { background: #f6f7f9; font-size: 13px; }
+table.grid td.mono { font-size: 12.5px; }

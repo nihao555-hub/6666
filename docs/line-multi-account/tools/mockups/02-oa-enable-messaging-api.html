@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+  .wrap { width: 1100px; }
+  .side { width: 230px; border-right: 1px solid var(--line); padding: 16px 0; min-height: 360px; }
+  .side div { padding: 8px 20px; font-size: 14px; color: var(--muted); }
+  .side div.on { color: var(--ink); font-weight: 700; background: #f2fbf6; box-shadow: inset 3px 0 0 var(--line-green); }
+  .split { display: flex; }
+  .main { flex: 1; padding: 22px 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="caption">
+    <h1>步骤 2　在 LINE Official Account Manager 里为每个账号启用 Messaging API</h1>
+    <p>路径：manager.line.biz → 选中某个账号 → 右上角「設定 / Settings」→「Messaging API」→ 点 Enable。启用后才会在 Developers Console 生成同名 channel（示意图，实际界面语言随账号地区不同）</p>
+  </div>
+  <div class="frame split">
+    <div class="side">
+      <div>账号设置 Account settings</div>
+      <div>权限管理 Rights management</div>
+      <div>回复设置 Response settings</div>
+      <div class="on">Messaging API</div>
+      <div>登录渠道 Login channel</div>
+    </div>
+    <div class="main">
+      <h2 class="sec">Messaging API</h2>
+      <div class="row">
+        <div class="k">Status 状态</div>
+        <div class="v">
+          <span class="pill">Not enabled 未启用</span>
+          <span class="btn green mark" style="margin-left:12px">Enable</span>
+          <span class="callout"><span class="num">1</span>点 Enable，五个账号各点一次</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="k">Provider 服务商</div>
+        <div class="v">
+          <span class="btn mark" style="min-width:280px;display:inline-block">my-line-hub ▾</span>
+          <span class="callout"><span class="num">2</span>五个账号统一选同一个 Provider</span>
+          <div class="hint">Provider 绑定后不可更改；不同 Provider 下同一位用户的 userId 不同，跨号识别同一用户会失效</div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="k">Channel ID</div>
+        <div class="v mono">启用后自动生成，例如 2007xxxxxx</div>
+      </div>
+      <div class="row" style="border-bottom:0">
+        <div class="k">Channel secret</div>
+        <div class="v">启用后到 LINE Developers Console 的 Basic settings 里查看（见步骤 5）</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

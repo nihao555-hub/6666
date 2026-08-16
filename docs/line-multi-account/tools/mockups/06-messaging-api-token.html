@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>.wrap { width: 1100px; }</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="caption">
+    <h1>步骤 6　Messaging API 标签页：签发 Channel access token（调用 API 发消息用）</h1>
+    <p>同一页从上到下依次是：Bot 基本信息 → QR code → Webhook settings → Channel access token。这里签发的是长期 token，最省事；追求安全就改用 v2.1 短期 token（示意图）</p>
+  </div>
+  <div class="frame">
+    <div class="topbar">
+      <span class="logo"><span class="badge">LINE</span>Developers</span>
+      <span class="crumb">my-line-hub &nbsp;/&nbsp; 客服一号 (Messaging API)</span>
+    </div>
+    <div class="tabs">
+      <span>Basic settings</span><span class="active">Messaging API</span><span>LIFF</span><span>Security</span><span>Roles</span><span>Statistics</span>
+    </div>
+    <div class="body">
+      <h2 class="sec">Bot information</h2>
+      <div class="row">
+        <div class="k">Bot basic ID</div>
+        <div class="v mono">@123abcde</div>
+      </div>
+      <div class="row">
+        <div class="k">Your QR code</div>
+        <div class="v">用手机 LINE 扫码把这个官方账号加为好友，用于自测</div>
+      </div>
+
+      <h2 class="sec" style="margin-top:26px">Channel access token</h2>
+      <div class="row">
+        <div class="k">Channel access token<br><span class="hint">(long-lived)</span></div>
+        <div class="v">
+          <span class="mono mark" style="display:inline-block;padding:2px 6px;max-width:520px">
+            eyJhbGciOiJIUzI1NiJ9.Ki8sZm9yLWRlbW8tb25seS1ub3QtYS1yZWFsLXRva2Vu…
+          </span>
+          <span class="callout"><span class="num">1</span>复制 → 填进 .env 的 ACC1_CHANNEL_TOKEN</span>
+          <div style="margin-top:10px">
+            <span class="btn dark mark">Issue</span>
+            <span class="callout"><span class="num">2</span>第一次点 Issue 生成；重新 Issue 会让旧 token 失效</span>
+          </div>
+          <div class="hint" style="margin-top:8px">
+            长期 token 永不过期、每个 channel 只有 1 个，方便但风险高；生产建议改用有效期 ≤30 天的 v2.1 token（可签发 30 个，支持轮换）。
+          </div>
+        </div>
+      </div>
+      <div class="row" style="border-bottom:0">
+        <div class="k">Auto-reply / Greeting messages</div>
+        <div class="v">
+          <span class="toggle off"></span>
+          <span class="callout"><span class="num">3</span>建议关掉，否则官方账号的自动回复会和你的程序抢答</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
