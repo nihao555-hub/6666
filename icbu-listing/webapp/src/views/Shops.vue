@@ -147,7 +147,14 @@ async function reload() {
   }
 }
 
-onMounted(reload);
+onMounted(async () => {
+  await reload();
+  if (route.query.alibaba === "connected" && store.shops.length) {
+    const newest = store.shops[store.shops.length - 1];
+    ElMessage.success("店铺已授权。先填一次默认值，之后每条商品不用再问。");
+    edit(newest);
+  }
+});
 
 async function authorize() {
   try {
@@ -163,7 +170,8 @@ async function bindEnv() {
     const shop = await api.bindEnvShop("环境店铺");
     store.selectShop(shop.id);
     await reload();
-    ElMessage.success("已接入环境里的国际站店铺");
+    ElMessage.success("已接入。先填一次店铺默认，之后每条商品不用再问。");
+    edit(store.shops.find((item) => item.id === shop.id) || shop);
   } catch (error) {
     ElMessage.error(error.message);
   }

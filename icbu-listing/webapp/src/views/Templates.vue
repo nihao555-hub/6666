@@ -33,7 +33,8 @@
       <el-form label-width="100px">
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="叶子类目 ID">
-          <el-input v-model="form.category_id" placeholder="例如 21111112" />
+          <el-input v-model="form.category_id" placeholder="从草稿箱类目名后面抄，例如 21111112" />
+          <div class="muted">必须是叶子类目。成稿后草稿上会带这个 ID，抄过来即可。</div>
         </el-form-item>
         <el-form-item label="产地"><el-input v-model="form.values.origin" /></el-form-item>
         <el-form-item label="计量单位"><el-input v-model="form.values.priceUnit" placeholder="Piece/Pieces" /></el-form-item>

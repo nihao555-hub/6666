@@ -76,7 +76,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <div class="empty">还没有草稿，先去投料。</div>
+        <div class="empty">还没有草稿。去「投料」丢图，或到「商品库」勾店铺铺货。</div>
       </template>
     </el-table>
   </div>
