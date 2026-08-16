@@ -33,7 +33,7 @@ def list_styles() -> list[dict[str, Any]]:
 
 @router.get("/template")
 def download_template(
-    style: str = "lingxing",
+    style: str = "simple",
     listing_template_id: str = "",
     category_id: str = "",
     shop_id: str = "",

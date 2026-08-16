@@ -29,9 +29,9 @@
         <p class="muted">复制 6 条，自己生图后再投。</p>
       </div>
       <div class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="tab = 'excel'">
-        <small>已有表格</small>
-        <b>Excel 导入</b>
-        <p class="muted">领星 / 店小秘 / 马帮 / 官方类目表。</p>
+        <small>批量上品</small>
+        <b>下载表格，填完传回</b>
+        <p class="muted">只填货号、单价、起订量和图。</p>
       </div>
     </div>
 
@@ -89,77 +89,122 @@
           </div>
         </div>
       </el-tab-pane>
-      <el-tab-pane label="Excel 导入" name="excel">
+      <el-tab-pane label="表格批量" name="excel">
         <div class="card">
-          <p class="muted" style="margin-bottom: 14px">
-            对齐头部 ERP 的几种做法，选你熟悉的那一种。先下载模板或直接丢现有表格，系统探测表头，你确认列映射后再导入。
+          <p class="muted" style="margin-bottom: 16px">
+            三步：下载必填表 → 填货号、单价、起订量、图片 → 传回来。类目和标题不用填。
           </p>
-          <el-radio-group v-model="excel.style" class="style-grid" @change="onStyleChange">
-            <el-radio-button v-for="item in styles" :key="item.id" :value="item.id">
-              {{ item.label }}
-            </el-radio-button>
-          </el-radio-group>
-          <p class="muted" style="margin: 12px 0 16px">{{ currentStyle?.summary }}</p>
 
-          <el-form label-width="120px" style="max-width: 720px">
-            <el-form-item v-if="currentStyle?.needs_category" label="叶子类目 ID">
-              <el-input v-model="excel.categoryId" placeholder="官方是先选类目再下表，例如 21111112" style="width: 320px" />
-              <div class="muted">可从在线商品或草稿上抄。AI 按这个类目的官方 schema 补标题和属性。</div>
-            </el-form-item>
-            <el-form-item v-if="currentStyle?.needs_listing_template" label="刊登模板">
-              <el-select v-model="excel.listingTemplateId" placeholder="先选一个类目模板" style="width: 320px">
-                <el-option
-                  v-for="item in listingTemplates"
-                  :key="item.id"
-                  :label="`${item.name} · ${item.category_id}`"
-                  :value="item.id"
-                />
-              </el-select>
-              <div class="muted">没有模板就先在店铺里填默认值。表格里不用再填类目和物流。</div>
-            </el-form-item>
-            <el-form-item label="Excel 模板">
-              <el-button @click="downloadTemplate">下载 {{ currentStyle?.label || "" }} 模板</el-button>
-            </el-form-item>
-            <el-form-item label="填好的表格">
-              <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls">
-                <el-button>选择 xlsx</el-button>
+          <p v-if="excel.style !== 'simple'" class="muted" style="margin-bottom: 10px">
+            正在用「{{ currentStyle?.label }}」。
+            <el-button text @click="useSimple">回到必填表</el-button>
+          </p>
+          <div v-if="excel.style === 'simple'" class="simple-steps">
+            <div class="prop-row">
+              <label>1. 下载</label>
+              <div>
+                <el-button @click="downloadTemplate">下载必填表</el-button>
+                <p class="muted" style="margin-top: 6px">列只有货号、品名、单价 USD、起订量、图片、备注。第二行是例子，改成你的货即可。</p>
+              </div>
+            </div>
+            <div class="prop-row">
+              <label>2. 传回表格</label>
+              <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls" @change="onExcelPicked">
+                <el-button>选择填好的 xlsx</el-button>
               </el-upload>
-            </el-form-item>
-            <el-form-item label="配套图片">
+            </div>
+            <div class="prop-row">
+              <label>3. 拖入图片</label>
               <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*" drag>
-                <div style="padding: 18px 0">可选。按货号前缀匹配，例如 SKU-1001_1.jpg</div>
+                <div style="padding: 18px 0">按货号命名，例如 SKU-1001_1.jpg。表里也可以填图片链接。</div>
               </el-upload>
-            </el-form-item>
-            <el-form-item label="导入后">
-              <el-checkbox v-model="excel.createDrafts" :disabled="currentStyle?.needs_listing_template">
-                同时生成当前店草稿
-              </el-checkbox>
-            </el-form-item>
-            <el-button :loading="excel.loading" :disabled="!excelFile.length" @click="previewExcel">探测表头</el-button>
-            <el-button
-              type="primary"
-              :loading="excel.loading"
-              :disabled="!excel.preview"
-              @click="importExcel"
-            >
-              确认导入
-            </el-button>
-          </el-form>
+            </div>
+            <div style="padding-top: 16px">
+              <el-button type="primary" :loading="excel.loading" :disabled="!excelFile.length || !store.shopId" @click="importSimple">
+                批量成稿
+              </el-button>
+              <span v-if="excel.preview" class="muted" style="margin-left: 12px">
+                识别到 {{ excel.preview.row_count }} 行
+              </span>
+            </div>
+          </div>
 
-          <div v-if="excel.preview" style="margin-top: 18px">
-            <p>
-              识别到 {{ excel.preview.row_count }} 行，表头在第 {{ excel.preview.header_row }} 行。
-              猜测风格：{{ styleLabel(excel.preview.style_guess) }}。请确认下面的列映射。
-            </p>
-            <el-alert
-              v-for="warning in excel.preview.warnings || []"
-              :key="warning"
-              type="warning"
-              :title="warning"
-              :closable="false"
-              style="margin-bottom: 8px"
+          <el-alert
+            v-for="warning in excel.preview?.warnings || []"
+            :key="warning"
+            type="warning"
+            :title="warning"
+            :closable="false"
+            style="margin: 12px 0 0"
+          />
+          <el-table
+            v-if="excel.preview?.rows_preview?.length"
+            :data="excel.preview.rows_preview"
+            size="small"
+            max-height="240"
+            style="margin-top: 14px"
+          >
+            <el-table-column
+              v-for="header in excel.preview.headers"
+              :key="header"
+              :prop="header"
+              :label="header"
+              min-width="120"
+              show-overflow-tooltip
             />
-            <el-table :data="mappingRows" size="small" style="max-width: 640px; margin: 12px 0">
+          </el-table>
+
+          <el-divider v-if="excel.batch" />
+          <div v-if="excel.batch">
+            <p>
+              批次 {{ excel.batch.batch_id.slice(0, 8) }}：共 {{ excel.batch.count }} 行，已成稿
+              {{ excelProgress.done }} 个。
+            </p>
+            <el-progress :percentage="excelPercent" :stroke-width="14" />
+            <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱审红黄项</el-button>
+          </div>
+
+          <details class="erp-more">
+            <summary>已有领星 / 店小秘 / 马帮 / 官方类目表</summary>
+            <el-radio-group v-model="excel.style" class="style-grid" @change="onStyleChange">
+              <el-radio-button v-for="item in otherStyles" :key="item.id" :value="item.id">
+                {{ item.label }}
+              </el-radio-button>
+            </el-radio-group>
+            <p class="muted" style="margin: 12px 0 16px">{{ currentStyle?.summary }}</p>
+            <el-form label-width="120px" style="max-width: 720px">
+              <el-form-item v-if="currentStyle?.needs_category" label="叶子类目 ID">
+                <el-input v-model="excel.categoryId" placeholder="例如 21111112" style="width: 320px" />
+              </el-form-item>
+              <el-form-item v-if="currentStyle?.needs_listing_template" label="刊登模板">
+                <el-select v-model="excel.listingTemplateId" placeholder="先选一个类目模板" style="width: 320px">
+                  <el-option
+                    v-for="item in listingTemplates"
+                    :key="item.id"
+                    :label="`${item.name} · ${item.category_id}`"
+                    :value="item.id"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="模板">
+                <el-button @click="downloadTemplate">下载 {{ currentStyle?.label || "" }} 模板</el-button>
+              </el-form-item>
+              <el-form-item label="填好的表格">
+                <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls">
+                  <el-button>选择 xlsx</el-button>
+                </el-upload>
+              </el-form-item>
+              <el-form-item label="配套图片">
+                <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*">
+                  <el-button>选择图片</el-button>
+                </el-upload>
+              </el-form-item>
+              <el-button :loading="excel.loading" :disabled="!excelFile.length" @click="previewExcel">探测表头</el-button>
+              <el-button type="primary" :loading="excel.loading" :disabled="!excel.preview" @click="importExcel">
+                确认导入
+              </el-button>
+            </el-form>
+            <el-table v-if="excel.style !== 'simple' && excel.preview" :data="mappingRows" size="small" style="max-width: 640px; margin-top: 12px">
               <el-table-column prop="header" label="表格列" />
               <el-table-column label="对到系统字段">
                 <template #default="{ row }">
@@ -169,27 +214,7 @@
                 </template>
               </el-table-column>
             </el-table>
-            <el-table :data="excel.preview.rows_preview" size="small" max-height="240">
-              <el-table-column
-                v-for="header in excel.preview.headers"
-                :key="header"
-                :prop="header"
-                :label="header"
-                min-width="120"
-                show-overflow-tooltip
-              />
-            </el-table>
-          </div>
-
-          <el-divider v-if="excel.batch" />
-          <div v-if="excel.batch">
-            <p>
-              批次 {{ excel.batch.batch_id.slice(0, 8) }}：共 {{ excel.batch.count }} 行，已入库
-              {{ excelProgress.done }} 个。
-            </p>
-            <el-progress :percentage="excelPercent" :stroke-width="14" />
-            <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱</el-button>
-          </div>
+          </details>
         </div>
       </el-tab-pane>
       <el-tab-pane label="有实拍 · 单条" name="single">
@@ -323,10 +348,10 @@ const listingTemplates = ref([]);
 const excelFile = ref([]);
 const excelImages = ref([]);
 const excel = reactive({
-  style: route.query.style || "lingxing",
+  style: route.query.style || "simple",
   listingTemplateId: "",
   categoryId: "",
-  createDrafts: false,
+  createDrafts: true,
   loading: false,
   preview: null,
   mapping: {},
@@ -337,6 +362,7 @@ let timer = null;
 let excelTimer = null;
 
 const currentStyle = computed(() => styles.value.find((item) => item.id === excel.style));
+const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple"));
 const mappingRows = computed(() => (excel.preview?.headers || []).map((header) => ({ header })));
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
@@ -402,6 +428,27 @@ function styleLabel(id) {
 function onStyleChange() {
   excel.createDrafts = Boolean(currentStyle.value?.create_drafts_default);
   excel.preview = null;
+}
+
+function useSimple() {
+  excel.style = "simple";
+  onStyleChange();
+}
+
+async function onExcelPicked() {
+  if (excel.style === "simple" && excelFile.value[0]?.raw) {
+    await previewExcel();
+  }
+}
+
+async function importSimple() {
+  excel.createDrafts = true;
+  if (!excel.preview) {
+    await previewExcel();
+  }
+  if (excel.preview) {
+    await importExcel();
+  }
 }
 
 function downloadTemplate() {
@@ -582,5 +629,14 @@ async function poll() {
 }
 .stack a {
   margin-right: 10px;
+}
+.erp-more {
+  margin-top: 22px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.erp-more summary {
+  cursor: pointer;
+  margin-bottom: 12px;
 }
 </style>

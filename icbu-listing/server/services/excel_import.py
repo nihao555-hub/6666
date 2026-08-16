@@ -89,6 +89,14 @@ STYLE_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 STYLES: dict[str, dict[str, Any]] = {
+    "simple": {
+        "id": "simple",
+        "label": "必填表批量上品",
+        "summary": "下载我们的表，只填货号、单价、起订量和图，传回来就成稿。类目、标题、物流不用填。",
+        "columns": ["sku", "name", "price", "moq", "images", "note"],
+        "create_drafts_default": True,
+        "primary": True,
+    },
     "lingxing": {
         "id": "lingxing",
         "label": "领星资料库",
@@ -207,6 +215,8 @@ def guess_style(headers: Iterable[str]) -> str:
         return "mabang"
     if "英文标题" in names and "关键词" in names:
         return "dianxiaomi"
+    if {"货号", "单价usd", "起订量", "图片"} <= names and "英文标题" not in names:
+        return "simple"
     if "货号" in names and ("单价usd" in names or "起订量" in names):
         return "lingxing"
     return "detect"
@@ -375,12 +385,12 @@ def build_template(
     listing_template: dict[str, Any] | None = None,
     official_required: list[dict[str, str]] | None = None,
 ) -> bytes:
-    spec = STYLES.get(style) or STYLES["lingxing"]
+    spec = STYLES.get(style) or STYLES["simple"]
     book = Workbook()
     sheet = book.active
     sheet.title = "填写"
     headers = spec["columns"]
-    fill = PatternFill("solid", fgColor="1D4ED8")
+    fill = PatternFill("solid", fgColor="171717" if spec.get("primary") else "1D4ED8")
     font = Font(color="FFFFFF", bold=True)
     example = {
         "sku": "SKU-1001",

@@ -33,6 +33,7 @@ class AliasTests(unittest.TestCase):
     def test_style_guess_from_headers(self) -> None:
         self.assertEqual(guess_style(["库存SKU", "中文名称", "售价"]), "mabang")
         self.assertEqual(guess_style(["货号", "单价USD", "起订量"]), "lingxing")
+        self.assertEqual(guess_style(["货号", "单价 USD", "起订量", "图片", "品名（中文）"]), "simple")
         self.assertEqual(guess_style(["货号", "英文标题", "关键词"]), "dianxiaomi")
 
 
@@ -85,6 +86,17 @@ class TemplateTests(unittest.TestCase):
         rows = apply_preview(payload, result["mapping"], "lingxing")
         self.assertEqual(rows[0].sku, "SKU-1001")
         self.assertEqual(rows[0].price, "1.80")
+
+    def test_simple_template_is_only_what_the_seller_must_fill(self) -> None:
+        payload = build_template("simple")
+        result = preview(payload, "simple")
+        self.assertEqual(set(result["mapping"].values()), {"sku", "name", "price", "moq", "images", "note"})
+        self.assertNotIn("英文标题", result["headers"])
+        self.assertNotIn("叶子类目 ID", result["headers"])
+        rows = apply_preview(payload, result["mapping"], "simple")
+        self.assertEqual(rows[0].sku, "SKU-1001")
+        self.assertEqual(rows[0].price, "1.80")
+        self.assertEqual(rows[0].moq, "500")
 
     def test_official_alibaba_template_only_asks_for_what_ai_cannot_know(self) -> None:
         payload = build_template(
