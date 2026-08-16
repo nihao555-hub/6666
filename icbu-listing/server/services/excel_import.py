@@ -24,6 +24,10 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+
+# Official origin. Always a shop default, never a per-row column.
+SKIP_ATTR_IDS = {"p-1"}
 
 FIELDS: dict[str, str] = {
     "sku": "货号",
@@ -92,7 +96,7 @@ STYLES: dict[str, dict[str, Any]] = {
     "simple": {
         "id": "simple",
         "label": "必填表批量上品",
-        "summary": "下载我们的表，只填货号、单价、起订量和图，传回来就成稿。类目、标题、物流不用填。",
+        "summary": "先选叶子类目，下载该类目的必填表。共同列是货号、价、起订量、图；后面是这类官方必填属性。标题和产地不用填。",
         "columns": ["sku", "name", "price", "moq", "images", "note"],
         "create_drafts_default": True,
         "primary": True,
@@ -151,6 +155,7 @@ class ExcelRow:
     origin: str = ""
     line: int = 0
     raw: dict[str, str] = field(default_factory=dict)
+    attributes: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def seed_values(self) -> dict[str, Any]:
         values: dict[str, Any] = {}
@@ -167,6 +172,10 @@ class ExcelRow:
             values["origin"] = self.origin
         if self.category_id:
             values["catId"] = self.category_id
+        for group, children in self.attributes.items():
+            filled = {key: item for key, item in children.items() if item not in (None, "")}
+            if filled:
+                values[group] = filled
         return values
 
     def provided_sources(self) -> dict[str, str]:
@@ -189,6 +198,41 @@ class ExcelRow:
 
 def styles_view() -> list[dict[str, Any]]:
     return [dict(item) for item in STYLES.values()]
+
+
+def category_attr_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
+    """Required attributes for this leaf, minus shop-default origin."""
+    columns: list[dict[str, Any]] = []
+    for group in fields:
+        if getattr(group, "id", "") not in {"icbuCatProp", "saleProp"}:
+            continue
+        for child in getattr(group, "children", []):
+            if not getattr(child, "required", False) or child.id in SKIP_ATTR_IDS:
+                continue
+            options = [
+                {"value": option.value, "label": option.display_name}
+                for option in (getattr(child, "options", None) or [])[:80]
+            ]
+            columns.append(
+                {
+                    "id": f"attr.{group.id}.{child.id}",
+                    "header": child.name or child.id,
+                    "group": group.id,
+                    "field_id": child.id,
+                    "options": options,
+                }
+            )
+    return columns
+
+
+def _match_option(raw: str, options: list[dict[str, str]]) -> str:
+    needle = _norm(raw)
+    if not needle:
+        return ""
+    for option in options:
+        if needle in {_norm(option.get("label") or ""), _norm(option.get("value") or "")}:
+            return option.get("value") or raw
+    return raw
 
 
 def _norm(text: str) -> str:
@@ -251,29 +295,49 @@ def find_header_row(rows: list[list[str]], style: str = "detect") -> int:
     return best_index
 
 
-def mapping_from_headers(headers: list[str], style: str = "detect") -> dict[str, str]:
+def mapping_from_headers(
+    headers: list[str],
+    style: str = "detect",
+    extra_columns: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
     mapping: dict[str, str] = {}
     used: set[str] = set()
+    extras = {_norm(item["header"]): item["id"] for item in extra_columns or [] if item.get("header")}
+    extras.update({_norm(item.get("field_id") or ""): item["id"] for item in extra_columns or [] if item.get("field_id")})
     for header in headers:
-        field_id = guess_field(header, style)
+        field_id = extras.get(_norm(header)) or guess_field(header, style)
         if field_id and field_id not in used:
             mapping[header] = field_id
             used.add(field_id)
     return mapping
 
 
-def parse_rows(rows: list[list[str]], mapping: dict[str, str], header_index: int) -> list[ExcelRow]:
+def parse_rows(
+    rows: list[list[str]],
+    mapping: dict[str, str],
+    header_index: int,
+    extra_columns: list[dict[str, Any]] | None = None,
+) -> list[ExcelRow]:
     if header_index >= len(rows):
         return []
     headers = rows[header_index]
+    extra_by_id = {item["id"]: item for item in extra_columns or []}
     parsed: list[ExcelRow] = []
     for offset, raw in enumerate(rows[header_index + 1 :], start=header_index + 2):
         cells = {headers[index]: raw[index] if index < len(raw) else "" for index in range(len(headers))}
         values = {field_id: "" for field_id in FIELDS}
+        attributes: dict[str, dict[str, Any]] = {}
         for header, field_id in mapping.items():
+            cell = cells.get(header, "")
             if field_id in values:
-                values[field_id] = cells.get(header, "")
-        if not any(values.values()):
+                values[field_id] = cell
+            elif field_id.startswith("attr.") and cell:
+                spec = extra_by_id.get(field_id)
+                if spec:
+                    attributes.setdefault(spec["group"], {})[spec["field_id"]] = _match_option(
+                        cell, spec.get("options") or []
+                    )
+        if not any(values.values()) and not attributes:
             continue
         images = [item.strip() for item in re.split(r"[;；\n]+", values["images"]) if item.strip()]
         parsed.append(
@@ -290,20 +354,25 @@ def parse_rows(rows: list[list[str]], mapping: dict[str, str], header_index: int
                 origin=values["origin"],
                 line=offset,
                 raw=cells,
+                attributes=attributes,
             )
         )
     return parsed
 
 
-def preview(content: bytes, style: str = "detect") -> dict[str, Any]:
+def preview(
+    content: bytes,
+    style: str = "detect",
+    extra_columns: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     rows = read_sheet(content)
     if not rows:
         return {"error": "表格是空的", "headers": [], "mapping": {}, "rows_preview": [], "row_count": 0}
     header_index = find_header_row(rows, style)
     headers = [item or f"列{index + 1}" for index, item in enumerate(rows[header_index])]
     guessed_style = style if style != "detect" else guess_style(headers)
-    mapping = mapping_from_headers(headers, guessed_style if style == "detect" else style)
-    parsed = parse_rows(rows, mapping, header_index)
+    mapping = mapping_from_headers(headers, guessed_style if style == "detect" else style, extra_columns)
+    parsed = parse_rows(rows, mapping, header_index, extra_columns)
     return {
         "style": style,
         "style_guess": guessed_style,
@@ -332,10 +401,15 @@ def _preview_warnings(rows: list[ExcelRow], mapping: dict[str, str]) -> list[str
     return warnings
 
 
-def apply_preview(content: bytes, mapping: dict[str, str], style: str = "detect") -> list[ExcelRow]:
+def apply_preview(
+    content: bytes,
+    mapping: dict[str, str],
+    style: str = "detect",
+    extra_columns: list[dict[str, Any]] | None = None,
+) -> list[ExcelRow]:
     rows = read_sheet(content)
     header_index = find_header_row(rows, style)
-    return parse_rows(rows, mapping, header_index)
+    return parse_rows(rows, mapping, header_index, extra_columns)
 
 
 def split_images(refs: list[str]) -> tuple[list[str], list[str]]:
@@ -384,12 +458,13 @@ def build_template(
     style: str,
     listing_template: dict[str, Any] | None = None,
     official_required: list[dict[str, str]] | None = None,
+    extra_columns: list[dict[str, Any]] | None = None,
 ) -> bytes:
     spec = STYLES.get(style) or STYLES["simple"]
     book = Workbook()
     sheet = book.active
     sheet.title = "填写"
-    headers = spec["columns"]
+    headers = list(spec["columns"])
     fill = PatternFill("solid", fgColor="171717" if spec.get("primary") else "1D4ED8")
     font = Font(color="FFFFFF", bold=True)
     example = {
@@ -401,7 +476,7 @@ def build_template(
         "moq": "500",
         "images": "SKU-1001_1.jpg;SKU-1001_2.jpg",
         "note": "加厚款，可定制 logo",
-        "category_id": (listing_template or {}).get("category_id") or "21111112",
+        "category_id": (listing_template or {}).get("category_id") or "",
         "origin": "China",
     }
     for index, field_id in enumerate(headers, start=1):
@@ -413,6 +488,22 @@ def build_template(
         cell.comment = Comment(hint, "Auto Shoper")
         sheet.cell(2, index, example.get(field_id, ""))
         sheet.column_dimensions[get_column_letter(index)].width = 28
+    extras = extra_columns or []
+    for offset, extra in enumerate(extras, start=len(headers) + 1):
+        cell = sheet.cell(1, offset, extra["header"])
+        cell.fill = fill
+        cell.font = font
+        labels = [item.get("label") or item.get("value") or "" for item in extra.get("options") or []]
+        hint = "官方必填属性。可留空让 AI 选；要手填请用官方选项：" + " / ".join(labels[:12])
+        cell.comment = Comment(hint[:200], "Auto Shoper")
+        if labels:
+            sheet.cell(2, offset, labels[0])
+        sheet.column_dimensions[get_column_letter(offset)].width = 22
+        joined = ",".join(labels[:25])
+        if labels and len(joined) < 240:
+            dropdown = DataValidation(type="list", formula1=f'"{joined}"', allow_blank=True)
+            dropdown.add(f"{get_column_letter(offset)}2:{get_column_letter(offset)}200")
+            sheet.add_data_validation(dropdown)
     sheet.row_dimensions[1].height = 22
 
     help_sheet = book.create_sheet("说明")
@@ -434,6 +525,15 @@ def build_template(
         help_sheet.cell(row, 2, f"{listing_template.get('name')} · 类目 {listing_template.get('category_id')}")
         help_sheet.cell(row + 1, 1, "类目和物流不用填在表里，导入时套用。")
         row += 2
+    if extras:
+        row += 1
+        help_sheet.cell(row, 1, "这个类目多出来的列")
+        help_sheet.cell(row, 2, "来自官方 schema.get 的必填属性。产地走店铺默认，不出现在表里。可留空给 AI。")
+        row += 1
+        for extra in extras:
+            help_sheet.cell(row, 1, extra["header"])
+            help_sheet.cell(row, 2, " / ".join(item.get("label") or "" for item in extra.get("options") or [])[:120])
+            row += 1
     if official_required:
         row += 1
         help_sheet.cell(row, 1, "官方红星必填对照")

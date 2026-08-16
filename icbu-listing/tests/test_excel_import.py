@@ -6,11 +6,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "backend"))
 
+from schema import parse_schema  # noqa: E402
 from server.services.excel_import import (  # noqa: E402
     ExcelRow,
     apply_preview,
     build_template,
+    category_attr_columns,
     find_header_row,
     guess_field,
     guess_style,
@@ -86,6 +89,45 @@ class TemplateTests(unittest.TestCase):
         rows = apply_preview(payload, result["mapping"], "lingxing")
         self.assertEqual(rows[0].sku, "SKU-1001")
         self.assertEqual(rows[0].price, "1.80")
+
+    def test_required_attribute_columns_differ_by_category(self) -> None:
+        brushes = parse_schema(
+            """<?xml version="1.0"?><itemSchema>
+              <field id="icbuCatProp" type="complex"><fields>
+                <field id="p-1" name="Place of Origin" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules></field>
+                <field id="p-type" name="Type" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules>
+                  <options><option displayName="Oil Brush" value="1"/></options>
+                </field>
+              </fields></field>
+              <field id="saleProp" type="complex"><fields>
+                <field id="p-color" name="Color" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules>
+                  <options><option displayName="Black" value="9"/></options>
+                </field>
+              </fields></field>
+            </itemSchema>"""
+        )
+        pens = parse_schema(
+            """<?xml version="1.0"?><itemSchema>
+              <field id="icbuCatProp" type="complex"><fields>
+                <field id="p-1" name="Place of Origin" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules></field>
+                <field id="p-hair" name="Hair Material" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules>
+                  <options><option displayName="Wolf Hair" value="2"/></options>
+                </field>
+              </fields></field>
+            </itemSchema>"""
+        )
+        brush_cols = {item["header"] for item in category_attr_columns(brushes)}
+        pen_cols = {item["header"] for item in category_attr_columns(pens)}
+        self.assertEqual(brush_cols, {"Type", "Color"})
+        self.assertEqual(pen_cols, {"Hair Material"})
+        self.assertNotIn("Place of Origin", brush_cols)
+        payload = build_template("simple", extra_columns=category_attr_columns(brushes))
+        result = preview(payload, "simple", category_attr_columns(brushes))
+        self.assertIn("Type", result["headers"])
+        self.assertIn("Color", result["headers"])
+        rows = apply_preview(payload, result["mapping"], "simple", category_attr_columns(brushes))
+        self.assertIn("icbuCatProp", rows[0].seed_values())
+        self.assertEqual(rows[0].seed_values()["icbuCatProp"]["p-type"], "1")
 
     def test_simple_template_is_only_what_the_seller_must_fill(self) -> None:
         payload = build_template("simple")

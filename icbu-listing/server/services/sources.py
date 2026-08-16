@@ -142,7 +142,12 @@ def apply_incoming(
             continue
         if updated.get(key) in LOCKED and origin != "user":
             continue
-        merged[key] = value
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            child = dict(merged[key])
+            child.update({item: item_value for item, item_value in value.items() if not empty(item_value)})
+            merged[key] = child
+        else:
+            merged[key] = value
         updated[key] = origin
     return merged, updated
 

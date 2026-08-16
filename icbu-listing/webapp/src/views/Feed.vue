@@ -92,7 +92,7 @@
       <el-tab-pane label="表格批量" name="excel">
         <div class="card">
           <p class="muted" style="margin-bottom: 16px">
-            三步：下载必填表 → 填货号、单价、起订量、图片 → 传回来。类目和标题不用填。
+            官方 schema 按叶子类目出规则，不同类必填属性不一样。先选类目，再下载该类目的表。
           </p>
 
           <p v-if="excel.style !== 'simple'" class="muted" style="margin-bottom: 10px">
@@ -101,26 +101,38 @@
           </p>
           <div v-if="excel.style === 'simple'" class="simple-steps">
             <div class="prop-row">
-              <label>1. 下载</label>
+              <label>1. 选类目</label>
               <div>
-                <el-button @click="downloadTemplate">下载必填表</el-button>
-                <p class="muted" style="margin-top: 6px">列只有货号、品名、单价 USD、起订量、图片、备注。第二行是例子，改成你的货即可。</p>
+                <el-button @click="openCategory">{{ sheetPlan.category_name || "选择叶子类目" }}</el-button>
+                <p class="muted" style="margin-top: 6px">
+                  和官方批量上传一样，先定叶子类目。标题仍不用填。
+                </p>
+                <p v-if="sheetPlan.extra?.length" class="muted" style="margin-top: 4px">
+                  这个类目表会多：{{ sheetPlan.extra.map((item) => item.header).join("、") }}。产地走店铺默认。
+                </p>
               </div>
             </div>
             <div class="prop-row">
-              <label>2. 传回表格</label>
+              <label>2. 下载</label>
+              <div>
+                <el-button :disabled="!excel.categoryId" @click="downloadTemplate">下载这类目的必填表</el-button>
+                <p class="muted" style="margin-top: 6px">每类一表。货号、单价、起订量、图是共同列，后面是这类官方必填属性。</p>
+              </div>
+            </div>
+            <div class="prop-row">
+              <label>3. 传回表格</label>
               <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls" @change="onExcelPicked">
                 <el-button>选择填好的 xlsx</el-button>
               </el-upload>
             </div>
             <div class="prop-row">
-              <label>3. 拖入图片</label>
+              <label>4. 拖入图片</label>
               <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*" drag>
                 <div style="padding: 18px 0">按货号命名，例如 SKU-1001_1.jpg。表里也可以填图片链接。</div>
               </el-upload>
             </div>
             <div style="padding-top: 16px">
-              <el-button type="primary" :loading="excel.loading" :disabled="!excelFile.length || !store.shopId" @click="importSimple">
+              <el-button type="primary" :loading="excel.loading" :disabled="!excelFile.length || !store.shopId || !excel.categoryId" @click="importSimple">
                 批量成稿
               </el-button>
               <span v-if="excel.preview" class="muted" style="margin-left: 12px">
@@ -216,6 +228,28 @@
             </el-table>
           </details>
         </div>
+        <el-dialog v-model="categoryBrowser" title="选择叶子类目" width="640px">
+          <div class="muted" style="margin-bottom: 10px">
+            <span v-for="(node, index) in categoryPath" :key="node.category_id">
+              <el-link type="primary" @click="openCategoryNode(node.category_id)">{{ node.name }}</el-link>
+              <span v-if="index < categoryPath.length - 1"> / </span>
+            </span>
+            <el-link v-if="categoryPath.length" type="info" style="margin-left: 8px" @click="openCategoryNode('0')">回到顶层</el-link>
+          </div>
+          <el-table :data="categoryChildren" height="360" @row-click="(row) => openCategoryNode(row.category_id)">
+            <el-table-column label="类目" min-width="240">
+              <template #default="{ row }">
+                {{ row.label }}
+                <el-tag v-if="row.is_leaf" size="small" type="success" style="margin-left: 6px">可发布</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column width="110" align="right">
+              <template #default="{ row }">
+                <el-button v-if="row.is_leaf" text type="primary" @click.stop="pickCategory(row)">选这个</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-dialog>
       </el-tab-pane>
       <el-tab-pane label="有实拍 · 单条" name="single">
         <div class="card">
@@ -350,13 +384,17 @@ const excelImages = ref([]);
 const excel = reactive({
   style: route.query.style || "simple",
   listingTemplateId: "",
-  categoryId: "",
+  categoryId: route.query.category || "",
   createDrafts: true,
   loading: false,
   preview: null,
   mapping: {},
   batch: null,
 });
+const sheetPlan = ref({ extra: [], category_name: "" });
+const categoryBrowser = ref(false);
+const categoryChildren = ref([]);
+const categoryPath = ref([]);
 const excelProgress = ref({ done: 0 });
 let timer = null;
 let excelTimer = null;
@@ -375,6 +413,7 @@ onMounted(async () => {
     listingTemplates.value = store.shopId ? await api.templates({ shop_id: store.shopId }) : [];
     templates.value = await api.imageTemplates();
     onStyleChange();
+    if (excel.categoryId) await loadSheetPlan();
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -451,6 +490,40 @@ async function importSimple() {
   }
 }
 
+async function loadSheetPlan() {
+  if (!store.shopId || !excel.categoryId) {
+    sheetPlan.value = { extra: [], category_name: "" };
+    return;
+  }
+  sheetPlan.value = await api.excelSheetPlan({ shop_id: store.shopId, category_id: excel.categoryId });
+}
+
+async function openCategory() {
+  if (!store.shopId) {
+    ElMessage.warning("先授权一个店铺");
+    return;
+  }
+  categoryBrowser.value = true;
+  await openCategoryNode("0");
+}
+
+async function openCategoryNode(parent) {
+  const data = await api.categories(store.shopId, parent);
+  categoryChildren.value = data.children || [];
+  categoryPath.value = data.path || [];
+}
+
+async function pickCategory(node) {
+  excel.categoryId = node.category_id;
+  categoryBrowser.value = false;
+  try {
+    await loadSheetPlan();
+    ElMessage.success(`已选「${sheetPlan.value.category_name || node.label}」`);
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
 function downloadTemplate() {
   window.location.href = api.excelTemplateUrl(excel.style, excel.listingTemplateId, {
     categoryId: excel.categoryId,
@@ -465,6 +538,8 @@ async function previewExcel() {
   }
   const body = new FormData();
   body.append("style", excel.style);
+  body.append("shop_id", store.shopId || "");
+  body.append("category_id", excel.categoryId || "");
   body.append("file", excelFile.value[0].raw);
   excel.loading = true;
   try {

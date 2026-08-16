@@ -47,6 +47,7 @@ export const api = {
   batchProgress: (batchId) => http.get(`/batches/${batchId}`),
 
   excelStyles: () => http.get("/excel/styles"),
+  excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),
   excelPreview: (form) => http.post("/excel/preview", form),
   excelImport: (form) => http.post("/excel/import", form),
   excelTemplateUrl: (style, listingTemplateId, extra = {}) => {

@@ -17,8 +17,8 @@ from ai import AiClient, ImageInput  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import distribution, excel_import, pipeline, products as catalogue, templates
-from ..services.shop_client import ShopNotConnected, shop_api
+from ..services import catalog, distribution, excel_import, pipeline, products as catalogue, templates
+from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
 
@@ -26,9 +26,39 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = 15
 
 
+def _attr_columns(db: Session, user: User, shop_id: str, category_id: str) -> list[dict[str, Any]]:
+    if not shop_id or not category_id:
+        return []
+    from schema import parse_schema  # noqa: E402
+
+    shop = shop_for(db, user, shop_id)
+    xml = catalog.get_schema_xml(db, shop_api(shop), category_id, str(shop_defaults(shop).get("language") or "en_US"))
+    return excel_import.category_attr_columns(parse_schema(xml))
+
+
 @router.get("/styles")
 def list_styles() -> list[dict[str, Any]]:
     return excel_import.styles_view()
+
+
+@router.get("/sheet-plan")
+def sheet_plan(
+    shop_id: str,
+    category_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    extras = _attr_columns(db, user, shop_id, category_id)
+    node = None
+    if shop_id and category_id:
+        shop = shop_for(db, user, shop_id)
+        node = catalog.get_node(db, shop_api(shop), category_id)
+    return {
+        "category_id": category_id,
+        "category_name": catalog.label(node) if node is not None else category_id,
+        "base": [excel_import.FIELDS[key] for key in excel_import.STYLES["simple"]["columns"]],
+        "extra": extras,
+    }
 
 
 @router.get("/template")
@@ -50,13 +80,11 @@ def download_template(
             raise HTTPException(status_code=404, detail="刊登模板不存在")
         listing = templates.as_dict(row)
         category_id = category_id or row.category_id
+    extra_columns: list[dict[str, Any]] = []
     if style == "alibaba" and category_id:
         listing = listing or {"name": f"官方类目 {category_id}", "category_id": category_id}
         if shop_id:
             from schema import parse_schema  # noqa: E402
-
-            from ..services import catalog
-            from ..services.shop_client import shop_defaults
 
             shop = shop_for(db, user, shop_id)
             xml = catalog.get_schema_xml(db, shop_api(shop), category_id, str(shop_defaults(shop).get("language") or "en_US"))
@@ -65,8 +93,11 @@ def download_template(
                 for item in parse_schema(xml)
                 if item.required and item.type != "label"
             ]
-    payload = excel_import.build_template(style, listing, official_required)
-    filename = f"auto-shoper-{style}.xlsx"
+    if style == "simple" and category_id and shop_id:
+        listing = listing or {"name": category_id, "category_id": category_id}
+        extra_columns = _attr_columns(db, user, shop_id, category_id)
+    payload = excel_import.build_template(style, listing, official_required, extra_columns)
+    filename = f"auto-shoper-{style}-{category_id or 'generic'}.xlsx"
     return Response(
         content=payload,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -77,14 +108,18 @@ def download_template(
 @router.post("/preview")
 async def preview_excel(
     style: str = Form("detect"),
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="文件是空的")
+    extras = _attr_columns(db, user, shop_id, category_id) if style == "simple" else []
     try:
-        return excel_import.preview(content, style)
+        return excel_import.preview(content, style, extras)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"读不了这个表格：{exc}") from exc
 
@@ -122,12 +157,13 @@ async def import_excel(
         mapping_payload = json.loads(mapping or "{}")
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="列映射不是合法 JSON") from exc
+    extras = _attr_columns(db, user, shop_id, category_id) if style == "simple" else []
     if not isinstance(mapping_payload, dict) or not mapping_payload:
-        preview = excel_import.preview(content, style)
+        preview = excel_import.preview(content, style, extras)
         mapping_payload = preview.get("mapping") or {}
 
     try:
-        rows = excel_import.apply_preview(content, mapping_payload, style)
+        rows = excel_import.apply_preview(content, mapping_payload, style, extras)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"读不了这个表格：{exc}") from exc
     if not rows:
@@ -157,6 +193,7 @@ async def import_excel(
             "category_id": row.category_id,
             "origin": row.origin,
             "line": row.line,
+            "attributes": row.attributes,
         }
         for row in rows
     ]
@@ -201,6 +238,7 @@ def _run_import(
                 category_id=raw.get("category_id") or "",
                 origin=raw.get("origin") or "",
                 line=int(raw.get("line") or 0),
+                attributes=dict(raw.get("attributes") or {}),
             )
             try:
                 _import_one(db, user, shop, row, uploads, ai, create_drafts, listing, batch_id)
