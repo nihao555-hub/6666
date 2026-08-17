@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>5 个 LINE 账号：取密钥并部署公网</title>
 <style>
-  :root { --g:#06c755; --ink:#1a1d21; --muted:#5c6570; --line:#e6e8eb; --bg:#f5f6f8; }
+  :root { --ink:#1a1d21; --muted:#5c6570; --line:#e6e8eb; --bg:#f5f6f8; }
   * { box-sizing: border-box; }
   body {
     margin: 0 auto; max-width: 820px; padding: 28px 20px 72px;
@@ -14,9 +14,7 @@
   }
   h1 { font-size: 26px; margin: 0 0 8px; }
   h2 { font-size: 20px; margin: 36px 0 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-  p, li { color: #2a3038; }
   .sub { color: var(--muted); margin: 0 0 22px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:12px 0; }
   img { display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:10px; margin:10px 0 4px; background:#fff; }
   figcaption { color:var(--muted); font-size:13px; margin:0 0 14px; }
   code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; }
@@ -28,48 +26,43 @@
   table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden; }
   th, td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; font-size:14.5px; }
   th { background:#f3f5f7; color:var(--muted); font-size:13px; }
+  .src { font-size:12px; color:var(--muted); }
 </style>
 </head>
 <body>
   <h1>5 个 LINE 账号：取密钥，部署公网</h1>
-  <p class="sub">每个号只要 2 个密钥 + 1 条 webhook。一台小服务器就能托管 5 个号。</p>
+  <p class="sub">每个号复制 2 个密钥，填 1 条 webhook。截图均来自 <a href="https://developers.line.biz/en/docs/messaging-api/getting-started/">LINE 官方文档</a>，只加了红框短批注。</p>
 
-  <div class="card">
-    <b>每个账号复制这两样</b>
-    <table>
-      <tr><th>复制什么</th><th>在哪一页</th><th>填到哪里</th></tr>
-      <tr><td>Channel secret</td><td>Basic settings</td><td><code>ACC1_CHANNEL_SECRET</code></td></tr>
-      <tr><td>Channel access token</td><td>Messaging API → Issue</td><td><code>ACC1_CHANNEL_TOKEN</code></td></tr>
-    </table>
-    <p style="margin:10px 0 0">二号就改成 <code>ACC2_…</code>，一直到 acc5。Webhook 分别是 <code>/webhook/acc1</code> … <code>/webhook/acc5</code>。</p>
-  </div>
-  <img src="images/s-table.png" alt="5 个账号对照表">
-  <figcaption>5 个号对上这三列就行，别对串。</figcaption>
+  <table>
+    <tr><th>复制什么</th><th>在哪一页</th><th>填到 .env</th></tr>
+    <tr><td>Channel secret</td><td>Basic settings</td><td><code>ACC1_CHANNEL_SECRET</code></td></tr>
+    <tr><td>Channel access token</td><td>Messaging API → Issue</td><td><code>ACC1_CHANNEL_TOKEN</code></td></tr>
+  </table>
+  <p>二号改 <code>ACC2_…</code>，一直到 acc5。Webhook 分别是 <code>/webhook/acc1</code> … <code>/webhook/acc5</code>。</p>
 
-  <h2>1. 拿密钥</h2>
+  <h2>1. 建号，进 Console</h2>
   <ol>
-    <li>打开 <a href="https://manager.line.biz/">manager.line.biz</a>，建 5 个官方账号（或用已有的）。</li>
+    <li>打开 <a href="https://manager.line.biz/">manager.line.biz</a>，建 5 个官方账号。</li>
     <li>每个号：设置 → Messaging API → Enable。5 个号选<strong>同一个 Provider</strong>。</li>
     <li>打开 <a href="https://developers.line.biz/console/">developers.line.biz/console</a>，点进对应 channel。</li>
   </ol>
-  <img src="images/s-secret.png" alt="复制 Channel secret">
-  <figcaption>Basic settings 页，复制 Channel secret。</figcaption>
-  <img src="images/s-token.png" alt="签发并复制 token">
-  <figcaption>Messaging API 页点 Issue，复制 token。建议关掉本页的自动回复。</figcaption>
-  <p class="warn">重新点 Issue 会让旧 token 立刻失效。secret 只用来验签，token 才用来发消息。</p>
+  <img src="images/o-accounts.png" alt="LINE Official Account Manager">
+  <figcaption>官方图：<a href="https://developers.line.biz/en/docs/messaging-api/getting-started/">Get started</a>。左侧 Create new 建号；Role 必须是 Administrator。</figcaption>
+  <img src="images/o-channel.png" alt="LINE Developers Console channel">
+  <figcaption>官方图：同上。点进 Messaging API channel 之后，去 Basic settings 复制 <b>Channel secret</b>；去 Messaging API 页点 <b>Issue</b> 复制 token。</figcaption>
+  <p class="warn">官方文档没有 secret / token 那两页的截图。进 channel 后按上面两个字段名找即可。重新 Issue 会让旧 token 立刻失效。</p>
 
   <h2>2. 先填 Webhook，先别 Verify</h2>
-  <p>还在 Messaging API 页。5 个号各填一条（把域名换成你的）：</p>
   <pre>https://你的域名/webhook/acc1
 https://你的域名/webhook/acc2
 https://你的域名/webhook/acc3
 https://你的域名/webhook/acc4
 https://你的域名/webhook/acc5</pre>
-  <img src="images/s-webhook.png" alt="Webhook URL">
-  <figcaption>必须 HTTPS。自签证书 LINE 不认。Use webhook 打开，Verify 等服务器起来再点。</figcaption>
+  <img src="images/o-webhook.png" alt="Webhook settings">
+  <figcaption>官方图：<a href="https://developers.line.biz/en/docs/messaging-api/building-bot/">Build a bot</a>。必须 HTTPS，自签证书不认。Use webhook 打开。</figcaption>
 
   <h2>3. 部署到公网</h2>
-  <p>准备：一台 VPS（日本/新加坡更好）+ 一个域名 A 记录指到这台机器。安全组放行 <b>80</b> 和 <b>443</b>。</p>
+  <p>一台 VPS（日本/新加坡更好）+ 域名 A 记录。放行 80 / 443。</p>
   <pre>sudo apt-get update
 sudo apt-get install -y git docker.io docker-compose-v2
 sudo usermod -aG docker "$USER"   # 重新登录一次
@@ -80,19 +73,19 @@ nano .env                         # 填 LINE_DOMAIN 和 5 套密钥
 
 docker compose up -d --build
 curl -I https://你的域名/healthz  # 要 200，且没有 SSL 报错</pre>
-  <p class="ok"><code>.env</code> 里 <code>LINE_DOMAIN=你的域名</code>。Caddy 会自动申请证书。看到 <code>loaded accounts: acc1 … acc5</code> 就起来了。</p>
+  <p class="ok">看到 <code>loaded accounts: acc1 … acc5</code> 就起来了。Caddy 会自动申请证书。</p>
 
-  <h2>4. 回去点 Verify，发一条试一下</h2>
-  <img src="images/s-verify.png" alt="点 Verify">
-  <figcaption>5 个 channel 各点一次 Verify，出现 Success。然后用手机给每个号发 ping，应回 <code>[客服N号] ping</code>。</figcaption>
+  <h2>4. 回去点 Verify</h2>
+  <img src="images/o-verify.png" alt="Verify webhook">
+  <figcaption>官方图：<a href="https://developers.line.biz/en/docs/messaging-api/verify-webhook-url/">Verify the webhook URL</a>。5 个号各点一次，出现 Success。手机发 ping，应回 <code>[客服N号] ping</code>。</figcaption>
 
   <h2>不通就看这 4 条</h2>
   <table>
     <tr><th>现象</th><th>处理</th></tr>
     <tr><td>Verify 报证书错误</td><td>域名还没解析到这台机器，或 80/443 没放行</td></tr>
     <tr><td>Verify 403</td><td>这个号的 secret 贴错到另一个 ACC</td></tr>
-    <tr><td>Verify 成功但没回消息</td><td>Use webhook 没打开，或自动回复还开着在抢答</td></tr>
-    <tr><td>发不出消息 401</td><td>token 重新 Issue 过，把新的写进 .env 再 <code>docker compose up -d</code></td></tr>
+    <tr><td>Verify 成功但没回消息</td><td>Use webhook 没打开，或自动回复还开着</td></tr>
+    <tr><td>发不出消息 401</td><td>token 重新 Issue 过，把新的写进 .env 再重启</td></tr>
   </table>
 </body>
 </html>

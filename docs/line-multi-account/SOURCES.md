@@ -1,6 +1,12 @@
 # 配图来源
 
-精简版只用 5 张图，由 `tools/make_simple_images.py` 生成。
+全部是 [LINE Developers 文档](https://developers.line.biz/) 原图，用 `tools/annotate.py` 加红框短批注。版权归 LINE Corporation。
 
-- `s-secret.png` / `s-token.png` / `s-table.png`：按控制台字段名画的示意图，只标要复制的那一项。
-- `s-webhook.png` / `s-verify.png`：裁自 [LINE 官方文档](https://developers.line.biz/en/docs/messaging-api/building-bot/) 的 Webhook settings / Verify 截图，版权归 LINE Corporation。
+| 本教程文件 | 官方原图 |
+|---|---|
+| `images/o-accounts.png` | https://developers.line.biz/media/messaging-api/getting-started/oa-manager-list-en.png |
+| `images/o-channel.png` | https://developers.line.biz/media/messaging-api/getting-started/console-home-en.png |
+| `images/o-webhook.png` | https://developers.line.biz/media/messaging-api/build-bot/webhook-url-example-com.png |
+| `images/o-verify.png` | https://developers.line.biz/media/news/webhook-url-verify-button.png |
+
+官方文档没有 Channel secret / Access token 那两页的截图，教程里只用文字说明字段名。
