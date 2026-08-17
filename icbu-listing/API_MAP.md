@@ -30,6 +30,31 @@
 
 影响：「在线商品」页目前只能看，不能改价和上下架。
 
+## 店铺默认值：能拉的别让用户填
+
+`schema.get` 一次就把这些选项带回来了，所以「店铺默认」表单全是下拉，不是手打。
+以彩铅类目 `21110712` 实测：
+
+| 默认项 | schema 里的位置 | 实拉到 |
+|---|---|---|
+| 运费模板 | `shippingTemplate.shippingTemplateId` | 5 个，**是这家店自己的**：智能运费模板 / retails / 粉饼 / 画笔运费 / 买卖双方协商物流 |
+| 计量单位 | `priceUnit` | 92 个 |
+| 产地 | `icbuCatProp` 里名字含 Origin 的那个属性 | 257 个国家 |
+| 物流属性 | `logisticsProperty` | 45 个，多选 |
+| 样品服务 | `marketSample` | 2 个 |
+| 售卖方式 / 定价方式 | `saleType` / `scPrice` | 2 个 / 3 个 |
+| 箱规 | `boxPackaging` | 300 个 |
+
+运费模板尤其别手填：那是 `2041723009` 这种店内 ID，用户不可能知道。
+
+**付款方式、出运港口、market 在这个类目根本不存在。** 表单里问了也白问，发布时会被静默丢掉，所以现在按类目标成「官方没有这个字段」。
+
+选项名会随语言变（同一个值 zh 返回「普货」、en_US 返回「Ordinary goods」），
+所以默认值一律存官方 value（`general_cargo_0`），只把展示名另存一份快照给列表页看。
+
+`productQuality` 在 `schema.get` 和 `schema.render` 里都只有桶名，没有分值，
+`productQuality_score` 的 name 恒为 `0`。官方评分读不到，仍然只能本地预估。
+
 ## 坑
 
 - `cat_id` 不要包进 `param_product_top_publish_request` 去调 `schema.get`，会报缺参。

@@ -48,7 +48,7 @@
       <el-table-column label="默认设置" min-width="280">
         <template #default="{ row }">
           <span class="muted">
-            产地 {{ row.defaults.origin }} · 单位 {{ row.defaults.priceUnit }} · 物流 {{ row.defaults.logisticsProperty }}
+            产地 {{ shown(row, "origin") }} · 单位 {{ shown(row, "priceUnit") }} · 运费 {{ shown(row, "shippingTemplateId") || "买卖双方协商" }}
           </span>
         </template>
       </el-table-column>
@@ -68,7 +68,7 @@
       <p class="muted" style="margin-bottom: 16px">
         这些是后面成稿的依据，也是 5.0 分里交易/物流桶要用的。AI 不猜。填一次，每条商品自动套。
       </p>
-      <el-form v-if="editing" label-width="110px">
+      <el-form v-if="editing" v-loading="optionsLoading" label-width="110px">
         <el-form-item label="店铺名">
           <el-input v-model="editing.name" />
         </el-form-item>
@@ -79,39 +79,34 @@
           </el-radio-group>
           <div class="muted" style="margin-top: 6px">先用草稿模式跑通，确认无误再切上架。</div>
         </el-form-item>
-        <el-form-item label="产地">
-          <el-input v-model="editing.defaults.origin" />
-        </el-form-item>
-        <el-form-item label="计量单位">
-          <el-input v-model="editing.defaults.priceUnit" placeholder="Piece/Pieces" />
-        </el-form-item>
-        <el-form-item label="物流属性">
-          <el-input v-model="editing.defaults.logisticsProperty" placeholder="普货" />
-        </el-form-item>
-        <el-form-item label="样品服务">
-          <el-select v-model="editing.defaults.marketSample">
-            <el-option label="不提供样品" value="Unavailable" />
-            <el-option label="提供样品" value="Available (recommended)" />
+
+        <p v-if="optionSource.category_name" class="muted" style="margin: 0 0 12px">
+          选项来自官方发布规则（{{ optionSource.category_name }}），不用自己记 ID。
+        </p>
+
+        <el-form-item v-for="field in pickable" :key="field.key" :label="field.label">
+          <el-select
+            v-model="editing.defaults[field.key]"
+            :multiple="field.multiple"
+            filterable
+            clearable
+            style="width: 100%"
+            @change="rememberLabel(field)"
+          >
+            <el-option v-for="option in field.options" :key="option.value" :label="option.label" :value="option.value" />
           </el-select>
+          <div v-if="field.hint" class="muted" style="margin-top: 6px">{{ field.hint }}</div>
         </el-form-item>
-        <el-form-item label="运费模板 ID">
-          <el-input v-model="editing.defaults.shippingTemplateId" placeholder="留空则走买卖双方协商" />
+
+        <el-form-item label="包装尺寸">
+          <div style="display: flex; gap: 8px">
+            <el-input v-model="editing.defaults.pkgLength" placeholder="长 cm" />
+            <el-input v-model="editing.defaults.pkgWidth" placeholder="宽 cm" />
+            <el-input v-model="editing.defaults.pkgHeight" placeholder="高 cm" />
+          </div>
         </el-form-item>
         <el-form-item label="包装重量">
           <el-input v-model="editing.defaults.pkgWeight" placeholder="kg" />
-        </el-form-item>
-        <el-form-item label="包装尺寸">
-          <div style="display: flex; gap: 8px">
-            <el-input v-model="editing.defaults.pkgLength" placeholder="长" />
-            <el-input v-model="editing.defaults.pkgWidth" placeholder="宽" />
-            <el-input v-model="editing.defaults.pkgHeight" placeholder="高" />
-          </div>
-        </el-form-item>
-        <el-form-item label="付款方式">
-          <el-input v-model="editing.defaults.paymentMethod" placeholder="T/T, Western Union" />
-        </el-form-item>
-        <el-form-item label="港口">
-          <el-input v-model="editing.defaults.port" placeholder="Ningbo / Shanghai" />
         </el-form-item>
         <el-form-item label="发货期">
           <el-input v-model="editing.defaults.ladderPeriod" placeholder="15" />
@@ -120,6 +115,10 @@
         <el-form-item label="品牌">
           <el-input v-model="editing.defaults.brand" placeholder="没有就留空" />
         </el-form-item>
+
+        <p v-if="unsupported.length" class="muted" style="margin: 0 0 14px">
+          这个店的类目没有{{ unsupported.map((item) => item.label).join("、") }}，官方规则里就没有这些字段，不用填。
+        </p>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </el-form>
     </el-drawer>
@@ -127,7 +126,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api } from "../api";
@@ -140,6 +139,51 @@ const drawer = ref(false);
 const editing = ref(null);
 const showDevBind = ref(true);
 const oauthError = ref("");
+const optionsLoading = ref(false);
+const optionSource = ref({ category_name: "", fields: [] });
+const pickedLabels = ref({});
+
+const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
+const unsupported = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "unsupported"));
+
+function shown(shop, key) {
+  return shop.defaults?.labels?.[key] ?? shop.defaults?.[key] ?? "";
+}
+
+function splitValues(value) {
+  if (Array.isArray(value)) return value;
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function rememberLabel(field) {
+  const chosen = editing.value.defaults[field.key];
+  const picked = (Array.isArray(chosen) ? chosen : [chosen])
+    .map((value) => field.options.find((option) => option.value === value)?.label)
+    .filter(Boolean);
+  pickedLabels.value[field.key] = picked.join("、");
+}
+
+async function loadOptions(shopId) {
+  optionsLoading.value = true;
+  try {
+    optionSource.value = await api.shopDefaultOptions(shopId);
+    // The form binds official values; seed the snapshot from what is saved.
+    // Multi-selects need an array here, but defaults stay a comma string so
+    // the publish pipeline keeps reading them the way it always has.
+    for (const field of pickable.value) {
+      editing.value.defaults[field.key] = field.multiple ? splitValues(field.value) : field.value;
+      rememberLabel(field);
+    }
+  } catch (error) {
+    optionSource.value = { category_name: "", fields: [] };
+    ElMessage.warning(`拉不到官方选项，先手填：${error.message}`);
+  } finally {
+    optionsLoading.value = false;
+  }
+}
 
 if (route.query.alibaba === "error") {
   oauthError.value =
@@ -190,7 +234,9 @@ async function bindEnv() {
 
 function edit(shop) {
   editing.value = JSON.parse(JSON.stringify(shop));
+  pickedLabels.value = { ...(editing.value.defaults?.labels || {}) };
   drawer.value = true;
+  loadOptions(shop.id);
 }
 
 function use(shop) {
@@ -201,8 +247,13 @@ function use(shop) {
 async function save() {
   saving.value = true;
   try {
+    const defaults = { ...editing.value.defaults };
+    for (const field of pickable.value) {
+      if (field.multiple) defaults[field.key] = splitValues(defaults[field.key]).join(",");
+    }
     await api.saveDefaults(editing.value.id, {
-      defaults: editing.value.defaults,
+      defaults,
+      labels: pickedLabels.value,
       publish_mode: editing.value.publish_mode,
       name: editing.value.name,
     });

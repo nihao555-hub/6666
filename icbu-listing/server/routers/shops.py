@@ -17,7 +17,7 @@ from ..deps import current_user, get_db, owned_shop
 from ..models import Draft, Job, Shop, User
 from ai import AiClient  # noqa: E402
 
-from ..services import clone, templates as template_service
+from ..services import clone, defaults as defaults_service, templates as template_service
 from ..services.shop_client import (
     ShopNotConnected,
     authorize_url,
@@ -34,7 +34,9 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
     "origin": "China",
     "priceUnit": "Piece/Pieces",
     "saleType": "Unit",
-    "logisticsProperty": "普货",
+    # Official value, not «普货»: that label only comes back on zh calls, so a
+    # label default silently dropped the field on every English publish.
+    "logisticsProperty": "general_cargo_0",
     "marketSample": "Unavailable",
     "shippingTemplateId": "",
     "pkgWeight": "",
@@ -56,6 +58,9 @@ class BindEnvIn(BaseModel):
 
 class DefaultsIn(BaseModel):
     defaults: dict[str, Any]
+    # What the seller saw when they picked. Stored so shop lists stay readable
+    # without re-fetching the schema just to turn «4» back into «Piece/Pieces».
+    labels: dict[str, str] | None = None
     publish_mode: str | None = None
     name: str | None = None
 
@@ -193,6 +198,8 @@ def save_defaults(
     shop: Shop = Depends(owned_shop),
 ) -> dict[str, Any]:
     merged = {**DEFAULT_TEMPLATE, **shop_defaults(shop), **payload.defaults}
+    if payload.labels:
+        merged["labels"] = {**(merged.get("labels") or {}), **payload.labels}
     shop.defaults_json = json.dumps(merged, ensure_ascii=False)
     if payload.publish_mode in {"draft", "online"}:
         shop.publish_mode = payload.publish_mode
@@ -257,6 +264,29 @@ def online_products(
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.get("/shops/{shop_id}/default-options")
+def default_options(
+    category_id: str = "",
+    db: Session = Depends(get_db),
+    shop: Shop = Depends(owned_shop),
+) -> dict[str, Any]:
+    """Official option lists for the defaults form, so nothing is typed blind."""
+    merged = {**DEFAULT_TEMPLATE, **shop_defaults(shop)}
+    try:
+        return defaults_service.options_view(
+            db,
+            shop_api(shop),
+            shop,
+            merged,
+            category_id=category_id,
+            language=str(merged.get("language") or "en_US"),
+        )
+    except ShopNotConnected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (GopError, RuntimeError) as exc:
+        raise HTTPException(status_code=502, detail=f"拉取官方选项失败：{exc}") from exc
 
 
 @router.get("/shops/{shop_id}/photobank")

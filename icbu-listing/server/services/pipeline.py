@@ -459,12 +459,9 @@ def apply_trade_terms(
             if negotiated:
                 values["shippingTemplate"] = {"templateType": negotiated}
 
-    logistics = specs.get("logisticsProperty")
-    if logistics is not None:
-        wanted = str(defaults.get("logisticsProperty") or "普货")
-        option = logistics.option_by_label(wanted)
-        if option is not None:
-            values["logisticsProperty"] = [option.value]
+    # Goods with batteries need several attributes at once, and the option
+    # labels are translated per language, so match on the official value too.
+    _apply_listed_option(specs, values, "logisticsProperty", defaults.get("logisticsProperty") or "general_cargo_0")
 
     for key, field_id in (("pkgWeight", "pkgWeight"), ("semiManagedPeriod", "semiManagedPeriod")):
         if defaults.get(key) and field_id in specs:

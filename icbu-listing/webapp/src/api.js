@@ -24,6 +24,8 @@ export const api = {
   bindEnvShop: (name) => http.post("/shops/bind-env", { name }),
   unbindShop: (shopId) => http.delete(`/shops/${shopId}`),
   saveDefaults: (shopId, body) => http.post(`/shops/${shopId}/defaults`, body),
+  shopDefaultOptions: (shopId, categoryId) =>
+    http.get(`/shops/${shopId}/default-options`, { params: { category_id: categoryId || "" } }),
   onlineProducts: (shopId, params) => http.get(`/shops/${shopId}/online`, { params }),
   categories: (shopId, parent) => http.get(`/shops/${shopId}/categories`, { params: { shop_id: shopId, parent } }),
 

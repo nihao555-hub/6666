@@ -145,6 +145,27 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(values["ladderPeriod"]["ladderPeriod_0"]["period"], "15")
         self.assertEqual(values["ladderPeriod"]["ladderPeriod_0"]["quantity"], "500")
 
+    def test_logistics_attributes_match_by_official_value_and_allow_several(self) -> None:
+        """«普货» only comes back on zh calls; the value is what is stable."""
+        specs = {
+            "logisticsProperty": SchemaField(
+                id="logisticsProperty",
+                name="Logistics attribute",
+                type="multiCheck",
+                options=[
+                    SchemaOption(value="general_cargo_0", display_name="Ordinary goods"),
+                    SchemaOption(value="battery.pureBattery", display_name="Pure battery"),
+                ],
+            )
+        }
+        english: dict = {}
+        apply_trade_terms(specs, english, {"logisticsProperty": "general_cargo_0"}, "1.80", "500")
+        self.assertEqual(english["logisticsProperty"], ["general_cargo_0"])
+
+        several: dict = {}
+        apply_trade_terms(specs, several, {"logisticsProperty": "general_cargo_0,battery.pureBattery"}, "1.80", "500")
+        self.assertEqual(several["logisticsProperty"], ["general_cargo_0", "battery.pureBattery"])
+
     def test_super_text_and_faq_come_from_evidence(self) -> None:
         specs = {
             "productTitle": SchemaField(id="productTitle", name="t", type="input"),
