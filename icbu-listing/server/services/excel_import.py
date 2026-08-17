@@ -97,6 +97,8 @@ AI_FILLS_BASE: list[dict[str, Any]] = [
     {"id": "productKeywords", "label": "关键词", "hint": "1～3 个"},
     {"id": "textDesc", "label": "详描", "hint": "按图写，不编认证"},
     {"id": "catAttrs", "label": "类目属性", "hint": "按官方选项选，不选 Other"},
+    {"id": "superText", "label": "详描 / FAQ", "hint": "按图写，不编认证"},
+    {"id": "trade", "label": "交易和物流", "hint": "从店铺默认套，不编港口和交期"},
 ]
 
 REDLINE: list[dict[str, str]] = [
@@ -127,7 +129,7 @@ STYLES: dict[str, dict[str, Any]] = {
     "simple": {
         "id": "simple",
         "label": "短表批量上品",
-        "summary": "不是官方表。填写页只有货号、价、起订量、图、品牌。标题、关键词、详描和类目属性交给 AI。价/图/品牌/类目是红线。",
+        "summary": "填写页只收依据。齐了之后 AI 推断其余官方字段，目标上架 5.0。价/图/品牌/类目是红线。",
         "columns": ["sku", "price", "moq", "images", "brand", "name", "note"],
         "create_drafts_default": True,
         "primary": True,

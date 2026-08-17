@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>投料</h2>
-        <p class="muted">人只出图、价格、起订量。标题和属性交给 AI。价、图、品牌、类目是红线。</p>
+        <p class="muted">你填的是依据。齐了之后 AI 推断其余字段，目标上架信息质量分 5.0。</p>
       </div>
     </div>
 
@@ -97,8 +97,9 @@
           </p>
           <div v-if="excel.style === 'simple'" class="simple-steps">
             <p class="excel-lead">
-              表在这页下载，填完再传回来。不是官方 40 列表，也不会按类目往表里加 Type / Color。
-              你只填红线，标题和属性交给 AI。
+              表在这页下载。填写页只收依据：货号、价、起订量、图，品牌选填。
+              这些齐了，AI 按图和店铺默认推断标题、属性、详描、交易和物流，目标上架 5.0。
+              不是官方 40 列表，也不往表里加 Type / Color。
             </p>
 
             <div class="policy-grid">

@@ -10,6 +10,7 @@ seller instead of a guess sent to Alibaba.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from dataclasses import dataclass, field
@@ -18,7 +19,7 @@ from typing import Any, Mapping, Sequence
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ai import AiClient, AiUnavailable, ImageInput, Understanding  # noqa: E402
+from ai import AiClient, AiUnavailable, Copy, ImageInput, Understanding  # noqa: E402
 from icbu_api import IcbuApi  # noqa: E402
 from schema import (  # noqa: E402
     SchemaField,
@@ -29,7 +30,7 @@ from schema import (  # noqa: E402
 )
 
 from ..models import CategoryMemory, Shop
-from . import catalog
+from . import catalog, quality
 from .images import BankImage
 
 MAX_DESCENT_DEPTH = 6
@@ -336,12 +337,16 @@ def align_attributes(
             if applied is not None:
                 values[spec.id] = applied
                 continue
-            if spec.required or guess:
+            # Recommended attrs also go to AI: 5.0 needs completeness, not
+            # just required stars. Empty string if the photo does not show it.
+            if spec.required or guess or spec.options:
                 unresolved.append(spec)
             continue
         if guess:
             values[spec.id] = guess
 
+    unresolved.sort(key=lambda spec: (not spec.required, spec.id))
+    unresolved = unresolved[:24]
     if unresolved and ai is not None:
         resolved = _ask_attributes(ai, unresolved, understanding)
         for spec in unresolved:
@@ -385,9 +390,10 @@ def _ask_attributes(ai: AiClient, specs: Sequence[SchemaField], understanding: U
         "usage": understanding.usage,
     }
     prompt = (
-        "Choose the best option for each wholesale product attribute.\n"
+        "Choose the best option for each wholesale product attribute from the photos/facts.\n"
         "Only use text that appears verbatim in that attribute's options. "
-        "If nothing fits, use an empty string.\n\n"
+        "Never pick Other / Custom / 其他. Never invent certifications or brands.\n"
+        "If the evidence does not show it, use an empty string.\n\n"
         f"Product: {json.dumps(product, ensure_ascii=False)}\n"
         f"Attributes: {json.dumps(question, ensure_ascii=False)}\n\n"
         'Return JSON only, mapping attribute id to chosen option text: {"p-1": "China"}'
@@ -479,6 +485,73 @@ def apply_trade_terms(
         if chosen:
             values["marketSample"] = chosen
 
+    # Trade fields the official score counts. Values come from shop defaults,
+    # never from the model inventing a port or payment method.
+    _apply_listed_option(specs, values, "paymentMethod", defaults.get("paymentMethod") or "T/T")
+    _apply_listed_option(specs, values, "port", defaults.get("port") or "")
+    _apply_listed_option(specs, values, "market", defaults.get("market") or "询盘")
+    _apply_ladder_period(specs, values, defaults, moq)
+
+
+def _apply_listed_option(
+    specs: Mapping[str, SchemaField],
+    values: dict[str, Any],
+    field_id: str,
+    wanted: Any,
+) -> None:
+    spec = specs.get(field_id)
+    if spec is None or wanted in (None, ""):
+        return
+    labels = [item.strip() for item in re.split(r"[,，;|]+", str(wanted)) if item.strip()]
+    if spec.type in {"multiCheck", "multiInput"}:
+        picked = []
+        for label in labels:
+            option = spec.option_by_label(label)
+            if option is not None:
+                picked.append(option.value)
+        if picked:
+            values[field_id] = picked
+        return
+    if spec.options:
+        chosen = _option_value(spec, labels[0] if labels else str(wanted))
+        if chosen:
+            values[field_id] = chosen
+        return
+    values[field_id] = str(wanted)
+
+
+def _apply_ladder_period(
+    specs: Mapping[str, SchemaField],
+    values: dict[str, Any],
+    defaults: Mapping[str, Any],
+    moq: str,
+) -> None:
+    spec = specs.get("ladderPeriod")
+    days = str(defaults.get("ladderPeriod") or "15").strip()
+    if spec is None or not days:
+        return
+    slot = spec.children[0] if spec.children else None
+    if slot is None:
+        values["ladderPeriod"] = days
+        return
+    children = list(slot.children or [])
+    payload: dict[str, Any] = {}
+    if children:
+        for child in children:
+            name = f"{child.id} {child.name}".lower()
+            if "quant" in name or child.id.endswith("quantity"):
+                payload[child.id] = moq or "1"
+            elif any(token in name for token in ("period", "time", "day", "lead")):
+                payload[child.id] = days
+        if not payload and len(children) >= 2:
+            payload[children[0].id] = moq or "1"
+            payload[children[1].id] = days
+        elif not payload:
+            payload[children[0].id] = days
+        values["ladderPeriod"] = {slot.id: payload}
+        return
+    values["ladderPeriod"] = {slot.id: {"quantity": moq or "1", "period": days}}
+
 
 def apply_content(
     specs: Mapping[str, SchemaField],
@@ -487,6 +560,8 @@ def apply_content(
     keywords: Sequence[str],
     highlights: str,
     images: Sequence[BankImage],
+    copy: Copy | None = None,
+    understanding: Understanding | None = None,
 ) -> None:
     if title and "productTitle" in specs:
         values["productTitle"] = title
@@ -510,11 +585,29 @@ def apply_content(
     if highlights and "textDesc" in specs:
         values["textDesc"] = highlights
 
-    desc_type = specs.get("productDescType")
-    if desc_type is not None:
-        chosen = _option_value(desc_type, "普通编辑", fallback_first=True)
-        if chosen:
-            values["productDescType"] = chosen
+    rich = _super_text(copy, understanding, highlights)
+    if rich and "superText" in specs:
+        values["superText"] = rich
+        desc_type = specs.get("productDescType")
+        if desc_type is not None:
+            chosen = _option_value(desc_type, "富文本") or _option_value(desc_type, "普通编辑", fallback_first=True)
+            if chosen:
+                values["productDescType"] = chosen
+    else:
+        desc_type = specs.get("productDescType")
+        if desc_type is not None:
+            chosen = _option_value(desc_type, "普通编辑", fallback_first=True)
+            if chosen:
+                values["productDescType"] = chosen
+
+    faqs = list(copy.faqs) if copy is not None else []
+    faq_spec = specs.get("companyFaqDesc")
+    if faq_spec is not None and faqs:
+        values["companyFaqDesc"] = [
+            {"question": item.get("question") or "", "answers": item.get("answer") or item.get("answers") or ""}
+            for item in faqs
+            if item.get("question") and (item.get("answer") or item.get("answers"))
+        ]
 
     detail = specs.get("detailImage")
     if detail is not None and images:
@@ -522,9 +615,30 @@ def apply_content(
         values["detailImage"] = [
             {
                 "gallery": gallery,
-                "images": [{"imageURL": image.url} for image in images],
+                "images": [image.as_schema_value() for image in images],
             }
         ]
+
+
+def _super_text(copy: Copy | None, understanding: Understanding | None, highlights: str) -> str:
+    """Rich detail from evidence only. No certs, no invented brand."""
+    blocks: list[str] = []
+    lead = (copy.highlights if copy else "") or highlights
+    if lead:
+        blocks.append(f"<p>{html.escape(lead)}</p>")
+    points = list(copy.selling_points) if copy else []
+    if points:
+        items = "".join(f"<li>{html.escape(item)}</li>" for item in points)
+        blocks.append(f"<ul>{items}</ul>")
+    specs = dict(understanding.specs) if understanding else {}
+    if understanding and understanding.material:
+        specs.setdefault("Material", understanding.material)
+    if understanding and understanding.colors:
+        specs.setdefault("Color", ", ".join(understanding.colors))
+    if specs:
+        items = "".join(f"<li>{html.escape(str(key))}: {html.escape(str(value))}</li>" for key, value in specs.items())
+        blocks.append(f"<ul>{items}</ul>")
+    return "".join(blocks)
 
 
 # --------------------------------------------------------------------------
@@ -614,15 +728,29 @@ def build_draft(
                 "selling_points": copy.selling_points,
                 "faqs": copy.faqs,
             }
-            apply_content(specs, values, copy.title, copy.keywords, copy.highlights, images)
+            apply_content(
+                specs, values, copy.title, copy.keywords, copy.highlights, images, copy=copy, understanding=understanding
+            )
             result.title = copy.title
         except (AiUnavailable, ValueError) as exc:
             result.add_issue("productTitle", "商品标题", "red", f"AI 文案没生成成功：{exc}")
-            apply_content(specs, values, "", [], "", images)
+            apply_content(specs, values, "", [], "", images, understanding=understanding)
     else:
-        apply_content(specs, values, "", [], "", images)
+        apply_content(specs, values, "", [], "", images, understanding=understanding)
 
     result.values = values
+    report = quality.score_listing(
+        values=values,
+        fields=fields,
+        image_count=len(images),
+        price=price,
+        moq=moq,
+        category_id=category_id,
+    )
+    result.ai["quality"] = report
+    gap = quality.quality_issue(report)
+    if gap:
+        result.issues.append(gap)
 
     # Attribute alignment already reported the unresolved required attributes,
     # with their option lists attached; the generic "required and empty" row

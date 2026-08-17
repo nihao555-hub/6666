@@ -66,7 +66,7 @@
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
       <p class="muted" style="margin-bottom: 16px">
-        这些是经营决策，AI 不猜。填一次，之后每条商品自动套用，投料时就不用再问了。
+        这些是后面成稿的依据，也是 5.0 分里交易/物流桶要用的。AI 不猜。填一次，每条商品自动套。
       </p>
       <el-form v-if="editing" label-width="110px">
         <el-form-item label="店铺名">
@@ -106,6 +106,16 @@
             <el-input v-model="editing.defaults.pkgWidth" placeholder="宽" />
             <el-input v-model="editing.defaults.pkgHeight" placeholder="高" />
           </div>
+        </el-form-item>
+        <el-form-item label="付款方式">
+          <el-input v-model="editing.defaults.paymentMethod" placeholder="T/T, Western Union" />
+        </el-form-item>
+        <el-form-item label="港口">
+          <el-input v-model="editing.defaults.port" placeholder="Ningbo / Shanghai" />
+        </el-form-item>
+        <el-form-item label="发货期">
+          <el-input v-model="editing.defaults.ladderPeriod" placeholder="15" />
+          <div class="muted" style="margin-top: 6px">天数。交易信息分要用，AI 不准编交期。</div>
         </el-form-item>
         <el-form-item label="品牌">
           <el-input v-model="editing.defaults.brand" placeholder="没有就留空" />

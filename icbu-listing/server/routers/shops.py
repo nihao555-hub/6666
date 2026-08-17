@@ -43,6 +43,10 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
     "pkgHeight": "",
     "brand": "",
     "language": "en_US",
+    "paymentMethod": "T/T",
+    "port": "",
+    "ladderPeriod": "15",
+    "market": "询盘",
 }
 
 

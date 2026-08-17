@@ -49,6 +49,13 @@
       <el-table-column v-if="!shopFilter" label="店铺" width="140" show-overflow-tooltip>
         <template #default="{ row }">{{ row.shop_name || "—" }}</template>
       </el-table-column>
+      <el-table-column label="质量分" width="88">
+        <template #default="{ row }">
+          <span :class="{ 'text-red': row.quality && !row.quality.ready }">
+            {{ row.quality?.score != null ? row.quality.score.toFixed(1) : "—" }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="价格 / 起订" width="130">
         <template #default="{ row }">
           <span :class="{ 'text-red': !row.price || !row.moq }">

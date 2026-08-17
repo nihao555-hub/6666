@@ -66,6 +66,7 @@ def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dic
         "product_id": draft.product_id,
         "product_online_id": draft.product_online_id,
         "updated_at": draft.updated_at.isoformat(),
+        "quality": _json(draft.ai_json, {}).get("quality"),
     }
     if detailed:
         view["values"] = _json(draft.values_json, {})

@@ -200,6 +200,9 @@ def learn_defaults(db: Session, shop: Shop, *, product_id: str, category_id: str
         "shippingTemplateId": _nested(values, "shippingTemplate", "shippingTemplateId") or values.get("shippingTemplateId") or "",
         "pkgWeight": values.get("pkgWeight") or "",
         "brand": values.get("brand") or "",
+        "paymentMethod": values.get("paymentMethod") or "",
+        "port": values.get("port") or "",
+        "ladderPeriod": _period_days(values),
     }
     merged = dict(current)
     filled = []
@@ -237,3 +240,13 @@ def _nested(values: dict[str, Any], *keys: str) -> Any:
             return ""
         current = current.get(key)
     return current or ""
+
+
+def _period_days(values: dict[str, Any]) -> str:
+    raw = _nested(values, "ladderPeriod", "ladderPeriod_0") or values.get("ladderPeriod") or ""
+    if isinstance(raw, dict):
+        for key in ("period", "time", "days", "leadTime"):
+            if raw.get(key):
+                return str(raw[key])
+        return ""
+    return str(raw) if raw else ""
