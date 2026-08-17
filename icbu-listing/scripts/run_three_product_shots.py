@@ -53,6 +53,8 @@ SCENES = [
 
 
 def download(url: str, dest: Path) -> None:
+    if dest.is_file() and dest.stat().st_size > 1000:
+        return
     response = requests.get(url, timeout=60, headers={"User-Agent": "AutoShoper/1.0"})
     response.raise_for_status()
     dest.write_bytes(response.content)
