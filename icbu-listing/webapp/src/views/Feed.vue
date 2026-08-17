@@ -147,7 +147,7 @@
         <div v-if="batch" style="margin-top: 18px">
           <p>共 {{ batch.count }} 个商品，已完成 {{ progress.done }} 个。关掉页面也不影响。</p>
           <el-progress :percentage="percent" :stroke-width="10" />
-          <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱</el-button>
+          <el-button style="margin-top: 12px" @click="$router.push('/drafts?filter=pending')">去商品里核对</el-button>
         </div>
       </div>
     </template>
@@ -494,7 +494,7 @@
 
       <div v-else class="step-panel">
         <h3>开始成稿</h3>
-        <p class="muted">{{ excelGoHint }} 关掉页面也不影响，去草稿箱只审红黄项即可。</p>
+        <p class="muted">{{ excelGoHint }} 关掉页面也不影响，去商品里核对 AI 填的再发。</p>
         <div class="step-actions">
           <el-button @click="excelStep = 3">上一步</el-button>
           <el-button
@@ -509,7 +509,7 @@
         <div v-if="excel.batch" style="margin-top: 18px">
           <p>共 {{ excel.batch.count }} 个商品，已成稿 {{ excelProgress.done }} 个。</p>
           <el-progress :percentage="excelPercent" :stroke-width="10" />
-          <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱审红黄项</el-button>
+          <el-button style="margin-top: 12px" @click="$router.push('/drafts?filter=pending')">去商品里核对</el-button>
         </div>
       </div>
 

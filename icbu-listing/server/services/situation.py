@@ -24,6 +24,7 @@ class Snapshot:
     defaults_untouched: bool = True
     products: int = 0
     red: int = 0
+    unaudited: int = 0
     ready: int = 0
     drafts: int = 0
     online_count: int | None = None
@@ -44,6 +45,7 @@ def recommend(snap: Snapshot) -> dict[str, Any]:
             "shops": snap.shops,
             "products": snap.products,
             "red": snap.red,
+            "unaudited": snap.unaudited,
             "ready": snap.ready,
             "drafts": snap.drafts,
             "online_count": snap.online_count,
@@ -66,16 +68,24 @@ def _primary(snap: Snapshot) -> dict[str, Any]:
         return {
             "id": "review_reds",
             "title": f"先改完 {snap.red} 条要处理的商品",
-            "why": "红项多半是类目或属性对不上。点进商品改一下就能发。",
-            "action": {"label": "去商品里改", "to": "/drafts"},
-            "ai_does": ["标题、关键词、物流已经填好", "你只处理对不上的选项和价格"],
+            "why": "红项多半是类目或属性对不上。点进商品改一下，再点「审过了」。",
+            "action": {"label": "去商品里改", "to": "/drafts?filter=red"},
+            "ai_does": ["标题、关键词、规格 AI 先填", "你改错的，没审过不能发"],
+        }
+    if snap.unaudited > 0:
+        return {
+            "id": "review_ai",
+            "title": f"先核对 {snap.unaudited} 条 AI 填的",
+            "why": "AI 会填错类目和规格。打开商品改，点「审过了」才能进队列。",
+            "action": {"label": "去商品里核对", "to": "/drafts?filter=pending"},
+            "ai_does": ["标题、关键词、类目属性先填好", "人改过的下次重新成稿不会被盖掉"],
         }
     if snap.ready > 0:
         return {
             "id": "publish_ready",
-            "title": f"{snap.ready} 条可以发到店里",
-            "why": "绿的和黄的已经过校验。勾上就能进发布队列。",
-            "action": {"label": "去商品里发布", "to": "/drafts"},
+            "title": f"{snap.ready} 条已经核对，可以发到店里",
+            "why": "这些已经有人看过，也没有红项。勾上就能进发布队列。",
+            "action": {"label": "去商品里发布", "to": "/drafts?filter=ready"},
             "ai_does": ["失败原因会翻成中文，改完可重发"],
         }
     if snap.defaults_untouched:
@@ -123,6 +133,7 @@ def _alternatives(snap: Snapshot, current: str) -> list[dict[str, str]]:
     skip = {
         "no_shop": {"photos", "excel", "clone", "catalogue", "official", "ai_images"},
         "review_reds": set(),
+        "review_ai": set(),
         "publish_ready": set(),
         "no_defaults": set(),
         "has_catalogue": {"catalogue"},

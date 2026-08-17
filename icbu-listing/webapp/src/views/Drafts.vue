@@ -3,13 +3,13 @@
     <div class="page-head">
       <div>
         <h2>商品</h2>
-        <p class="muted">所有品的状态都在这里。点进去就能改标题、价格、起订量，保存立刻生效。</p>
+        <p class="muted">AI 会填错。点进去核对标题和规格，审过了才能发。</p>
       </div>
       <div v-if="tab === 'local'">
         <el-button :disabled="!selected.length" @click="publishSelected">
           批量发布（{{ selected.length }}）
         </el-button>
-        <el-button type="primary" @click="selectReady">一键选中可发布</el-button>
+        <el-button type="primary" @click="selectReady">一键选中已审可发</el-button>
       </div>
     </div>
 
@@ -19,12 +19,12 @@
         <button class="filter-pill" :class="{ 'is-on': tab === 'live' }" @click="setTab('live')">店里在售</button>
       </div>
       <div v-if="tab === 'local'" class="filter-pills" style="margin-left: 8px">
-        <button class="filter-pill" :class="{ 'is-on': status === '' }" @click="setStatus('')">全部 {{ counts.all }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'red' }" @click="setStatus('red')">待改 {{ counts.red }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'yellow' }" @click="setStatus('yellow')">可略过 {{ counts.yellow }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'green' }" @click="setStatus('green')">可发布 {{ counts.green }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'failed' }" @click="setStatus('failed')">失败 {{ counts.failed }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'published' }" @click="setStatus('published')">已发布 {{ counts.published }}</button>
+        <button class="filter-pill" :class="{ 'is-on': filter === '' }" @click="setFilter('')">全部 {{ counts.all }}</button>
+        <button class="filter-pill" :class="{ 'is-on': filter === 'pending' }" @click="setFilter('pending')">待审 {{ counts.pending }}</button>
+        <button class="filter-pill" :class="{ 'is-on': filter === 'red' }" @click="setFilter('red')">待改 {{ counts.red }}</button>
+        <button class="filter-pill" :class="{ 'is-on': filter === 'ready' }" @click="setFilter('ready')">已审可发 {{ counts.ready }}</button>
+        <button class="filter-pill" :class="{ 'is-on': filter === 'failed' }" @click="setFilter('failed')">失败 {{ counts.failed }}</button>
+        <button class="filter-pill" :class="{ 'is-on': filter === 'published' }" @click="setFilter('published')">已发布 {{ counts.published }}</button>
       </div>
       <div class="spacer"></div>
       <el-button text @click="reload">刷新</el-button>
@@ -44,9 +44,11 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="96">
+      <el-table-column label="状态" width="150">
         <template #default="{ row }">
           <span class="status-pill" :class="row.status">{{ label(row.status) }}</span>
+          <span v-if="!row.reviewed && !['published', 'publishing'].includes(row.status)" class="status-pill yellow" style="margin-left: 4px">待审</span>
+          <span v-else-if="row.reviewed && !['published', 'publishing'].includes(row.status)" class="status-pill green" style="margin-left: 4px">已审</span>
         </template>
       </el-table-column>
       <el-table-column prop="sku" label="货号" width="130" show-overflow-tooltip />
@@ -78,7 +80,7 @@
       </el-table-column>
       <el-table-column label="操作" width="130" align="right">
         <template #default="{ row }">
-          <el-button text type="primary" @click="$router.push(`/drafts/${row.id}`)">改</el-button>
+          <el-button text type="primary" @click="$router.push(`/drafts/${row.id}`)">核对</el-button>
           <el-button text type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -136,7 +138,7 @@ const router = useRouter();
 const rows = ref([]);
 const all = ref([]);
 const loading = ref(false);
-const status = ref("");
+const filter = ref(route.query.filter || "");
 const selected = ref([]);
 const shopFilter = ref(route.query.shop === "all" ? "" : store.shopId || "");
 const tab = ref(route.query.tab === "live" ? "live" : "local");
@@ -147,9 +149,11 @@ const liveLoading = ref(false);
 const busy = ref("");
 
 const counts = computed(() => {
-  const base = { all: all.value.length, red: 0, yellow: 0, green: 0, failed: 0, published: 0 };
+  const base = { all: all.value.length, red: 0, yellow: 0, green: 0, failed: 0, published: 0, pending: 0, ready: 0 };
   all.value.forEach((item) => {
     if (base[item.status] !== undefined) base[item.status] += 1;
+    if (!item.reviewed && !["published", "publishing"].includes(item.status)) base.pending += 1;
+    if (item.reviewed && ["green", "yellow"].includes(item.status)) base.ready += 1;
   });
   return base;
 });
@@ -159,17 +163,24 @@ function setTab(value) {
   reload();
 }
 
-function setStatus(value) {
-  status.value = value;
+function setFilter(value) {
+  filter.value = value;
   reload();
 }
 
 function label(value) {
-  return { red: "待改", yellow: "可略过", green: "可发布", publishing: "发布中", published: "已发布", failed: "失败" }[value] || value;
+  return { red: "待改", yellow: "可略过", green: "校验过", publishing: "发布中", published: "已发布", failed: "失败" }[value] || value;
 }
 
 function isSelectable(row) {
-  return ["green", "yellow", "failed"].includes(row.status);
+  return Boolean(row.reviewed) && ["green", "yellow", "failed"].includes(row.status);
+}
+
+function matches(item) {
+  if (!filter.value) return true;
+  if (filter.value === "pending") return !item.reviewed && !["published", "publishing"].includes(item.status);
+  if (filter.value === "ready") return Boolean(item.reviewed) && ["green", "yellow"].includes(item.status);
+  return item.status === filter.value;
 }
 
 async function reload() {
@@ -180,7 +191,7 @@ async function reload() {
   loading.value = true;
   try {
     all.value = await api.drafts(shopFilter.value ? { shop_id: shopFilter.value } : {});
-    rows.value = status.value ? all.value.filter((item) => item.status === status.value) : all.value;
+    rows.value = all.value.filter(matches);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -221,7 +232,7 @@ function onSelect(items) {
 }
 
 function selectReady() {
-  status.value = "green";
+  filter.value = "ready";
   reload();
 }
 

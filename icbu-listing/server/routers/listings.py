@@ -17,6 +17,7 @@ from ..db import SessionLocal
 from ..deps import current_user, get_db, owned_draft, shop_for
 from ..models import Draft, Job, Product, Shop, User, new_id
 from ..services import (
+    audit,
     catalog,
     dedup,
     distribution,
@@ -42,6 +43,8 @@ class DraftPatch(BaseModel):
     sku: str | None = None
     category_id: str | None = None
     regenerate: bool = False
+    reviewed: bool | None = None
+    audit_note: str = ""
 
 
 class PublishBatchIn(BaseModel):
@@ -79,13 +82,33 @@ def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dic
         "product_online_id": draft.product_online_id,
         "updated_at": draft.updated_at.isoformat(),
         "quality": _json(draft.ai_json, {}).get("quality"),
+        "reviewed": audit.is_reviewed(draft),
+        "audit": audit.view(draft),
     }
     if detailed:
         view["values"] = _json(draft.values_json, {})
         view["ai"] = _json(draft.ai_json, {})
         view["category_candidates"] = _json(draft.category_candidates_json, [])
         view["sources"] = sources.view(sources.parse(getattr(draft, "sources_json", None)))
+        view["audit_fields"] = []
     return view
+
+
+def _detailed_draft(db: Session, user: User, draft: Draft) -> dict[str, Any]:
+    view = draft_view(draft, detailed=True)
+    view["audit_fields"] = _audit_fields_for(db, user, draft)
+    return view
+
+
+def _audit_fields_for(db: Session, user: User, draft: Draft) -> list[dict[str, Any]]:
+    if not draft.category_id:
+        return []
+    try:
+        shop = shop_for(db, user, draft.shop_id)
+        xml = catalog.get_schema_xml(db, shop_api(shop), draft.category_id)
+    except (ShopNotConnected, GopError, HTTPException, RuntimeError):
+        return []
+    return audit.form_fields(xml, _json(draft.values_json, {}), sources.parse(getattr(draft, "sources_json", None)))
 
 
 def job_view(job: Job, shop_name: str = "") -> dict[str, Any]:
@@ -462,8 +485,12 @@ def list_drafts(
 
 
 @router.get("/drafts/{draft_id}")
-def get_draft(draft: Draft = Depends(owned_draft)) -> dict[str, Any]:
-    return draft_view(draft, detailed=True)
+def get_draft(
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+    draft: Draft = Depends(owned_draft),
+) -> dict[str, Any]:
+    return _detailed_draft(db, user, draft)
 
 
 @router.patch("/drafts/{draft_id}")
@@ -512,7 +539,11 @@ def patch_draft(
             draft=draft,
             field_sources=field_sources,
         )
-        return draft_view(draft, detailed=True)
+        audit.clear_review(draft, "regenerate" if payload.regenerate else "category")
+        if payload.reviewed:
+            audit.mark_reviewed(draft, payload.audit_note)
+        db.commit()
+        return _detailed_draft(db, user, draft)
 
     values = _json(draft.values_json, {})
     field_sources = sources.parse(getattr(draft, "sources_json", None))
@@ -548,8 +579,14 @@ def patch_draft(
         draft.status = pipeline.status_of(issues)
 
     draft.updated_at = datetime.utcnow()
+    if payload.reviewed:
+        audit.mark_reviewed(draft, payload.audit_note)
+    elif payload.audit_note:
+        payload_audit = audit.parse(getattr(draft, "audit_json", None))
+        payload_audit["note"] = payload.audit_note.strip()
+        draft.audit_json = audit.dump(payload_audit)
     db.commit()
-    return draft_view(draft, detailed=True)
+    return _detailed_draft(db, user, draft)
 
 
 @router.delete("/drafts/{draft_id}")
@@ -560,6 +597,25 @@ def delete_draft(db: Session = Depends(get_db), draft: Draft = Depends(owned_dra
 
 
 def _publish_one(db: Session, user: User, shop: Shop, draft: Draft) -> Job:
+    allowed, reason = audit.can_publish(draft)
+    if not allowed:
+        job = Job(
+            user_id=user.id,
+            shop_id=shop.id,
+            draft_id=draft.id,
+            batch_id=draft.batch_id,
+            mode=shop.publish_mode,
+            status="failed",
+            attempts=1,
+            sku=draft.sku,
+            title=draft.title,
+            error=reason,
+            finished_at=datetime.utcnow(),
+        )
+        db.add(job)
+        db.commit()
+        return job
+
     job = Job(
         user_id=user.id,
         shop_id=shop.id,
@@ -610,6 +666,9 @@ def publish_draft(
     draft: Draft = Depends(owned_draft),
 ) -> dict[str, Any]:
     shop = shop_for(db, user, draft.shop_id)
+    allowed, reason = audit.can_publish(draft)
+    if not allowed:
+        raise HTTPException(status_code=400, detail=reason)
     return job_view(_publish_one(db, user, shop, draft))
 
 
@@ -627,8 +686,19 @@ def publish_many(
     if not drafts:
         raise HTTPException(status_code=404, detail="没有找到可发布的草稿")
 
-    queued = []
+    skipped = []
+    eligible = []
     for draft in drafts:
+        allowed, reason = audit.can_publish(draft)
+        if allowed:
+            eligible.append(draft)
+        else:
+            skipped.append({"id": draft.id, "sku": draft.sku, "reason": reason})
+    if not eligible:
+        raise HTTPException(status_code=400, detail=skipped[0]["reason"] if skipped else "没有可发布的草稿")
+
+    queued = []
+    for draft in eligible:
         job = Job(
             user_id=user.id,
             shop_id=draft.shop_id,
@@ -644,7 +714,7 @@ def publish_many(
     db.commit()
 
     threading.Thread(target=_run_publish_queue, args=(user.id, queued), daemon=True).start()
-    return {"queued": len(queued), "job_ids": queued}
+    return {"queued": len(queued), "job_ids": queued, "skipped": skipped}
 
 
 def _run_publish_queue(user_id: str, job_ids: list[str]) -> None:
@@ -701,6 +771,9 @@ def retry_job(
     shop = db.get(Shop, job.shop_id)
     if draft is None or shop is None:
         raise HTTPException(status_code=400, detail="草稿或店铺已经不存在")
+    allowed, reason = audit.can_publish(draft)
+    if not allowed:
+        raise HTTPException(status_code=400, detail=reason)
     return job_view(_publish_one(db, user, shop, draft))
 
 

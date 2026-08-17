@@ -32,6 +32,18 @@ def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) 
         except json.JSONDecodeError:
             continue
 
+    open_statuses = ("red", "yellow", "green", "failed")
+    unaudited = (
+        db.query(Draft)
+        .filter(Draft.user_id == user.id, Draft.status.in_(open_statuses), Draft.reviewed_at.is_(None))
+        .count()
+    )
+    ready = (
+        db.query(Draft)
+        .filter(Draft.user_id == user.id, Draft.status.in_(("green", "yellow")), Draft.reviewed_at.is_not(None))
+        .count()
+    )
+
     shop_row = db.query(Shop).filter(Shop.user_id == user.id).order_by(Shop.created_at).first()
     defaults_untouched = True
     online_count = None
@@ -47,7 +59,8 @@ def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) 
             defaults_untouched=defaults_untouched,
             products=products,
             red=by_status.get("red", 0),
-            ready=by_status.get("green", 0) + by_status.get("yellow", 0),
+            unaudited=unaudited,
+            ready=ready,
             drafts=sum(by_status.values()),
             online_count=online_count,
             ai_enabled=settings.ai_enabled,
@@ -61,7 +74,8 @@ def overview(db: Session = Depends(get_db), user: User = Depends(current_user)) 
         "drafts_by_status": by_status,
         "red": by_status.get("red", 0),
         "red_issues": red_issues,
-        "ready": by_status.get("green", 0) + by_status.get("yellow", 0),
+        "unaudited": unaudited,
+        "ready": ready,
         "success": jobs.get("success", 0),
         "failed": jobs.get("failed", 0),
         "ai_enabled": settings.ai_enabled,

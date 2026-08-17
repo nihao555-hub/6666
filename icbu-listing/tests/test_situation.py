@@ -26,6 +26,12 @@ class SituationTests(unittest.TestCase):
         result = recommend(Snapshot(shops=1, defaults_untouched=False, ready=8))
         self.assertEqual(result["id"], "publish_ready")
 
+    def test_unaudited_drafts_block_publish(self) -> None:
+        result = recommend(Snapshot(shops=1, defaults_untouched=False, unaudited=5, ready=2))
+        self.assertEqual(result["id"], "review_ai")
+        self.assertIn("核对", result["title"])
+        self.assertIn("filter=pending", result["action"]["to"])
+
     def test_empty_defaults_match_official_pre_req(self) -> None:
         result = recommend(Snapshot(shops=1, defaults_untouched=True))
         self.assertEqual(result["id"], "no_defaults")

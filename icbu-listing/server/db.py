@@ -27,6 +27,10 @@ def _ensure_columns() -> None:
         names = {row[1] for row in rows}
         if rows and "sources_json" not in names:
             conn.exec_driver_sql("ALTER TABLE drafts ADD COLUMN sources_json TEXT DEFAULT '{}'")
+        if rows and "audit_json" not in names:
+            conn.exec_driver_sql("ALTER TABLE drafts ADD COLUMN audit_json TEXT DEFAULT '{}'")
+        if rows and "reviewed_at" not in names:
+            conn.exec_driver_sql("ALTER TABLE drafts ADD COLUMN reviewed_at DATETIME")
         product_rows = conn.exec_driver_sql("PRAGMA table_info(products)").fetchall()
         product_names = {row[1] for row in product_rows}
         if product_rows and "batch_id" not in product_names:

@@ -45,7 +45,7 @@
         <div class="empty">
           <img class="empty-art" src="/art/empty-queue.png" alt="" />
           <b>还没有发布记录</b>
-          草稿箱里绿的勾上，就会出现在这里。
+          商品里核对过、点过「审过了」的，才会出现在这里。
         </div>
       </template>
     </el-table>

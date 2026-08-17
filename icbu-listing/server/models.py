@@ -177,6 +177,8 @@ class Draft(Base):
     images_json: Mapped[str] = mapped_column(Text, default="[]")
     ai_json: Mapped[str] = mapped_column(Text, default="{}")
     sources_json: Mapped[str] = mapped_column(Text, default="{}")
+    audit_json: Mapped[str] = mapped_column(Text, default="{}")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     product_online_id: Mapped[str] = mapped_column(String(64), default="")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

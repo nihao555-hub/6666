@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>概览</h2>
-        <p class="muted">上品在投料，看状态和改每个品在商品，发布进度在队列。</p>
+        <p class="muted">上品在投料，AI 填完要人核对，发布进度在队列。</p>
       </div>
       <el-button type="primary" @click="$router.push(data.situation?.action?.to || '/feed')">
         {{ data.situation?.action?.label || "去投料" }}
@@ -65,7 +65,7 @@
       <button class="map-card" @click="$router.push('/drafts')">
         <small>看状态 · 改每个品</small>
         <b>商品</b>
-        <span class="muted">点进去改标题、价格、起订量，保存立刻生效。</span>
+        <span class="muted">点进去改 AI 填的标题和规格，审过了才能发。</span>
       </button>
       <button class="map-card" @click="$router.push('/queue')">
         <small>发布进度</small>
@@ -80,11 +80,15 @@
         <b>{{ data.shops ?? 0 }}</b>
       </div>
       <div class="stat">
+        <span class="muted">待核对</span>
+        <b style="color: var(--yellow)">{{ data.unaudited ?? 0 }}</b>
+      </div>
+      <div class="stat">
         <span class="muted">待处理红项</span>
         <b style="color: var(--red)">{{ data.red ?? 0 }}</b>
       </div>
       <div class="stat">
-        <span class="muted">可直接发布</span>
+        <span class="muted">已审可发</span>
         <b style="color: var(--green)">{{ data.ready ?? 0 }}</b>
       </div>
       <div class="stat">
@@ -147,9 +151,15 @@ onMounted(async () => {
   font-weight: 600;
   margin-bottom: 4px;
 }
+.stat-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
 @media (max-width: 900px) {
   .map-grid {
     grid-template-columns: 1fr;
+  }
+  .stat-grid {
+    grid-template-columns: 1fr 1fr;
   }
 }
 </style>
