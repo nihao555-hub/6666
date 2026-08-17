@@ -17,6 +17,7 @@ from server.services.excel_import import (  # noqa: E402
     apply_preview,
     build_template,
     category_attr_columns,
+    decide_image_action,
     fill_policy,
     find_header_row,
     guess_field,
@@ -25,6 +26,7 @@ from server.services.excel_import import (  # noqa: E402
     match_uploads,
     parse_rows,
     preview,
+    resolve_row_files,
     sheet_preview,
     split_images,
 )
@@ -83,6 +85,12 @@ class ParseTests(unittest.TestCase):
         matched = match_uploads("SKU-1001", [], uploads)
         self.assertEqual({name for name, _ in matched}, {"sku-1001_1.jpg", "sku-1001-2.jpg"})
 
+    def test_one_sku_named_file_is_enough(self) -> None:
+        matched = match_uploads("SKU-1001", [], {"sku-1001.jpg": b"only"})
+        self.assertEqual(matched, [("sku-1001.jpg", b"only")])
+        files = resolve_row_files(ExcelRow(sku="SKU-1001"), {"sku-1001.jpg": b"only"})
+        self.assertEqual(len(files), 1)
+
 
 class TemplateTests(unittest.TestCase):
     def test_sheet_preview_is_the_short_form_not_official_forty(self) -> None:
@@ -93,6 +101,9 @@ class TemplateTests(unittest.TestCase):
         self.assertNotIn("英文标题", labels)
         self.assertNotIn("叶子类目 ID", labels)
         self.assertIn("不是阿里后台", preview_data["note"])
+        images_col = next(item for item in preview_data["columns"] if item["id"] == "images")
+        self.assertFalse(images_col["required"])
+        self.assertTrue(next(item for item in preview_data["columns"] if item["id"] == "price")["required"])
 
     def test_generated_lingxing_template_round_trips(self) -> None:
         payload = build_template("lingxing")
@@ -188,6 +199,15 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(set(result["mapping"].values()), {"sku", "name", "price", "moq", "images", "note", "brand"})
         self.assertNotIn("英文标题", result["headers"])
         self.assertNotIn("叶子类目 ID", result["headers"])
+        book = load_workbook(io.BytesIO(payload))
+        help_text = " ".join(
+            str(cell or "")
+            for row in book["说明"].iter_rows(values_only=True)
+            for cell in row
+        )
+        self.assertIn("一张也行", help_text)
+        images_fill = next(item for item in fill_policy()["user_fills"] if item["id"] == "images")
+        self.assertFalse(images_fill["required"])
 
     def test_one_sheet_carries_many_products(self) -> None:
         payload = build_template("simple")
@@ -240,6 +260,34 @@ class TemplateTests(unittest.TestCase):
         self.assertIn((4, "red"), messages)  # no MOQ
         self.assertIn((4, "yellow"), messages)  # no image
         self.assertIn((5, "yellow"), messages)  # duplicate SKU
+
+    def test_rows_without_photos_stay_ready_and_one_photo_is_enough(self) -> None:
+        book = Workbook()
+        sheet = book.active
+        sheet.append(["货号", "单价 USD", "起订量", "图片", "品名（中文）"])
+        sheet.append(["A-01", "2.30", "300", "", "油漆刷"])
+        sheet.append(["A-02", "1.00", "100", "only.jpg", "杯子"])
+        buffer = io.BytesIO()
+        book.save(buffer)
+
+        result = preview(buffer.getvalue(), "simple")
+        self.assertEqual(result["row_count"], 2)
+        self.assertEqual(result["ready_count"], 2)
+        self.assertEqual(result["blocked_count"], 0)
+        self.assertEqual(result["image_stats"]["without_sheet_images"], 1)
+        self.assertEqual(result["image_stats"]["single_sheet_image"], 1)
+        self.assertTrue(any("画一套" in item["message"] for item in result["row_issues"]))
+        self.assertTrue(any("一张图" in warning for warning in result["warnings"]))
+
+        photos_only = preview(buffer.getvalue(), "simple", image_mode="photos_only")
+        self.assertTrue(any("跳过" in item["message"] for item in photos_only["row_issues"]))
+
+    def test_image_mode_decides_photos_generate_or_skip(self) -> None:
+        self.assertEqual(decide_image_action(True, "mixed"), "use_photos")
+        self.assertEqual(decide_image_action(False, "mixed"), "generate")
+        self.assertEqual(decide_image_action(True, "generate_all"), "generate")
+        self.assertEqual(decide_image_action(False, "photos_only"), "skip")
+        self.assertEqual(decide_image_action(True, "photos_only"), "use_photos")
 
     def test_brand_is_a_redline_default_not_an_ai_seed(self) -> None:
         row = ExcelRow(brand="Acme", price="1.80")

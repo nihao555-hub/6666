@@ -15,7 +15,7 @@ from ..models import FeedSession, utcnow
 PATHS = {
     "photo": {"label": "有实拍", "steps": ("上传图片", "填价格", "生成草稿")},
     "ai": {"label": "平台画图", "steps": ("写出品名", "生成套图", "填价格", "生成草稿")},
-    "excel": {"label": "填表批量", "steps": ("选类目", "下载表格", "传回表格", "配上图片", "开始成稿")},
+    "excel": {"label": "填表批量", "steps": ("选类目", "下载表格", "传回表格", "图怎么处理", "开始成稿")},
 }
 
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")

@@ -35,7 +35,7 @@
           <button class="path-card" @click="startPath('excel')">
             <small>一次很多、每个价不一样</small>
             <b>填表批量</b>
-            <p class="muted">下载短表，一行一个商品。不是阿里后台那张 40 列表。</p>
+            <p class="muted">下载短表，一行一个商品。有图用图（一张也行），没图的行按品名画一套并标黄。</p>
           </button>
         </div>
       </div>
@@ -323,7 +323,7 @@
         <h3>下载填写表</h3>
         <p class="muted">
           这张表的列是平台定的短表（货号、单价、起订量、图片、品牌、品名、备注），不是阿里后台下载的 40 列。
-          上面选的官方类目只用来让 AI 按该叶子的发布规则补标题和属性，那些列不写进表。
+          货号、单价、起订量必填；图片选填，一张也行，没图留空。上面选的官方类目只用来让 AI 按该叶子的发布规则补标题和属性。
         </p>
         <div class="sheet-preview" v-if="previewColumns.length">
           <table>
@@ -413,19 +413,78 @@
           </ul>
         </div>
         <p v-if="excel.preview" class="muted" style="margin-top: 12px">
-          识别到 {{ excel.preview.row_count }} 个商品，其中 {{ excel.preview.ready_count }} 个可以直接成稿。
+          识别到 {{ excel.preview.row_count }} 个商品，其中 {{ excel.preview.ready_count }} 个价和起订量齐了。
+          <template v-if="excel.preview.image_stats">
+            表里有图 {{ excel.preview.image_stats.with_sheet_images }} 个
+            <template v-if="excel.preview.image_stats.single_sheet_image">
+              （{{ excel.preview.image_stats.single_sheet_image }} 个只有一张）
+            </template>
+            ，没图 {{ excel.preview.image_stats.without_sheet_images }} 个。
+          </template>
         </p>
         <div class="step-actions">
           <el-button @click="excelStep = 1">上一步</el-button>
-          <el-button type="primary" :disabled="!excelFile.length" @click="advanceExcel(3)">下一步，配上图片</el-button>
+          <el-button type="primary" :disabled="!excelFile.length" @click="advanceExcel(3)">下一步，图怎么处理</el-button>
         </div>
       </div>
 
       <div v-else-if="excelStep === 3" class="step-panel">
-        <h3>配上图片</h3>
-        <p class="muted">表里写了链接就不用再传。本地图按货号命名，例如 SKU-1001_1.jpg。</p>
-        <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*" drag style="margin-top: 14px">
-          <div style="padding: 22px 0">把图拖进来，或跳过这一步（表里已有链接）</div>
+        <h3>这批图怎么处理</h3>
+        <p class="muted">有图、没图、只有一张，都可以在同一张表里。先选这批怎么走，再决定要不要拖本地图。</p>
+        <div class="path-grid" style="margin-top: 14px">
+          <button
+            type="button"
+            class="path-card"
+            :class="{ 'is-active': excel.imageMode === 'mixed' }"
+            @click="excel.imageMode = 'mixed'"
+          >
+            <small>推荐</small>
+            <b>有图用图，没图画套图</b>
+            <p class="muted">表里或拖进来的图当实拍，一张也行。没对上图的行按品名画 6 张，并标黄不是实拍。</p>
+          </button>
+          <button
+            type="button"
+            class="path-card"
+            :class="{ 'is-active': excel.imageMode === 'generate_all' }"
+            @click="excel.imageMode = 'generate_all'"
+          >
+            <small>这批都没实拍</small>
+            <b>全部按品名画套图</b>
+            <p class="muted">不管表里有没有链接，都画 6 张。生成图会标黄，不准冒充实拍。</p>
+          </button>
+          <button
+            type="button"
+            class="path-card"
+            :class="{ 'is-active': excel.imageMode === 'photos_only' }"
+            @click="excel.imageMode = 'photos_only'"
+          >
+            <small>只要实拍</small>
+            <b>只做成有图的行</b>
+            <p class="muted">没对上图的行跳过。一张实拍也够，不会再补生成图。</p>
+          </button>
+        </div>
+        <el-alert
+          v-if="excel.imageMode !== 'photos_only'"
+          type="warning"
+          show-icon
+          :closable="false"
+          title="生成图不是实拍"
+          description="没写的尺寸、装箱量、认证一律不画。没图的行出图要时间，额度不够会停在那一行。"
+          style="margin-top: 14px"
+        />
+        <p class="muted" style="margin-top: 16px">
+          {{ excelImageUploadHint }}
+        </p>
+        <el-upload
+          v-if="excel.imageMode !== 'generate_all'"
+          v-model:file-list="excelImages"
+          :auto-upload="false"
+          multiple
+          accept="image/*"
+          drag
+          style="margin-top: 10px"
+        >
+          <div style="padding: 22px 0">把本地图拖进来，按货号命名，例如 SKU-1001.jpg 或 SKU-1001_1.jpg</div>
         </el-upload>
         <div class="step-actions">
           <el-button @click="excelStep = 2">上一步</el-button>
@@ -435,7 +494,7 @@
 
       <div v-else class="step-panel">
         <h3>开始成稿</h3>
-        <p class="muted">后台一条一条过。关掉页面也不影响，去草稿箱只审红黄项即可。</p>
+        <p class="muted">{{ excelGoHint }} 关掉页面也不影响，去草稿箱只审红黄项即可。</p>
         <div class="step-actions">
           <el-button @click="excelStep = 3">上一步</el-button>
           <el-button
@@ -548,7 +607,7 @@ const excelSteps = [
   { key: "cat", label: "选类目" },
   { key: "dl", label: "下载表格" },
   { key: "up", label: "传回表格" },
-  { key: "img", label: "配上图片" },
+  { key: "img", label: "图怎么处理" },
   { key: "go", label: "开始成稿" },
 ];
 
@@ -587,6 +646,7 @@ const excel = reactive({
   preview: null,
   mapping: {},
   batch: null,
+  imageMode: "mixed",
 });
 const sheetPlan = ref({ user_fills: [], ai_fills: [], redline: [], ai_attrs: [], category_name: "", preview: null });
 const categoryBrowser = ref(false);
@@ -612,6 +672,24 @@ const mappingRows = computed(() => (excel.preview?.headers || []).map((header) =
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
   return Math.min(100, Math.round((excelProgress.value.done / excel.batch.count) * 100));
+});
+const excelImageUploadHint = computed(() => {
+  if (excel.imageMode === "photos_only") {
+    return "有本地图就拖进来，按货号命名。一张也行。对不上的行会跳过。";
+  }
+  if (excel.imageMode === "generate_all") {
+    return "不用传图。有参考图链接可以写在表里，只当画图参考，不当实拍。";
+  }
+  return "有本地图就拖进来，按货号命名，一张也行。没有的行按品名画套图。表里写了链接也不用再传。";
+});
+const excelGoHint = computed(() => {
+  if (excel.imageMode === "generate_all") {
+    return "这批都会画套图并标黄。后台一条一条过。";
+  }
+  if (excel.imageMode === "photos_only") {
+    return "只做成对上图的行，一张也行。没图的跳过。";
+  }
+  return "有图的用实拍（一张也行），没图的按品名画套图并标黄。后台一条一条过。";
 });
 const percent = computed(() => {
   if (!batch.value?.count) return 0;
@@ -652,6 +730,7 @@ function sessionPayload() {
       mapping: excel.mapping,
       preview: excel.preview,
       batch: excel.batch,
+      imageMode: excel.imageMode,
     },
     categoryName: sheetPlan.value.category_name || "",
     rowCount: excel.preview?.row_count || excel.batch?.count || batch.value?.count || 0,
@@ -751,6 +830,7 @@ function applySession(session) {
     excel.mapping = payload.excel.mapping || {};
     excel.preview = payload.excel.preview || null;
     excel.batch = payload.excel.batch || null;
+    excel.imageMode = payload.excel.imageMode || excel.imageMode || "mixed";
   }
   files.value = filesFromSession(session, "photos");
   batchFiles.value = filesFromSession(session, "batch");
@@ -896,6 +976,13 @@ watch(files, () => syncKind("photos", files.value), { deep: true });
 watch(batchFiles, () => syncKind("batch", batchFiles.value), { deep: true });
 watch(excelFile, () => syncKind("excel", excelFile.value), { deep: true });
 watch(excelImages, () => syncKind("excel_images", excelImages.value), { deep: true });
+watch(
+  () => excel.imageMode,
+  () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistSession, 400);
+  },
+);
 
 async function startGenerate() {
   if (!aiForm.productName && !aiForm.note && !aiForm.familyId) {
@@ -1066,6 +1153,7 @@ async function previewExcel() {
   body.append("style", excel.style);
   body.append("shop_id", store.shopId || "");
   body.append("category_id", excel.categoryId || "");
+  body.append("image_mode", excel.imageMode || "mixed");
   body.append("file", excelFile.value[0].raw);
   excel.loading = true;
   try {
@@ -1090,6 +1178,7 @@ async function importExcel() {
   body.append("listing_template_id", excel.listingTemplateId);
   body.append("category_id", excel.categoryId);
   body.append("session_id", sessionId.value);
+  body.append("image_mode", excel.imageMode || "mixed");
   if (excelFile.value[0]?.raw) body.append("file", excelFile.value[0].raw);
   excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
   excel.loading = true;

@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any, Iterable
 from urllib.parse import urlparse
 
@@ -27,6 +28,10 @@ from openpyxl.utils import get_column_letter
 
 # Official origin. Always a shop default, never a per-row column.
 SKIP_ATTR_IDS = {"p-1"}
+
+# How this batch treats photos. Default mixed: use whatever the row has
+# (one shot is enough); rows with nothing get a generated 6-slot set.
+IMAGE_MODES = ("mixed", "generate_all", "photos_only")
 
 # Row 2 of every template we hand out is a worked example. Sellers overwrite
 # it about half the time and append below it the other half, so it has to be
@@ -95,7 +100,7 @@ USER_FILLS: list[dict[str, Any]] = [
     {"id": "sku", "label": "货号", "required": True, "hint": "你自己的编码"},
     {"id": "price", "label": "单价 USD", "required": True, "hint": "红线，AI 不准定价"},
     {"id": "moq", "label": "起订量", "required": True, "hint": "红线，AI 不准编"},
-    {"id": "images", "label": "图片", "required": True, "hint": "文件名或链接；导入时也可把图拖进来"},
+    {"id": "images", "label": "图片", "required": False, "hint": "选填。有图写链接或文件名，一张也行；没图留空，导入时按品名画一套并标黄"},
     {"id": "brand", "label": "品牌", "required": False, "hint": "没有就留空，等于无品牌"},
     {"id": "name", "label": "品名（中文）", "required": False, "hint": "给自己看，也可当提示"},
     {"id": "note", "label": "备注", "required": False, "hint": "给自己看"},
@@ -113,7 +118,7 @@ AI_FILLS_BASE: list[dict[str, Any]] = [
 REDLINE: list[dict[str, str]] = [
     {"id": "price", "label": "售价", "reason": "生意决策，AI 不准定价"},
     {"id": "moq", "label": "起订量", "reason": "生意决策，AI 不准编数量"},
-    {"id": "images", "label": "实拍图", "reason": "不准用生成图冒充实拍"},
+    {"id": "images", "label": "实拍图", "reason": "有实拍就用实拍，一张也行。没图才画套图，必须标黄，不准冒充实拍"},
     {"id": "brand", "label": "品牌", "reason": "有品牌你填；空着=无品牌。AI 不准编品牌名"},
     {"id": "category_id", "label": "叶子类目", "reason": "整表选一次。猜错类目发不出去、属性全废"},
     {"id": "origin", "label": "原产地", "reason": "走店铺默认，AI 不准改"},
@@ -138,7 +143,7 @@ STYLES: dict[str, dict[str, Any]] = {
     "simple": {
         "id": "simple",
         "label": "短表批量上品",
-        "summary": "填写页只收依据。齐了之后 AI 推断其余官方字段，目标上架 5.0。价/图/品牌/类目是红线。",
+        "summary": "填写页只收依据。价和起订量必填。图可选：有图用图（一张也行），没图按品名画套图并标黄。",
         "columns": ["sku", "price", "moq", "images", "brand", "name", "note"],
         "create_drafts_default": True,
         "primary": True,
@@ -270,7 +275,7 @@ def sheet_preview(style: str = "simple") -> dict[str, Any]:
         {
             "id": field_id,
             "label": FIELDS[field_id],
-            "required": field_id in {"sku", "price", "moq", "images"},
+            "required": field_id in {"sku", "price", "moq"},
             "example": EXAMPLE_ROW.get(field_id, ""),
         }
         for field_id in spec["columns"]
@@ -278,7 +283,7 @@ def sheet_preview(style: str = "simple") -> dict[str, Any]:
     return {
         "style": spec["id"],
         "from_official_form": False,
-        "note": "不是阿里后台那张 40 列表。填写页只有你必须填的；标题和类目属性按这家店的官方发布规则由 AI 补。",
+        "note": "不是阿里后台那张 40 列表。货号、单价、起订量必填；图片选填，一张也行，没图的行按品名画套图。标题和类目属性按这家店的官方发布规则由 AI 补。",
         "columns": columns,
         "example_skipped": True,
     }
@@ -488,10 +493,45 @@ def parse_rows(
     return parsed
 
 
+def normalize_image_mode(value: str | None) -> str:
+    mode = (value or "mixed").strip().lower()
+    return mode if mode in IMAGE_MODES else "mixed"
+
+
+def decide_image_action(has_photos: bool, mode: str | None) -> str:
+    """use_photos | generate | skip — one row, after files have been resolved."""
+    chosen = normalize_image_mode(mode)
+    if chosen == "generate_all":
+        return "generate"
+    if has_photos:
+        return "use_photos"
+    if chosen == "photos_only":
+        return "skip"
+    return "generate"
+
+
+def image_stats(rows: list[ExcelRow]) -> dict[str, int]:
+    return {
+        "with_sheet_images": sum(1 for row in rows if row.images),
+        "without_sheet_images": sum(1 for row in rows if not row.images),
+        "single_sheet_image": sum(1 for row in rows if len(row.images) == 1),
+    }
+
+
+def missing_image_message(mode: str | None) -> str:
+    chosen = normalize_image_mode(mode)
+    if chosen == "photos_only":
+        return "表里没写图片。导入时若没拖进同货号的图，这行会跳过。"
+    if chosen == "generate_all":
+        return "这批按品名画套图。表里有图也不当实拍，生成图会标黄。"
+    return "表里没写图片。导入时拖进同货号的图（一张也行）就用实拍；否则按品名画一套并标黄。"
+
+
 def preview(
     content: bytes,
     style: str = "detect",
     extra_columns: list[dict[str, Any]] | None = None,
+    image_mode: str = "mixed",
 ) -> dict[str, Any]:
     rows = read_sheet(content)
     if not rows:
@@ -501,7 +541,8 @@ def preview(
     guessed_style = style if style != "detect" else guess_style(headers)
     mapping = mapping_from_headers(headers, guessed_style if style == "detect" else style, extra_columns)
     parsed, sample_skipped = drop_samples(parse_rows(rows, mapping, header_index, extra_columns))
-    issues = row_checks(parsed)
+    mode = normalize_image_mode(image_mode)
+    issues = row_checks(parsed, mode)
     blocked = {item["line"] for item in issues if item["level"] == "red"}
     return {
         "style": style,
@@ -517,14 +558,17 @@ def preview(
         "blocked_count": len(blocked),
         "row_issues": issues,
         "mapped_count": len(mapping),
-        "warnings": _preview_warnings(parsed, mapping, sample_skipped),
+        "warnings": _preview_warnings(parsed, mapping, sample_skipped, mode),
+        "image_mode": mode,
+        "image_stats": image_stats(parsed),
     }
 
 
-def row_checks(rows: list[ExcelRow]) -> list[dict[str, Any]]:
+def row_checks(rows: list[ExcelRow], image_mode: str = "mixed") -> list[dict[str, Any]]:
     """Per-row problems, found before a single AI call is spent on the batch."""
     issues: list[dict[str, Any]] = []
     seen: dict[str, int] = {}
+    mode = normalize_image_mode(image_mode)
     for row in rows:
         label = row.sku or row.name or f"第 {row.line} 行"
         if not row.price:
@@ -532,9 +576,7 @@ def row_checks(rows: list[ExcelRow]) -> list[dict[str, Any]]:
         if not row.moq:
             issues.append({"line": row.line, "sku": label, "level": "red", "message": "缺起订量。AI 不代填。"})
         if not row.images:
-            issues.append(
-                {"line": row.line, "sku": label, "level": "yellow", "message": "表里没写图片。导入时把图拖进来，按货号命名即可。"}
-            )
+            issues.append({"line": row.line, "sku": label, "level": "yellow", "message": missing_image_message(mode)})
         key = _norm(row.sku)
         if key and key in seen:
             issues.append(
@@ -545,7 +587,12 @@ def row_checks(rows: list[ExcelRow]) -> list[dict[str, Any]]:
     return issues
 
 
-def _preview_warnings(rows: list[ExcelRow], mapping: dict[str, str], sample_skipped: int = 0) -> list[str]:
+def _preview_warnings(
+    rows: list[ExcelRow],
+    mapping: dict[str, str],
+    sample_skipped: int = 0,
+    image_mode: str = "mixed",
+) -> list[str]:
     warnings: list[str] = []
     if sample_skipped:
         warnings.append(f"跳过 {sample_skipped} 行示例。模板第 2 行是样例，不会被当成你的货。")
@@ -554,7 +601,17 @@ def _preview_warnings(rows: list[ExcelRow], mapping: dict[str, str], sample_skip
     if "price" not in mapping.values():
         warnings.append("没有对上价格列。价格是生意决策，AI 不会代填。")
     if "images" not in mapping.values():
-        warnings.append("没有对上图片列。可以在导入时把图一起拖进来，按货号匹配。")
+        warnings.append("没有对上图片列。有图可拖进来按货号匹配（一张也行）；没图的行会按品名画套图并标黄。")
+    stats = image_stats(rows)
+    mode = normalize_image_mode(image_mode)
+    if mode == "generate_all":
+        warnings.append("这批按品名画套图，不当实拍，会标黄。表里或拖进来的图只当参考。")
+    elif stats["without_sheet_images"]:
+        warnings.append(
+            f"{stats['without_sheet_images']} 行表里没图。拖进同货号的图（一张也行）就用实拍；否则按品名画一套并标黄。"
+        )
+    if stats["single_sheet_image"] and mode != "generate_all":
+        warnings.append(f"{stats['single_sheet_image']} 行只有一张图。一张实拍也够，不会凑满 6 张。")
     empty_sku = sum(1 for item in rows if not item.sku)
     if empty_sku:
         warnings.append(f"{empty_sku} 行没有货号。")
@@ -586,6 +643,22 @@ def split_images(refs: list[str]) -> tuple[list[str], list[str]]:
     return urls, names
 
 
+def resolve_row_files(
+    row: ExcelRow,
+    uploads: dict[str, bytes],
+    fetch_url: Callable[[str], tuple[str, bytes] | None] | None = None,
+) -> list[tuple[str, bytes]]:
+    """Sheet links + dragged files. One match is enough; never pad to 6."""
+    urls, names = split_images(row.images)
+    files = match_uploads(row.sku, names, uploads)
+    if fetch_url is not None:
+        for url in urls[:6]:
+            fetched = fetch_url(url)
+            if fetched:
+                files.append(fetched)
+    return files[:6]
+
+
 def match_uploads(sku: str, names: list[str], uploads: dict[str, bytes]) -> list[tuple[str, bytes]]:
     """Match extra files by exact name, then by SKU prefix (factory habit)."""
     matched: list[tuple[str, bytes]] = []
@@ -610,8 +683,10 @@ def match_uploads(sku: str, names: list[str], uploads: dict[str, bytes]) -> list
 def who_fills(field_id: str) -> str:
     if field_id in {"productTitle", "productKeywords", "textDesc", "icbuCatProp", "saleProp", "superText"}:
         return "AI 生成（不进填写表）"
-    if field_id in {"ladderPrice", "fob", "scPrice", "minOrderQuantity", "scImages"}:
-        return "红线：你在「填写」表填（价格、起订量、图）"
+    if field_id in {"ladderPrice", "fob", "scPrice", "minOrderQuantity"}:
+        return "红线：你在「填写」表填（价格、起订量）"
+    if field_id in {"scImages"}:
+        return "有图你填，一张也行；没图按品名画套图并标黄，不准冒充实拍"
     if field_id in {"brand"}:
         return "红线：有品牌你填；空着=无品牌。AI 不准编"
     if field_id in {"origin", "priceUnit", "paymentMethod", "port", "shippingTemplateId", "pkgMeasure", "pkgWeight", "logisticsMode", "logisticsProperty", "marketSample", "market"}:
@@ -640,7 +715,7 @@ def build_template(
         "sku": "你自己的货号。一行一个商品，往下接着写就行，一张表可以写很多个。",
         "price": "红线。生意决策，AI 不准定价。",
         "moq": "红线。AI 不准编起订量。",
-        "images": "红线。文件名或 URL，分号分隔。必须是实拍或你自己的图，不准生成图冒充。导入时也可把图一起拖进来。",
+        "images": "选填。有图写文件名或 URL，分号分隔，一张也行。没图留空，导入时按品名画一套并标黄不是实拍。导入时也可把图拖进来。",
         "brand": "红线。有品牌就填；空着=无品牌。AI 不准编品牌名。",
         "name": "选填。给自己看，也可当中文提示。",
         "note": "选填。给自己看。",
@@ -672,7 +747,7 @@ def build_template(
     help_sheet["A1"].font = Font(bold=True, size=14)
     help_sheet["A2"] = spec["summary"]
     help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来，交给 AI。红线字段不准给 AI。"
-    help_sheet["A4"] = "一行 = 一个商品。一张表可以写很多行，一次批量上品。第 2 行灰色是示例，导入时自动跳过。"
+    help_sheet["A4"] = "一行 = 一个商品。图片选填：有图写链接或文件名，一张也行；没图留空，导入时按品名画一套并标黄。第 2 行灰色是示例，导入时自动跳过。"
     help_sheet["A4"].font = Font(bold=True)
 
     row = 5

@@ -17,7 +17,7 @@ from ai import AiClient, ImageInput  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, excel_import, feed_sessions, pipeline, products as catalogue, templates
+from ..services import catalog, distribution, excel_import, excel_images, feed_sessions, pipeline, products as catalogue, templates
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
@@ -123,6 +123,7 @@ async def preview_excel(
     style: str = Form("detect"),
     shop_id: str = Form(""),
     category_id: str = Form(""),
+    image_mode: str = Form("mixed"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -132,7 +133,7 @@ async def preview_excel(
         raise HTTPException(status_code=400, detail="文件是空的")
     extras = _attr_columns(db, user, shop_id, category_id) if style == "simple" else []
     try:
-        return excel_import.preview(content, style, extras)
+        return excel_import.preview(content, style, extras, image_mode)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"读不了这个表格：{exc}") from exc
 
@@ -146,6 +147,7 @@ async def import_excel(
     listing_template_id: str = Form(""),
     category_id: str = Form(""),
     session_id: str = Form(""),
+    image_mode: str = Form("mixed"),
     file: UploadFile | None = File(None),
     images: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
@@ -226,7 +228,17 @@ async def import_excel(
     ]
     thread = threading.Thread(
         target=_run_import,
-        args=(user.id, shop.id if shop else "", batch_id, payload, uploads, wants_drafts, listing_id, style),
+        args=(
+            user.id,
+            shop.id if shop else "",
+            batch_id,
+            payload,
+            uploads,
+            wants_drafts,
+            listing_id,
+            style,
+            excel_import.normalize_image_mode(image_mode),
+        ),
         daemon=True,
     )
     thread.start()
@@ -238,7 +250,13 @@ async def import_excel(
             shop_id=shop.id if shop else session.shop_id,
             payload={"batchId": batch_id, "rowCount": len(rows)},
         )
-    return {"batch_id": batch_id, "count": len(rows), "style": style, "create_drafts": wants_drafts}
+    return {
+        "batch_id": batch_id,
+        "count": len(rows),
+        "style": style,
+        "create_drafts": wants_drafts,
+        "image_mode": excel_import.normalize_image_mode(image_mode),
+    }
 
 
 def _run_import(
@@ -250,6 +268,7 @@ def _run_import(
     create_drafts: bool,
     listing_template_id: str,
     style: str,
+    image_mode: str = "mixed",
 ) -> None:
     del style  # reserved so a later importer can branch on the chosen style
     db = SessionLocal()
@@ -277,7 +296,7 @@ def _run_import(
                 attributes=dict(raw.get("attributes") or {}),
             )
             try:
-                _import_one(db, user, shop, row, uploads, ai, create_drafts, listing, batch_id)
+                _import_one(db, user, shop, row, uploads, ai, create_drafts, listing, batch_id, image_mode)
             except Exception as exc:
                 if shop is not None and create_drafts:
                     distribution.failed_draft(db, user.id, shop.id, None, batch_id, f"第 {row.line} 行：{exc}")
@@ -295,16 +314,64 @@ def _import_one(
     create_drafts: bool,
     listing: Template | None,
     batch_id: str,
+    image_mode: str = "mixed",
 ) -> None:
-    files = _resolve_images(row, uploads)
+    forced = row.category_id or (listing.category_id if listing is not None else "")
+    try:
+        files, source = excel_images.prepare_row_images(
+            row,
+            uploads,
+            image_mode,
+            user_id=user.id,
+            category_id=forced,
+            fetch_url=_fetch_image,
+        )
+    except excel_images.ExcelImageError as exc:
+        if shop is not None and create_drafts:
+            distribution.failed_draft(db, user.id, shop.id, None, batch_id, f"第 {row.line} 行：{exc.message}")
+        elif shop is None:
+            product = Product(
+                user_id=user.id,
+                sku=row.sku or f"row-{row.line}",
+                name=row.name or row.title,
+                price=row.price,
+                moq=row.moq,
+                note=exc.message,
+                batch_id=batch_id,
+            )
+            db.add(product)
+            db.commit()
+        return
+
+    if source == "skip":
+        if shop is not None and create_drafts:
+            distribution.failed_draft(db, user.id, shop.id, None, batch_id, f"第 {row.line} 行没图，已按「只导入有图的行」跳过")
+            return
+        product = Product(
+            user_id=user.id,
+            sku=row.sku or f"row-{row.line}",
+            name=row.name or row.title,
+            price=row.price,
+            moq=row.moq,
+            note="没图，已按「只导入有图的行」跳过",
+            batch_id=batch_id,
+        )
+        db.add(product)
+        db.commit()
+        return
+
     sku = row.sku or (files[0][0].rsplit(".", 1)[0][:60] if files else f"row-{row.line}")
+    note = row.note
+    if source == "generated":
+        extra = "平台按品名画了套图，不是实拍。买家要实拍时再补。"
+        note = "\n".join(part for part in (row.note.strip(), extra) if part)
     product = Product(
         user_id=user.id,
         sku=sku,
         name=row.name or row.title,
         price=row.price,
         moq=row.moq,
-        note=row.note,
+        note=note,
         batch_id=batch_id,
     )
     db.add(product)
@@ -313,7 +380,7 @@ def _import_one(
         catalogue.save_images(db, user, product, files[:6])
 
     understanding, error = pipeline.understand(
-        ai, [ImageInput(filename=name, content=content) for name, content in files[:6]], row.note or row.name or row.title
+        ai, [ImageInput(filename=name, content=content) for name, content in files[:6]], note or row.name or row.title
     )
     product.understanding_json = json.dumps(understanding.raw, ensure_ascii=False)
     if not product.name:
@@ -323,7 +390,6 @@ def _import_one(
     if not create_drafts or shop is None:
         return
 
-    forced = row.category_id or (listing.category_id if listing is not None else "")
     try:
         draft = distribution.build_draft_for_shop(
             db,
@@ -347,16 +413,8 @@ def _import_one(
         issues.append({"field_id": "ai", "field_name": "AI 成稿", "level": "yellow", "message": error, "path": "ai"})
         draft.issues_json = json.dumps(issues, ensure_ascii=False)
         db.commit()
-
-
-def _resolve_images(row: excel_import.ExcelRow, uploads: dict[str, bytes]) -> list[tuple[str, bytes]]:
-    urls, names = excel_import.split_images(row.images)
-    files = excel_import.match_uploads(row.sku, names, uploads)
-    for url in urls[:6]:
-        fetched = _fetch_image(url)
-        if fetched:
-            files.append(fetched)
-    return files
+    if source == "generated":
+        excel_images.mark_generated_images(db, draft)
 
 
 def _fetch_image(url: str) -> tuple[str, bytes] | None:
