@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -23,31 +24,36 @@ from server.services.image_templates import plan_stack  # noqa: E402
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/opt/cursor/artifacts/icbu-three-scenes")
 
-# Public Wikimedia Commons product photos. Used only as identity-lock references.
+# Wikimedia Commons originals, rehosted on this run's public app so the
+# China image host can fetch them. Used only as identity-lock references.
 # 1) 油漆刷 — File:Paint brush.JPG (English ferrule text "100% PURE BRISTLES")
 # 2) Arabic name — Hykker TWS (brand printed on the case)
 # 3) Spanish name — File:Coffee_mug.jpg (Swedish print already on the mug)
+PUBLIC_REF_BASE = os.environ.get(
+    "PUBLIC_REF_BASE",
+    "https://milk-loads-foreign-identify.trycloudflare.com/refs",
+)
 SCENES = [
     {
         "id": "paint-brush",
         "product_name": "油漆刷",
         "note": "猪鬃刷毛，拉丝铁皮箍，哑光木柄",
         "family_id": "tools",
-        "ref": "https://upload.wikimedia.org/wikipedia/commons/2/25/Paint_brush.JPG",
+        "ref": f"{PUBLIC_REF_BASE}/paint-brush.jpg",
     },
     {
         "id": "earbuds",
         "product_name": "سماعات أذن لاسلكية",
         "note": "glossy white plastic case, soft silicone tips",
         "family_id": "electronics",
-        "ref": "https://upload.wikimedia.org/wikipedia/commons/9/90/ActiveSound_wireless_earbuds_by_Hykker_%28POJM200483%29.jpg",
+        "ref": f"{PUBLIC_REF_BASE}/earbuds.jpg",
     },
     {
         "id": "ceramic-mug",
         "product_name": "Taza de cerámica",
         "note": "glazed white ceramic, printed graphic on the front",
         "family_id": "home",
-        "ref": "https://upload.wikimedia.org/wikipedia/commons/8/8d/Coffee_mug.jpg",
+        "ref": f"{PUBLIC_REF_BASE}/ceramic-mug.jpg",
     },
 ]
 
