@@ -19,7 +19,7 @@ Baby 44 · Beauty 59 · Car 50 · Cleaning 17 · Electronics 45 · Factory 162 �
 
 ## LINE 多账号托管教程
 
-要同时托管多个 LINE Official Account、获取 Channel secret / Access token 并部署到公网，见 [docs/line-multi-account/README.md](docs/line-multi-account/README.md)，配套服务在 [line-hub/](line-hub/)。
+要同时托管多个 LINE Official Account：图文版 [docs/line-multi-account/index.html](docs/line-multi-account/index.html)，配套服务 [line-hub/](line-hub/)。
 
 ## 使用脚本
 ```bash

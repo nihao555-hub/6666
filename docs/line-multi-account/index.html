@@ -3,403 +3,96 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>托管 5 个 LINE 官方账号：取密钥 + 公网部署</title>
+<title>5 个 LINE 账号：取密钥并部署公网</title>
 <style>
-  :root {
-    --green: #06c755;
-    --green-dark: #05a847;
-    --ink: #1a1d21;
-    --muted: #5c6570;
-    --line: #e6e8eb;
-    --bg: #f4f6f8;
-    --card: #fff;
-    --code: #0f1720;
-    --warn: #8a3b12;
-    --warn-bg: #fff6ee;
-    --tip: #0b4f2c;
-    --tip-bg: #eefaf3;
-    --nav: 280px;
-  }
+  :root { --g:#06c755; --ink:#1a1d21; --muted:#5c6570; --line:#e6e8eb; --bg:#f5f6f8; }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
-    font: 16px/1.7 "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
-      "WenQuanYi Micro Hei", "Microsoft YaHei", sans-serif;
+    margin: 0 auto; max-width: 820px; padding: 28px 20px 72px;
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.65 "PingFang SC","Hiragino Sans GB","WenQuanYi Micro Hei","Microsoft YaHei",sans-serif;
   }
-  a { color: var(--green-dark); }
-  code, kbd, pre {
-    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
-  }
-  code {
-    background: #eef1f4;
-    padding: .1em .35em;
-    border-radius: 4px;
-    font-size: .9em;
-  }
-  pre {
-    background: var(--code);
-    color: #e8edf2;
-    padding: 16px 18px;
-    border-radius: 10px;
-    overflow: auto;
-    font-size: 13.5px;
-    line-height: 1.55;
-  }
-  pre code { background: none; color: inherit; padding: 0; }
-  .layout { display: grid; grid-template-columns: var(--nav) 1fr; min-height: 100vh; }
-  nav {
-    position: sticky; top: 0; height: 100vh; overflow: auto;
-    background: #111418; color: #d5dbe3; padding: 22px 16px 40px;
-  }
-  nav .brand {
-    color: #fff; font-weight: 800; letter-spacing: -.3px;
-    padding: 4px 10px 16px; border-bottom: 1px solid #2a3038; margin-bottom: 14px;
-  }
-  nav .brand small { display: block; color: #8b95a1; font-weight: 500; margin-top: 4px; }
-  nav a {
-    display: block; color: #c5ccd4; text-decoration: none;
-    padding: 7px 10px; border-radius: 8px; font-size: 13.5px;
-  }
-  nav a:hover, nav a.active { background: #1d232b; color: #fff; }
-  nav a .n {
-    display: inline-block; width: 22px; color: var(--green); font-weight: 700;
-  }
-  main { max-width: 980px; padding: 36px 40px 80px; }
-  .hero {
-    background: linear-gradient(160deg, #0f1714 0%, #163024 55%, #0d1a14 100%);
-    color: #fff; border-radius: 18px; padding: 36px 36px 28px; margin-bottom: 28px;
-  }
-  .hero .tag {
-    display: inline-block; background: var(--green); color: #06210f;
-    font-weight: 800; font-size: 12px; padding: 3px 8px; border-radius: 999px;
-    letter-spacing: .4px;
-  }
-  .hero h1 { margin: 12px 0 10px; font-size: 32px; line-height: 1.25; }
-  .hero p { margin: 0; color: #c9d6ce; max-width: 720px; }
-  h2 {
-    font-size: 24px; margin: 48px 0 14px; padding-top: 8px;
-    border-top: 1px solid var(--line);
-  }
-  h2:first-of-type { border-top: 0; margin-top: 8px; }
-  h3 { font-size: 18px; margin: 22px 0 8px; }
-  p { margin: 0 0 12px; }
-  ul, ol { margin: 0 0 14px; padding-left: 1.3em; }
-  li { margin: 4px 0; }
-  table {
-    width: 100%; border-collapse: collapse; background: var(--card);
-    border-radius: 10px; overflow: hidden; margin: 12px 0 18px;
-    box-shadow: 0 1px 2px rgba(16,24,40,.04);
-  }
-  th, td { border-bottom: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
-  th { background: #f3f5f7; font-size: 13px; color: var(--muted); }
-  td { font-size: 14.5px; }
-  .figure {
-    margin: 16px 0 22px; background: var(--card); border: 1px solid var(--line);
-    border-radius: 12px; overflow: hidden;
-    box-shadow: 0 8px 24px rgba(16,24,40,.05);
-  }
-  .figure img { display: block; width: 100%; height: auto; background: #fff; }
-  .figure figcaption {
-    padding: 10px 14px; font-size: 13px; color: var(--muted);
-    border-top: 1px solid var(--line); background: #fafbfc;
-  }
-  .callout {
-    border-radius: 10px; padding: 12px 14px; margin: 12px 0 16px; font-size: 14.5px;
-  }
-  .callout.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #f0d2b6; }
-  .callout.tip { background: var(--tip-bg); color: var(--tip); border: 1px solid #b8ebcd; }
-  .steps { display: grid; gap: 10px; margin: 14px 0 18px; }
-  .step {
-    display: grid; grid-template-columns: 36px 1fr; gap: 12px;
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
-  }
-  .step b {
-    width: 36px; height: 36px; border-radius: 50%; background: var(--green);
-    color: #06210f; display: grid; place-items: center;
-  }
-  footer { color: var(--muted); font-size: 13px; margin-top: 48px; }
-  @media (max-width: 900px) {
-    .layout { grid-template-columns: 1fr; }
-    nav { position: relative; height: auto; }
-    main { padding: 20px 16px 60px; }
-    .hero { padding: 24px 20px; }
-    .hero h1 { font-size: 24px; }
-  }
+  h1 { font-size: 26px; margin: 0 0 8px; }
+  h2 { font-size: 20px; margin: 36px 0 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+  p, li { color: #2a3038; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:12px 0; }
+  img { display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:10px; margin:10px 0 4px; background:#fff; }
+  figcaption { color:var(--muted); font-size:13px; margin:0 0 14px; }
+  code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  code { background:#eef1f4; padding:.1em .35em; border-radius:4px; font-size:.9em; }
+  pre { background:#111418; color:#e8edf2; padding:14px 16px; border-radius:10px; overflow:auto; font-size:13.5px; }
+  ol { padding-left: 1.2em; }
+  .ok { background:#eefaf3; border:1px solid #b8ebcd; color:#0b4f2c; border-radius:10px; padding:12px 14px; }
+  .warn { background:#fff6ee; border:1px solid #f0d2b6; color:#8a3b12; border-radius:10px; padding:12px 14px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden; }
+  th, td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; font-size:14.5px; }
+  th { background:#f3f5f7; color:var(--muted); font-size:13px; }
 </style>
 </head>
 <body>
-<div class="layout">
-<nav>
-  <div class="brand">LINE 五账号托管<small>取密钥 → 公网部署</small></div>
-  <a href="#what"><span class="n">*</span>你会拿到什么</a>
-  <a href="#arch"><span class="n">0</span>整体架构</a>
-  <a href="#s1"><span class="n">1</span>建 5 个官方账号</a>
-  <a href="#s2"><span class="n">2</span>启用 Messaging API</a>
-  <a href="#s3"><span class="n">3</span>建立 Provider</a>
-  <a href="#s4"><span class="n">4</span>打开 Channel</a>
-  <a href="#s5"><span class="n">5</span>复制 Channel secret</a>
-  <a href="#s6"><span class="n">6</span>签发 Access token</a>
-  <a href="#s7"><span class="n">7</span>填 Webhook URL</a>
-  <a href="#s8"><span class="n">8</span>本地先跑通</a>
-  <a href="#s9"><span class="n">9</span>买公网服务器</a>
-  <a href="#s10"><span class="n">10</span>部署 line-hub</a>
-  <a href="#s11"><span class="n">11</span>回到 Console Verify</a>
-  <a href="#s12"><span class="n">12</span>可选加固</a>
-  <a href="#faq"><span class="n">?</span>排错表</a>
-</nav>
-<main>
-  <header class="hero">
-    <span class="tag">图文教程</span>
-    <h1>托管 5 个 LINE 官方账号：<br>取密钥 + 部署公网</h1>
-    <p>一台小 VPS 同时托管 5 个 LINE Official Account。每个账号一套独立密钥、一条独立 webhook 路径；服务端按路径分流、按账号验签、按账号回复。</p>
-  </header>
+  <h1>5 个 LINE 账号：取密钥，部署公网</h1>
+  <p class="sub">每个号只要 2 个密钥 + 1 条 webhook。一台小服务器就能托管 5 个号。</p>
 
-  <div class="callout tip">
-    带红框的是 <a href="https://developers.line.biz/">LINE 官方文档</a> 原图加中文标注。
-    Channel secret / Access token 那两页官方没有完整公开截图，按控制台真实字段画了示意图。
-    配套代码在仓库 <code>line-hub/</code>。
+  <div class="card">
+    <b>每个账号复制这两样</b>
+    <table>
+      <tr><th>复制什么</th><th>在哪一页</th><th>填到哪里</th></tr>
+      <tr><td>Channel secret</td><td>Basic settings</td><td><code>ACC1_CHANNEL_SECRET</code></td></tr>
+      <tr><td>Channel access token</td><td>Messaging API → Issue</td><td><code>ACC1_CHANNEL_TOKEN</code></td></tr>
+    </table>
+    <p style="margin:10px 0 0">二号就改成 <code>ACC2_…</code>，一直到 acc5。Webhook 分别是 <code>/webhook/acc1</code> … <code>/webhook/acc5</code>。</p>
   </div>
+  <img src="images/s-table.png" alt="5 个账号对照表">
+  <figcaption>5 个号对上这三列就行，别对串。</figcaption>
 
-  <h2 id="what">你会拿到什么</h2>
-  <p>每个账号 3 样东西，5 个账号一共 15 个值：</p>
-  <table>
-    <tr><th>名称</th><th>在哪一页</th><th>干什么</th><th>对应 .env</th></tr>
-    <tr><td>Channel ID</td><td>Basic settings</td><td>对账、排错</td><td>记在本子上即可</td></tr>
-    <tr><td><b>Channel secret</b></td><td>Basic settings</td><td>校验 webhook 签名</td><td><code>ACCn_CHANNEL_SECRET</code></td></tr>
-    <tr><td><b>Channel access token</b></td><td>Messaging API</td><td>调用 API 发消息</td><td><code>ACCn_CHANNEL_TOKEN</code></td></tr>
-  </table>
-  <p>填完之后长这样：</p>
-  <figure class="figure">
-    <img src="images/13-key-table.png" alt="5 个账号的密钥登记表">
-    <figcaption>图：5 个账号的密钥、环境变量和 Webhook URL 对照表</figcaption>
-  </figure>
-
-  <h2 id="arch">0. 先看懂整体架构</h2>
-  <p>用户在手机 LINE 里给某个官方账号发消息 → LINE 平台按该 channel 配置的 Webhook URL 把事件 POST 到你的服务器 → 你的服务用<strong>这个账号自己的</strong> secret 验签 → 立刻回 200 → 后台用<strong>这个账号自己的</strong> token 调 reply API。</p>
-  <figure class="figure">
-    <img src="images/10-architecture.png" alt="5 账号到一台服务器的架构">
-    <figcaption>图：5 个官方账号 → LINE Platform → 一台 line-hub</figcaption>
-  </figure>
-  <p>为什么要 5 条路径、不能共用一个 webhook？</p>
-  <ul>
-    <li>LINE 每个 channel <b>只能填一个</b> webhook URL。</li>
-    <li>签名用的 secret <b>每个 channel 不同</b>。共用一个入口就不知道该用哪把钥匙验签。</li>
-    <li>回消息用的 token 也不同。路径即账号，最不容易搞混。</li>
-  </ul>
-
-  <h2 id="s1">1. 在 Official Account Manager 建好 5 个账号</h2>
-  <p>打开 <a href="https://manager.line.biz/">https://manager.line.biz/</a>。没有 Business ID 先按 <a href="https://developers.line.biz/en/docs/messaging-api/getting-started/">官方入门</a> 注册一个。一个登录账号可以管多个官方账号，5 个号建在同一个 Business ID 下最省事。</p>
-  <figure class="figure">
-    <img src="images/01-oa-manager-accounts.png" alt="LINE Official Account Manager 账号列表">
-    <figcaption>图：manager.line.biz 账号列表。左侧 Create new 每个号点一次；Role 必须是 Administrator。</figcaption>
-  </figure>
-  <div class="steps">
-    <div class="step"><b>1</b><div>左侧点 <b>Create new</b>，每个号点一次，重复 5 次。</div></div>
-    <div class="step"><b>2</b><div>列表里你的 <b>Role 必须是 Administrator</b>，否则 Developers Console 里看不到 secret / token。</div></div>
-    <div class="step"><b>3</b><div>账号名称建议写成「客服一号 / 客服二号…」，后面填表不容易对错号。</div></div>
-  </div>
-
-  <h2 id="s2">2. 给每个账号启用 Messaging API</h2>
-  <p>路径：选中某个账号 → 右上角「設定 / Settings」→「Messaging API」→ 点 Enable。启用后才会在 LINE Developers Console 生成同名 channel。<b>5 个账号各点一次。</b></p>
-  <figure class="figure">
-    <img src="images/02-oa-enable-messaging-api.png" alt="启用 Messaging API">
-    <figcaption>图：每个账号点一次 Enable，五个账号统一选同一个 Provider。</figcaption>
-  </figure>
-  <div class="callout warn">
-    <b>两个坑：</b>Provider 一旦绑定就不能换，5 个号建议挂同一个。不同 Provider 下，同一位 LINE 用户的 <code>userId</code> 不一样，以后想跨号识别同一用户会失效。
-  </div>
-
-  <h2 id="s3">3. 建立 / 选择 Provider</h2>
-  <p>打开 <a href="https://developers.line.biz/console/">https://developers.line.biz/console/</a>。没有 Provider 就新建一个，例如 <code>my-line-hub</code>。</p>
-  <figure class="figure">
-    <img src="images/03-provider-create.png" alt="Create a new provider">
-    <figcaption>图：Create a new provider。官方文档原图 + 中文标注。</figcaption>
-  </figure>
-
-  <h2 id="s4">4. 打开对应的 Messaging API channel</h2>
-  <p>启用 Messaging API 之后，每个官方账号会在这个 Provider 下出现一张卡片。点进去。5 个账号就是 5 张卡片，后面第 5～8 步对每张卡片各做一遍。</p>
-  <figure class="figure">
-    <img src="images/04-console-channels.png" alt="Console 首页的 channel 卡片">
-    <figcaption>图：LINE Developers Console 的 Channels 页，点进 Messaging API channel。</figcaption>
-  </figure>
-
-  <h2 id="s5">5. 复制 Channel secret（验签用）</h2>
-  <p>进 channel 后先打开 <b>Basic settings</b> 标签页。</p>
-  <figure class="figure">
-    <img src="images/05-basic-settings-secret.png" alt="Basic settings 里的 Channel secret">
-    <figcaption>图：Channel ID 记下来对账；Channel secret 复制到 .env 的 ACC1_CHANNEL_SECRET。</figcaption>
-  </figure>
-  <ul>
-    <li><b>Channel ID</b>：一串数字，记下来对账用。</li>
-    <li><b>Channel secret</b>：32 位十六进制。复制到 <code>.env</code> 的 <code>ACC1_CHANNEL_SECRET</code>（二号就 <code>ACC2_…</code>）。</li>
-    <li>secret <b>不能用来发消息</b>，只用来校验 <code>X-Line-Signature</code>。怀疑泄露了就在本页重新 Issue。</li>
-  </ul>
-
-  <h2 id="s6">6. 签发 Channel access token（发消息用）</h2>
-  <p>切到 <b>Messaging API</b> 标签页，拉到 Channel access token (long-lived)。</p>
-  <figure class="figure">
-    <img src="images/06-messaging-api-token.png" alt="签发长期 Channel access token">
-    <figcaption>图：点 Issue 生成长期 token，复制到 ACC1_CHANNEL_TOKEN；建议关掉自动回复。</figcaption>
-  </figure>
-  <ul>
-    <li>第一次点 <b>Issue</b> 生成，复制到 <code>.env</code> 的 <code>ACC1_CHANNEL_TOKEN</code>。</li>
-    <li><b>重新 Issue 会让旧 token 立刻失效</b>，正在跑的服务会发不出消息。</li>
-    <li>长期 token 永不过期、每个 channel 只有 1 个，图省事可以先用。上线后建议换成有效期 ≤30 天的 <a href="https://developers.line.biz/en/docs/basics/channel-access-token/">v2.1 token</a>。</li>
-    <li>同一页把 Greeting messages 和 Auto-reply messages 关掉，否则官方账号会和你的程序抢答。</li>
-  </ul>
-  <p>用手机 LINE 扫本页的 QR code，把这个官方账号加为好友，后面自测要用。</p>
-
-  <h2 id="s7">7. 填 Webhook URL（先不要 Verify）</h2>
-  <p>还在 Messaging API 标签页，找到 Webhook settings。这一步要等服务器起来再 Verify，但 URL 规则现在就要定好：</p>
-  <table>
-    <tr><th>账号</th><th>Webhook URL</th></tr>
-    <tr><td>acc1</td><td><code>https://你的域名/webhook/acc1</code></td></tr>
-    <tr><td>acc2</td><td><code>https://你的域名/webhook/acc2</code></td></tr>
-    <tr><td>acc3</td><td><code>https://你的域名/webhook/acc3</code></td></tr>
-    <tr><td>acc4</td><td><code>https://你的域名/webhook/acc4</code></td></tr>
-    <tr><td>acc5</td><td><code>https://你的域名/webhook/acc5</code></td></tr>
-  </table>
-  <figure class="figure">
-    <img src="images/07-webhook-url.png" alt="填写 Webhook URL">
-    <figcaption>图：官方文档 Webhook settings 原图。填 HTTPS 地址，点 Verify，打开 Use webhook。</figcaption>
-  </figure>
-  <div class="callout warn">
-    必须是 HTTPS，证书必须由浏览器普遍信任的 CA 签发。<b>自签证书一律不接受。</b>每个 channel 只能填一个 webhook URL。
-  </div>
-  <p>先点 Edit 填上 URL 并 Update。Use webhook 先打开。Verify 等第 11 步服务器起来再点。建议同时打开失败重投：</p>
-  <figure class="figure">
-    <img src="images/09-webhook-redelivery.png" alt="开启 Webhook redelivery">
-    <figcaption>图：建议打开 Webhook redelivery，发布/重启那几秒丢的事件会被重投。</figcaption>
-  </figure>
-
-  <h2 id="s8">8. 本地先跑通（可选，但强烈建议）</h2>
-  <p>本机没有公网 HTTPS，LINE 的 Verify 会失败。本地只做两件事：确认程序能起来、确认验签不是摆设。</p>
-<pre><code>cd line-hub
-python3 -m pip install -r app/requirements.txt
-cp .env.example .env
-# 把 5 套 SECRET / TOKEN 填进 .env
-python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000</code></pre>
-  <p>另开一个终端：</p>
-<pre><code>curl -s http://127.0.0.1:8000/healthz
-# 期望: {"ok":true,"accounts":["acc1","acc2","acc3","acc4","acc5"]}</code></pre>
-  <p>用配套测试验证「错 secret 必须 403」：</p>
-<pre><code>cd line-hub
-python3 -m pip install -r app/requirements.txt pytest
-python3 -m pytest tests/test_signature.py -q</code></pre>
-  <p>想用真实 LINE 事件打本地，可以用 <a href="https://ngrok.com/">ngrok</a> 临时开一条 HTTPS 隧道（免费域名也是受信任证书）：</p>
-<pre><code>ngrok http 8000
-# 得到 https://xxxx.ngrok-free.app
-# 把 5 个 channel 的 Webhook URL 临时改成
-# https://xxxx.ngrok-free.app/webhook/acc1  … acc5
-# 然后点 Verify</code></pre>
-  <p>ngrok 免费域名会变，只适合联调。正式环境用自己的域名。</p>
-
-  <h2 id="s9">9. 买一台能被公网访问的服务器</h2>
-  <p>最低配置：1 核 1G、Ubuntu 22.04 / 24.04、每月流量 1TB 足够。节点优先选 <b>日本或新加坡</b>，离 LINE 平台近。</p>
-  <table>
-    <tr><th>端口</th><th>用途</th></tr>
-    <tr><td>80</td><td>Let's Encrypt HTTP-01 验证，Caddy 必须能拿到</td></tr>
-    <tr><td>443</td><td>正式 HTTPS webhook</td></tr>
-    <tr><td>22</td><td>SSH，建议改成密钥登录并限制来源 IP</td></tr>
-  </table>
-  <p>再准备一个域名，加一条 A 记录指到服务器公网 IP：</p>
-<pre><code>line.example.com.    A    1.2.3.4</code></pre>
-  <p>用 <code>dig +short line.example.com</code> 确认已经解析到这台机器，再往下走。证书申请依赖这步。</p>
-  <figure class="figure">
-    <img src="images/11-deploy-topology.png" alt="公网部署链路">
-    <figcaption>图：域名 → VPS → Caddy 自动 HTTPS → line-hub 容器，以及上线前自检清单。</figcaption>
-  </figure>
-
-  <h2 id="s10">10. 在服务器上部署</h2>
-  <p>SSH 登录后：</p>
-<pre><code>sudo apt-get update
-sudo apt-get install -y git docker.io docker-compose-v2
-sudo usermod -aG docker "$USER"
-# 重新登录一次让 docker 组生效</code></pre>
-  <p>把本仓库拷上去（或只拷 <code>line-hub/</code> 目录）：</p>
-<pre><code>git clone &lt;你的仓库地址&gt; &amp;&amp; cd &lt;仓库&gt;/line-hub
-cp .env.example .env
-nano .env</code></pre>
-  <p><code>.env</code> 里至少改这些：</p>
-<pre><code>LINE_DOMAIN=line.example.com
-
-ACC1_NAME=客服一号
-ACC1_CHANNEL_SECRET=从 Basic settings 复制
-ACC1_CHANNEL_TOKEN=从 Messaging API 页 Issue 后复制
-
-ACC2_NAME=客服二号
-ACC2_CHANNEL_SECRET=...
-ACC2_CHANNEL_TOKEN=...
-# acc3 ~ acc5 同样</code></pre>
-  <p>启动：</p>
-<pre><code>docker compose up -d --build
-docker compose logs -f --tail=80</code></pre>
-  <p>看到 <code>loaded accounts: acc1, acc2, acc3, acc4, acc5</code> 和 Caddy 申请证书成功，就算起来了。</p>
-<pre><code>curl -I https://line.example.com/healthz
-# 期望 HTTP/2 200，且 curl 不报 SSL 错误</code></pre>
-  <div class="callout warn">证书链不完整时，LINE 的 Verify 会失败，即使浏览器偶尔能打开。<code>curl</code> 报错就先别去点 Verify。</div>
-
-  <h2 id="s11">11. 回到 Console 点 Verify</h2>
-  <p>服务器起来之后，5 个 channel 逐个打开 Messaging API 标签页：</p>
+  <h2>1. 拿密钥</h2>
   <ol>
-    <li>Webhook URL 确认是 <code>https://你的域名/webhook/accN</code>（N 和账号对得上）。</li>
-    <li>点 <b>Verify</b>，出现 <b>Success</b>。</li>
-    <li><b>Use webhook</b> 保持打开。</li>
+    <li>打开 <a href="https://manager.line.biz/">manager.line.biz</a>，建 5 个官方账号（或用已有的）。</li>
+    <li>每个号：设置 → Messaging API → Enable。5 个号选<strong>同一个 Provider</strong>。</li>
+    <li>打开 <a href="https://developers.line.biz/console/">developers.line.biz/console</a>，点进对应 channel。</li>
   </ol>
-  <figure class="figure">
-    <img src="images/08-webhook-verify.png" alt="Verify 出现 Success">
-    <figcaption>图：官方文档里的 Verify 按钮。点下去出现 Success 才算联通。</figcaption>
-  </figure>
-  <p>Verify 其实是 LINE 向你的 URL 发一条 <code>{"events":[]}</code> 的 POST，带签名。本仓库的服务对空 events 也会验签并回 200，所以 Verify 能过。</p>
-  <p>然后用手机给 5 个官方账号各发一句「ping」，应该各自回 <code>[客服N号] ping</code>。服务器日志里能看到对应的 <code>slug=accN</code>。</p>
+  <img src="images/s-secret.png" alt="复制 Channel secret">
+  <figcaption>Basic settings 页，复制 Channel secret。</figcaption>
+  <img src="images/s-token.png" alt="签发并复制 token">
+  <figcaption>Messaging API 页点 Issue，复制 token。建议关掉本页的自动回复。</figcaption>
+  <p class="warn">重新点 Issue 会让旧 token 立刻失效。secret 只用来验签，token 才用来发消息。</p>
 
-  <h2 id="s12">12. 可选加固</h2>
-  <p>使用长期 token 时，可以在 channel 的 Security 标签页把服务器出口 IP 加进白名单。token 就算泄露，别人的机器也调不了 API。</p>
-  <figure class="figure">
-    <img src="images/12-ip-allowlist.png" alt="IP 白名单">
-    <figcaption>图：官方文档 Security 页，给长期 token 绑定服务器出口 IP。</figcaption>
-  </figure>
-  <ul>
-    <li>不要把 <code>.env</code> 提交进 git（仓库已忽略）。</li>
-    <li>长期 token 换成 v2.1 短期 token，到期自动轮换。</li>
-    <li>服务器禁掉密码 SSH，只留密钥。</li>
-    <li>日志里不要打印 token / secret。</li>
-  </ul>
+  <h2>2. 先填 Webhook，先别 Verify</h2>
+  <p>还在 Messaging API 页。5 个号各填一条（把域名换成你的）：</p>
+  <pre>https://你的域名/webhook/acc1
+https://你的域名/webhook/acc2
+https://你的域名/webhook/acc3
+https://你的域名/webhook/acc4
+https://你的域名/webhook/acc5</pre>
+  <img src="images/s-webhook.png" alt="Webhook URL">
+  <figcaption>必须 HTTPS。自签证书 LINE 不认。Use webhook 打开，Verify 等服务器起来再点。</figcaption>
 
-  <h2 id="faq">排错</h2>
+  <h2>3. 部署到公网</h2>
+  <p>准备：一台 VPS（日本/新加坡更好）+ 一个域名 A 记录指到这台机器。安全组放行 <b>80</b> 和 <b>443</b>。</p>
+  <pre>sudo apt-get update
+sudo apt-get install -y git docker.io docker-compose-v2
+sudo usermod -aG docker "$USER"   # 重新登录一次
+
+git clone &lt;本仓库&gt; && cd &lt;仓库&gt;/line-hub
+cp .env.example .env
+nano .env                         # 填 LINE_DOMAIN 和 5 套密钥
+
+docker compose up -d --build
+curl -I https://你的域名/healthz  # 要 200，且没有 SSL 报错</pre>
+  <p class="ok"><code>.env</code> 里 <code>LINE_DOMAIN=你的域名</code>。Caddy 会自动申请证书。看到 <code>loaded accounts: acc1 … acc5</code> 就起来了。</p>
+
+  <h2>4. 回去点 Verify，发一条试一下</h2>
+  <img src="images/s-verify.png" alt="点 Verify">
+  <figcaption>5 个 channel 各点一次 Verify，出现 Success。然后用手机给每个号发 ping，应回 <code>[客服N号] ping</code>。</figcaption>
+
+  <h2>不通就看这 4 条</h2>
   <table>
-    <tr><th>现象</th><th>原因</th><th>处理</th></tr>
-    <tr><td>Verify 报 SSL / certificate</td><td>自签证书、证书链不完整、域名没解析到这台机器</td><td><code>curl -vI https://域名/healthz</code> 看证书；等 DNS 生效后再让 Caddy 重签</td></tr>
-    <tr><td>Verify 报 404</td><td>URL 路径写错，或服务没起来</td><td>必须是 <code>/webhook/acc1</code> 这种，末尾不要多斜杠；<code>docker compose ps</code> 看健康检查</td></tr>
-    <tr><td>Verify 报 403</td><td>填进 .env 的 secret 和这个 channel 对不上</td><td>重新从 Basic settings 复制，注意 acc1 的 secret 不要贴到 acc2</td></tr>
-    <tr><td>Verify 超时</td><td>安全组没放 443，或 webhook 处理太慢</td><td>放行 80/443；本服务是先回 200 再处理后台任务</td></tr>
-    <tr><td>能 Verify 但收不到用户消息</td><td>Use webhook 没打开</td><td>回到 Messaging API 页把开关打开</td></tr>
-    <tr><td>用户有回复但不是你的程序回的</td><td>Greeting / Auto-reply 还开着</td><td>在 OA Manager 或 Messaging API 页关掉</td></tr>
-    <tr><td>发不出消息，API 401</td><td>token 重新 Issue 过，旧的失效了</td><td>把新 token 写进 .env，<code>docker compose up -d</code> 重启</td></tr>
-    <tr><td>只有某几个号不通</td><td>5 个 URL / 5 套密钥对串了</td><td>对照登记表，Console、.env、路径三处必须一致</td></tr>
+    <tr><th>现象</th><th>处理</th></tr>
+    <tr><td>Verify 报证书错误</td><td>域名还没解析到这台机器，或 80/443 没放行</td></tr>
+    <tr><td>Verify 403</td><td>这个号的 secret 贴错到另一个 ACC</td></tr>
+    <tr><td>Verify 成功但没回消息</td><td>Use webhook 没打开，或自动回复还开着在抢答</td></tr>
+    <tr><td>发不出消息 401</td><td>token 重新 Issue 过，把新的写进 .env 再 <code>docker compose up -d</code></td></tr>
   </table>
-
-  <footer>
-    配图来源见 <a href="SOURCES.md">SOURCES.md</a>。Markdown 版：<a href="README.md">README.md</a>。
-    配套服务：仓库根目录 <code>line-hub/</code>。
-  </footer>
-</main>
-</div>
-<script>
-  const links = [...document.querySelectorAll("nav a")];
-  const map = links.map(a => {
-    const el = document.querySelector(a.getAttribute("href"));
-    return { a, el };
-  }).filter(x => x.el);
-  const io = new IntersectionObserver(entries => {
-    const vis = entries.filter(e => e.isIntersecting).sort((a,b) => b.intersectionRatio - a.intersectionRatio)[0];
-    if (!vis) return;
-    links.forEach(a => a.classList.toggle("active", a.getAttribute("href") === "#" + vis.target.id));
-  }, { rootMargin: "-20% 0px -70% 0px", threshold: [0, .2, .6] });
-  map.forEach(({ el }) => io.observe(el));
-</script>
 </body>
 </html>

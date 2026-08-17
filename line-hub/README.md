@@ -2,7 +2,7 @@
 
 一台服务器托管最多 5 个 LINE Official Account 的 webhook 服务。
 
-完整图文教程（取密钥 + 公网 HTTPS 部署）：[docs/line-multi-account/README.md](../docs/line-multi-account/README.md)
+图文教程（取密钥 + 公网部署）：[docs/line-multi-account/index.html](../docs/line-multi-account/index.html)
 
 ```bash
 cp .env.example .env   # 填入 5 套 SECRET / TOKEN 和 LINE_DOMAIN
