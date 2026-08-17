@@ -43,8 +43,8 @@ def list_styles() -> list[dict[str, Any]]:
 
 @router.get("/sheet-plan")
 def sheet_plan(
-    shop_id: str,
-    category_id: str,
+    shop_id: str = "",
+    category_id: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -53,11 +53,14 @@ def sheet_plan(
     if shop_id and category_id:
         shop = shop_for(db, user, shop_id)
         node = catalog.get_node(db, shop_api(shop), category_id)
+    policy = excel_import.fill_policy(extras)
     return {
         "category_id": category_id,
-        "category_name": catalog.label(node) if node is not None else category_id,
-        "base": [excel_import.FIELDS[key] for key in excel_import.STYLES["simple"]["columns"]],
-        "extra": extras,
+        "category_name": catalog.label(node) if node is not None else "",
+        "user_fills": policy["user_fills"],
+        "ai_fills": policy["ai_fills"],
+        "redline": policy["redline"],
+        "ai_attrs": extras,
     }
 
 
@@ -80,7 +83,7 @@ def download_template(
             raise HTTPException(status_code=404, detail="刊登模板不存在")
         listing = templates.as_dict(row)
         category_id = category_id or row.category_id
-    extra_columns: list[dict[str, Any]] = []
+    ai_attrs: list[dict[str, Any]] = []
     if style == "alibaba" and category_id:
         listing = listing or {"name": f"官方类目 {category_id}", "category_id": category_id}
         if shop_id:
@@ -95,8 +98,9 @@ def download_template(
             ]
     if style == "simple" and category_id and shop_id:
         listing = listing or {"name": category_id, "category_id": category_id}
-        extra_columns = _attr_columns(db, user, shop_id, category_id)
-    payload = excel_import.build_template(style, listing, official_required, extra_columns)
+        # Official attrs go onto 说明 for AI, never onto the fill sheet.
+        ai_attrs = _attr_columns(db, user, shop_id, category_id)
+    payload = excel_import.build_template(style, listing, official_required, ai_attrs)
     filename = f"auto-shoper-{style}-{category_id or 'generic'}.xlsx"
     return Response(
         content=payload,
@@ -190,6 +194,7 @@ async def import_excel(
             "moq": row.moq,
             "images": row.images,
             "note": row.note,
+            "brand": row.brand,
             "category_id": row.category_id,
             "origin": row.origin,
             "line": row.line,
@@ -235,6 +240,7 @@ def _run_import(
                 moq=raw.get("moq") or "",
                 images=list(raw.get("images") or []),
                 note=raw.get("note") or "",
+                brand=raw.get("brand") or "",
                 category_id=raw.get("category_id") or "",
                 origin=raw.get("origin") or "",
                 line=int(raw.get("line") or 0),
@@ -301,6 +307,7 @@ def _import_one(
             forced_category_id=forced,
             seed_values=row.seed_values(),
             provided_sources=row.provided_sources(),
+            extra_defaults=row.extra_defaults(),
         )
     except ShopNotConnected as exc:
         distribution.failed_draft(db, user.id, shop.id, product, batch_id, str(exc))

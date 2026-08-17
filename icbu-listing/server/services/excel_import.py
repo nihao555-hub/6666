@@ -24,7 +24,6 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.datavalidation import DataValidation
 
 # Official origin. Always a shop default, never a per-row column.
 SKIP_ATTR_IDS = {"p-1"}
@@ -37,6 +36,7 @@ FIELDS: dict[str, str] = {
     "price": "单价 USD",
     "moq": "起订量",
     "images": "图片",
+    "brand": "品牌",
     "note": "备注",
     "category_id": "叶子类目 ID",
     "origin": "产地",
@@ -75,9 +75,40 @@ ALIASES: dict[str, tuple[str, ...]] = {
         "主图链接",
     ),
     "note": ("备注", "说明", "note", "描述", "中文描述", "补充说明"),
+    "brand": ("品牌", "brand", "商标", "品牌名"),
     "category_id": ("类目id", "类目", "category", "category_id", "cateid", "叶子类目", "分类id"),
     "origin": ("产地", "origin", "place of origin", "原产地"),
 }
+
+# User fills a short sheet. Official 40-column / per-category attribute
+# sheets are not copied onto 填写 — those go to AI, except the red line.
+USER_FILLS: list[dict[str, Any]] = [
+    {"id": "sku", "label": "货号", "required": True, "hint": "你自己的编码"},
+    {"id": "price", "label": "单价 USD", "required": True, "hint": "红线，AI 不准定价"},
+    {"id": "moq", "label": "起订量", "required": True, "hint": "红线，AI 不准编"},
+    {"id": "images", "label": "图片", "required": True, "hint": "文件名或链接；导入时也可把图拖进来"},
+    {"id": "brand", "label": "品牌", "required": False, "hint": "没有就留空，等于无品牌"},
+    {"id": "name", "label": "品名（中文）", "required": False, "hint": "给自己看，也可当提示"},
+    {"id": "note", "label": "备注", "required": False, "hint": "给自己看"},
+]
+
+AI_FILLS_BASE: list[dict[str, Any]] = [
+    {"id": "productTitle", "label": "英文标题", "hint": "按官方字节限制写"},
+    {"id": "productKeywords", "label": "关键词", "hint": "1～3 个"},
+    {"id": "textDesc", "label": "详描", "hint": "按图写，不编认证"},
+    {"id": "catAttrs", "label": "类目属性", "hint": "按官方选项选，不选 Other"},
+]
+
+REDLINE: list[dict[str, str]] = [
+    {"id": "price", "label": "售价", "reason": "生意决策，AI 不准定价"},
+    {"id": "moq", "label": "起订量", "reason": "生意决策，AI 不准编数量"},
+    {"id": "images", "label": "实拍图", "reason": "不准用生成图冒充实拍"},
+    {"id": "brand", "label": "品牌", "reason": "有品牌你填；空着=无品牌。AI 不准编品牌名"},
+    {"id": "category_id", "label": "叶子类目", "reason": "整表选一次。猜错类目发不出去、属性全废"},
+    {"id": "origin", "label": "原产地", "reason": "走店铺默认，AI 不准改"},
+    {"id": "certs", "label": "证书 / 资质", "reason": "CE / FDA 等不准编"},
+    {"id": "logistics", "label": "运费 / 付款 / 港口", "reason": "走店铺默认，填一次即可"},
+]
 
 # Extra aliases that only fire when the seller picked that style, so a
 # generic "名称" column is not stolen from 马帮's 中文名称.
@@ -95,9 +126,9 @@ STYLE_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
 STYLES: dict[str, dict[str, Any]] = {
     "simple": {
         "id": "simple",
-        "label": "必填表批量上品",
-        "summary": "先选叶子类目，下载该类目的必填表。共同列是货号、价、起订量、图；后面是这类官方必填属性。标题和产地不用填。",
-        "columns": ["sku", "name", "price", "moq", "images", "note"],
+        "label": "短表批量上品",
+        "summary": "不是官方表。填写页只有货号、价、起订量、图、品牌。标题、关键词、详描和类目属性交给 AI。价/图/品牌/类目是红线。",
+        "columns": ["sku", "price", "moq", "images", "brand", "name", "note"],
         "create_drafts_default": True,
         "primary": True,
     },
@@ -133,7 +164,7 @@ STYLES: dict[str, dict[str, Any]] = {
     "alibaba": {
         "id": "alibaba",
         "label": "阿里官方类目表",
-        "summary": "官方：选叶子类目 → 下模板 → 图先入图片银行 → 检测再导入。我们同样按类目出表，但标题/属性/物流由 AI 和店铺默认填，你只填货号、价格、起订量和图。",
+        "summary": "官方批量上传同一思路，但我们不下 40 列红星表。你只填货号、价格、起订量和图，其余 AI + 店铺默认。",
         "columns": ["sku", "price", "moq", "images", "note"],
         "create_drafts_default": True,
         "needs_category": True,
@@ -150,6 +181,7 @@ class ExcelRow:
     price: str = ""
     moq: str = ""
     images: list[str] = field(default_factory=list)
+    brand: str = ""
     note: str = ""
     category_id: str = ""
     origin: str = ""
@@ -195,9 +227,38 @@ class ExcelRow:
             sources["catId"] = "excel"
         return sources
 
+    def extra_defaults(self) -> dict[str, str]:
+        """Shop-default overrides that AI must not invent (brand)."""
+        return {"brand": self.brand} if self.brand else {}
+
+
+def fill_policy(ai_attrs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    extras = ai_attrs or []
+    ai_fills = [item for item in AI_FILLS_BASE if item["id"] != "catAttrs" or not extras]
+    for extra in extras:
+        ai_fills.append(
+            {
+                "id": extra.get("id") or extra.get("field_id") or extra.get("header"),
+                "label": extra.get("header") or extra.get("label") or extra.get("name") or "",
+                "hint": "按官方选项选，不选 Other",
+            }
+        )
+    return {
+        "user_fills": [dict(item) for item in USER_FILLS],
+        "ai_fills": ai_fills,
+        "redline": [dict(item) for item in REDLINE],
+    }
+
 
 def styles_view() -> list[dict[str, Any]]:
-    return [dict(item) for item in STYLES.values()]
+    policy = fill_policy()
+    rows = []
+    for item in STYLES.values():
+        row = dict(item)
+        if item["id"] == "simple":
+            row["policy"] = policy
+        rows.append(row)
+    return rows
 
 
 def category_attr_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
@@ -349,6 +410,7 @@ def parse_rows(
                 price=values["price"],
                 moq=values["moq"],
                 images=images,
+                brand=values.get("brand") or "",
                 note=values["note"],
                 category_id=values["category_id"],
                 origin=values["origin"],
@@ -446,11 +508,13 @@ def match_uploads(sku: str, names: list[str], uploads: dict[str, bytes]) -> list
 
 def who_fills(field_id: str) -> str:
     if field_id in {"productTitle", "productKeywords", "textDesc", "icbuCatProp", "saleProp", "superText"}:
-        return "AI 生成"
+        return "AI 生成（不进填写表）"
     if field_id in {"ladderPrice", "fob", "scPrice", "minOrderQuantity", "scImages"}:
-        return "你在「填写」表填（价格、起订量、图）"
+        return "红线：你在「填写」表填（价格、起订量、图）"
+    if field_id in {"brand"}:
+        return "红线：有品牌你填；空着=无品牌。AI 不准编"
     if field_id in {"origin", "priceUnit", "paymentMethod", "port", "shippingTemplateId", "pkgMeasure", "pkgWeight", "logisticsMode", "logisticsProperty", "marketSample", "market"}:
-        return "店铺默认 / 刊登模板"
+        return "红线：店铺默认，AI 不准改"
     return "系统按官方 schema 补齐"
 
 
@@ -475,75 +539,104 @@ def build_template(
         "price": "1.80",
         "moq": "500",
         "images": "SKU-1001_1.jpg;SKU-1001_2.jpg",
+        "brand": "",
         "note": "加厚款，可定制 logo",
         "category_id": (listing_template or {}).get("category_id") or "",
         "origin": "China",
+    }
+    header_hints = {
+        "sku": "你自己的货号。",
+        "price": "红线。生意决策，AI 不准定价。",
+        "moq": "红线。AI 不准编起订量。",
+        "images": "红线。文件名或 URL，分号分隔。必须是实拍或你自己的图，不准生成图冒充。导入时也可把图一起拖进来。",
+        "brand": "红线。有品牌就填；空着=无品牌。AI 不准编品牌名。",
+        "name": "选填。给自己看，也可当中文提示。",
+        "note": "选填。给自己看。",
+        "title": "有现成英文标题才填。短表不用填，交给 AI。",
+        "keywords": "有现成关键词才填。短表不用填，交给 AI。",
+        "category_id": "红线。短表在下载时整表选定，不要每行让 AI 猜。",
+        "origin": "红线。走店铺默认，不要填在短表里。",
     }
     for index, field_id in enumerate(headers, start=1):
         cell = sheet.cell(1, index, FIELDS[field_id])
         cell.fill = fill
         cell.font = font
         cell.alignment = Alignment(wrap_text=True)
-        hint = "URL 或文件名，分号分隔。官方要求先入图片银行；这里也可以导入时把图一起拖进来。" if field_id == "images" else f"系统字段：{field_id}"
-        cell.comment = Comment(hint, "Auto Shoper")
+        cell.comment = Comment(header_hints.get(field_id) or f"系统字段：{field_id}", "Auto Shoper")
         sheet.cell(2, index, example.get(field_id, ""))
         sheet.column_dimensions[get_column_letter(index)].width = 28
+    # Official required attributes stay off the fill sheet. Dumping Type /
+    # Color / Hair Material here would recreate the official form.
     extras = extra_columns or []
-    for offset, extra in enumerate(extras, start=len(headers) + 1):
-        cell = sheet.cell(1, offset, extra["header"])
-        cell.fill = fill
-        cell.font = font
-        labels = [item.get("label") or item.get("value") or "" for item in extra.get("options") or []]
-        hint = "官方必填属性。可留空让 AI 选；要手填请用官方选项：" + " / ".join(labels[:12])
-        cell.comment = Comment(hint[:200], "Auto Shoper")
-        if labels:
-            sheet.cell(2, offset, labels[0])
-        sheet.column_dimensions[get_column_letter(offset)].width = 22
-        joined = ",".join(labels[:25])
-        if labels and len(joined) < 240:
-            dropdown = DataValidation(type="list", formula1=f'"{joined}"', allow_blank=True)
-            dropdown.add(f"{get_column_letter(offset)}2:{get_column_letter(offset)}200")
-            sheet.add_data_validation(dropdown)
     sheet.row_dimensions[1].height = 22
 
     help_sheet = book.create_sheet("说明")
-    help_sheet["A1"] = spec["label"]
+    help_sheet["A1"] = "这不是官方表"
     help_sheet["A1"].font = Font(bold=True, size=14)
     help_sheet["A2"] = spec["summary"]
-    help_sheet["A4"] = "表头可用这些别名（智能探测会认）："
+    help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来，交给 AI。红线字段不准给 AI。"
+
     row = 5
+    help_sheet.cell(row, 1, "你只填（填写页）")
+    help_sheet.cell(row, 1).font = Font(bold=True)
+    row += 1
+    hints_by_id = {item["id"]: item.get("hint") or "" for item in USER_FILLS}
     for field_id in headers:
         help_sheet.cell(row, 1, FIELDS[field_id])
-        help_sheet.cell(row, 2, " / ".join(ALIASES[field_id][:8]))
+        help_sheet.cell(row, 2, hints_by_id.get(field_id) or header_hints.get(field_id) or "")
         row += 1
     row += 1
-    help_sheet.cell(row, 1, "图片")
-    help_sheet.cell(row, 2, "填 http(s) 链接，或文件名。导入时把图一起拖进来，按货号前缀匹配，例如 SKU-1001_1.jpg。")
-    if listing_template:
-        row += 2
-        help_sheet.cell(row, 1, "绑定的类目 / 模板")
-        help_sheet.cell(row, 2, f"{listing_template.get('name')} · 类目 {listing_template.get('category_id')}")
-        help_sheet.cell(row + 1, 1, "类目和物流不用填在表里，导入时套用。")
-        row += 2
+    help_sheet.cell(row, 1, "AI 填（不要写进填写页）")
+    help_sheet.cell(row, 1).font = Font(bold=True)
+    row += 1
+    for item in fill_policy(extras)["ai_fills"]:
+        help_sheet.cell(row, 1, item.get("label") or "")
+        help_sheet.cell(row, 2, item.get("hint") or "AI 按图和官方选项填")
+        row += 1
     if extras:
         row += 1
-        help_sheet.cell(row, 1, "这个类目多出来的列")
-        help_sheet.cell(row, 2, "来自官方 schema.get 的必填属性。产地走店铺默认，不出现在表里。可留空给 AI。")
+        help_sheet.cell(row, 1, "这个类目 AI 会补的官方属性")
+        help_sheet.cell(row, 1).font = Font(bold=True)
+        help_sheet.cell(row, 2, "来自 schema.get。按官方选项选，不选 Other。产地走店铺默认。")
         row += 1
         for extra in extras:
-            help_sheet.cell(row, 1, extra["header"])
-            help_sheet.cell(row, 2, " / ".join(item.get("label") or "" for item in extra.get("options") or [])[:120])
+            help_sheet.cell(row, 1, extra.get("header") or extra.get("label") or "")
+            help_sheet.cell(row, 2, " / ".join(opt.get("label") or "" for opt in extra.get("options") or [])[:120])
             row += 1
+    row += 1
+    help_sheet.cell(row, 1, "红线：这些不准交给 AI")
+    help_sheet.cell(row, 1).font = Font(bold=True)
+    row += 1
+    for item in REDLINE:
+        help_sheet.cell(row, 1, item["label"])
+        help_sheet.cell(row, 2, item["reason"])
+        row += 1
+    if listing_template:
+        row += 2
+        help_sheet.cell(row, 1, "这批货的叶子类目")
+        help_sheet.cell(row, 1).font = Font(bold=True)
+        help_sheet.cell(row, 2, f"{listing_template.get('name')} · 类目 {listing_template.get('category_id')}")
+        help_sheet.cell(row + 1, 1, "类目是红线，整表共用，不出现在填写页。")
+        row += 2
     if official_required:
         row += 1
-        help_sheet.cell(row, 1, "官方红星必填对照")
-        help_sheet.cell(row, 2, "官方 Excel 要你全填。这里只标谁来填，减少时间。")
+        help_sheet.cell(row, 1, "官方红星对照（谁来填）")
+        help_sheet.cell(row, 1).font = Font(bold=True)
+        help_sheet.cell(row, 2, "官方 Excel 要你全填。我们只标责任，不把列抄进填写页。")
         row += 1
         for item in official_required:
             help_sheet.cell(row, 1, item.get("name") or item.get("id"))
             help_sheet.cell(row, 2, item.get("who") or who_fills(item.get("id") or ""))
             row += 1
-    help_sheet.column_dimensions["A"].width = 24
+    row += 2
+    help_sheet.cell(row, 1, "表头别名（智能探测会认）")
+    help_sheet.cell(row, 1).font = Font(bold=True)
+    row += 1
+    for field_id in headers:
+        help_sheet.cell(row, 1, FIELDS[field_id])
+        help_sheet.cell(row, 2, " / ".join(ALIASES[field_id][:8]))
+        row += 1
+    help_sheet.column_dimensions["A"].width = 28
     help_sheet.column_dimensions["B"].width = 80
 
     buffer = io.BytesIO()

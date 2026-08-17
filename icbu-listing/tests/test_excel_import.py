@@ -1,5 +1,6 @@
 """Excel styles, header detection, and official templates."""
 
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ from server.services.excel_import import (  # noqa: E402
     apply_preview,
     build_template,
     category_attr_columns,
+    fill_policy,
     find_header_row,
     guess_field,
     guess_style,
@@ -36,7 +38,7 @@ class AliasTests(unittest.TestCase):
     def test_style_guess_from_headers(self) -> None:
         self.assertEqual(guess_style(["库存SKU", "中文名称", "售价"]), "mabang")
         self.assertEqual(guess_style(["货号", "单价USD", "起订量"]), "lingxing")
-        self.assertEqual(guess_style(["货号", "单价 USD", "起订量", "图片", "品名（中文）"]), "simple")
+        self.assertEqual(guess_style(["货号", "单价 USD", "起订量", "图片", "品牌"]), "simple")
         self.assertEqual(guess_style(["货号", "英文标题", "关键词"]), "dianxiaomi")
 
 
@@ -121,24 +123,70 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(brush_cols, {"Type", "Color"})
         self.assertEqual(pen_cols, {"Hair Material"})
         self.assertNotIn("Place of Origin", brush_cols)
-        payload = build_template("simple", extra_columns=category_attr_columns(brushes))
-        result = preview(payload, "simple", category_attr_columns(brushes))
-        self.assertIn("Type", result["headers"])
-        self.assertIn("Color", result["headers"])
-        rows = apply_preview(payload, result["mapping"], "simple", category_attr_columns(brushes))
-        self.assertIn("icbuCatProp", rows[0].seed_values())
+        payload = build_template(
+            "simple",
+            {"name": "Paint Brushes", "category_id": "21111112"},
+            extra_columns=category_attr_columns(brushes),
+        )
+        result = preview(payload, "simple")
+        self.assertNotIn("Type", result["headers"])
+        self.assertNotIn("Color", result["headers"])
+        self.assertNotIn("英文标题", result["headers"])
+        from openpyxl import load_workbook
+
+        book = load_workbook(io.BytesIO(payload))
+        help_text = " ".join(
+            str(cell or "")
+            for row in book["说明"].iter_rows(values_only=True)
+            for cell in row
+        )
+        self.assertIn("Type", help_text)
+        self.assertIn("Color", help_text)
+        self.assertIn("红线", help_text)
+        policy = fill_policy(category_attr_columns(brushes))
+        self.assertIn("Type", {item["label"] for item in policy["ai_fills"]})
+        self.assertTrue(any(item["id"] == "price" for item in policy["redline"]))
+
+    def test_uploaded_official_attr_columns_still_parse(self) -> None:
+        extras = category_attr_columns(
+            parse_schema(
+                """<?xml version="1.0"?><itemSchema>
+                  <field id="icbuCatProp" type="complex"><fields>
+                    <field id="p-type" name="Type" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules>
+                      <options><option displayName="Oil Brush" value="1"/></options>
+                    </field>
+                  </fields></field>
+                </itemSchema>"""
+            )
+        )
+        from openpyxl import Workbook
+
+        book = Workbook()
+        sheet = book.active
+        sheet.append(["货号", "单价 USD", "起订量", "图片", "Type"])
+        sheet.append(["SKU-1001", "1.80", "500", "a.jpg", "Oil Brush"])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        rows = apply_preview(buffer.getvalue(), {"货号": "sku", "单价 USD": "price", "Type": "attr.icbuCatProp.p-type"}, "simple", extras)
         self.assertEqual(rows[0].seed_values()["icbuCatProp"]["p-type"], "1")
 
     def test_simple_template_is_only_what_the_seller_must_fill(self) -> None:
         payload = build_template("simple")
         result = preview(payload, "simple")
-        self.assertEqual(set(result["mapping"].values()), {"sku", "name", "price", "moq", "images", "note"})
+        self.assertEqual(set(result["mapping"].values()), {"sku", "name", "price", "moq", "images", "note", "brand"})
         self.assertNotIn("英文标题", result["headers"])
         self.assertNotIn("叶子类目 ID", result["headers"])
         rows = apply_preview(payload, result["mapping"], "simple")
         self.assertEqual(rows[0].sku, "SKU-1001")
         self.assertEqual(rows[0].price, "1.80")
         self.assertEqual(rows[0].moq, "500")
+        self.assertEqual(rows[0].brand, "")
+        self.assertEqual(rows[0].extra_defaults(), {})
+
+    def test_brand_is_a_redline_default_not_an_ai_seed(self) -> None:
+        row = ExcelRow(brand="Acme", price="1.80")
+        self.assertEqual(row.extra_defaults(), {"brand": "Acme"})
+        self.assertNotIn("brand", row.seed_values())
 
     def test_official_alibaba_template_only_asks_for_what_ai_cannot_know(self) -> None:
         payload = build_template(

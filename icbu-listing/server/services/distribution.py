@@ -45,9 +45,10 @@ def build_draft_for_shop(
     forced_category_id: str = "",
     seed_values: dict[str, Any] | None = None,
     provided_sources: dict[str, str] | None = None,
+    extra_defaults: dict[str, Any] | None = None,
 ) -> Draft:
     api = shop_api(shop)
-    defaults = shop_defaults(shop)
+    defaults = {**shop_defaults(shop), **(extra_defaults or {})}
     images = catalogue.images_of(db, product)
     bank, errors = catalogue.ensure_photobank(db, api, shop, images)
 

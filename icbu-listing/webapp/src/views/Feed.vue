@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>投料</h2>
-        <p class="muted">人只出图、价格、起订量。类目和标题由 AI 按官方规则补。</p>
+        <p class="muted">人只出图、价格、起订量。标题和属性交给 AI。价、图、品牌、类目是红线。</p>
       </div>
     </div>
 
@@ -31,7 +31,7 @@
       <div class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="tab = 'excel'">
         <small>批量上品</small>
         <b>下载表格，填完传回</b>
-        <p class="muted">只填货号、单价、起订量和图。</p>
+        <p class="muted">表在这里下。只填红线，其余交给 AI。</p>
       </div>
     </div>
 
@@ -91,32 +91,62 @@
       </el-tab-pane>
       <el-tab-pane label="表格批量" name="excel">
         <div class="card">
-          <p class="muted" style="margin-bottom: 16px">
-            官方 schema 按叶子类目出规则，不同类必填属性不一样。先选类目，再下载该类目的表。
-          </p>
-
           <p v-if="excel.style !== 'simple'" class="muted" style="margin-bottom: 10px">
             正在用「{{ currentStyle?.label }}」。
-            <el-button text @click="useSimple">回到必填表</el-button>
+            <el-button text @click="useSimple">回到短表</el-button>
           </p>
           <div v-if="excel.style === 'simple'" class="simple-steps">
+            <p class="excel-lead">
+              表在这页下载，填完再传回来。不是官方 40 列表，也不会按类目往表里加 Type / Color。
+              你只填红线，标题和属性交给 AI。
+            </p>
+
+            <div class="policy-grid">
+              <section class="policy-card">
+                <small>你填</small>
+                <b>填写页就这几列</b>
+                <ul>
+                  <li v-for="item in policy.user_fills" :key="item.id">
+                    {{ item.label }}<span v-if="!item.required" class="muted"> 选填</span>
+                  </li>
+                </ul>
+              </section>
+              <section class="policy-card">
+                <small>AI 填</small>
+                <b>不要写进表</b>
+                <ul>
+                  <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
+                </ul>
+              </section>
+              <section class="policy-card is-redline">
+                <small>红线</small>
+                <b>不准交给 AI</b>
+                <ul>
+                  <li v-for="item in policy.redline" :key="item.id">
+                    <strong>{{ item.label }}</strong>
+                    <span class="muted"> {{ item.reason }}</span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+
             <div class="prop-row">
-              <label>1. 选类目</label>
+              <label>1. 这批货的类目</label>
               <div>
                 <el-button @click="openCategory">{{ sheetPlan.category_name || "选择叶子类目" }}</el-button>
                 <p class="muted" style="margin-top: 6px">
-                  和官方批量上传一样，先定叶子类目。标题仍不用填。
+                  告诉系统按哪套官方规则补属性。类目是红线，整表选一次，不能让 AI 猜。
                 </p>
-                <p v-if="sheetPlan.extra?.length" class="muted" style="margin-top: 4px">
-                  这个类目表会多：{{ sheetPlan.extra.map((item) => item.header).join("、") }}。产地走店铺默认。
+                <p v-if="sheetPlan.ai_attrs?.length" class="muted" style="margin-top: 4px">
+                  选好后 AI 会补：{{ sheetPlan.ai_attrs.map((item) => item.header).join("、") }}。产地走店铺默认。
                 </p>
               </div>
             </div>
             <div class="prop-row">
-              <label>2. 下载</label>
+              <label>2. 下载表格</label>
               <div>
-                <el-button :disabled="!excel.categoryId" @click="downloadTemplate">下载这类目的必填表</el-button>
-                <p class="muted" style="margin-top: 6px">每类一表。货号、单价、起订量、图是共同列，后面是这类官方必填属性。</p>
+                <el-button type="primary" :disabled="!excel.categoryId" @click="downloadTemplate">下载填写表</el-button>
+                <p class="muted" style="margin-top: 6px">每批一张短表。类目写在「说明」页，填写页不加官方属性列。</p>
               </div>
             </div>
             <div class="prop-row">
@@ -391,7 +421,7 @@ const excel = reactive({
   mapping: {},
   batch: null,
 });
-const sheetPlan = ref({ extra: [], category_name: "" });
+const sheetPlan = ref({ user_fills: [], ai_fills: [], redline: [], ai_attrs: [], category_name: "" });
 const categoryBrowser = ref(false);
 const categoryChildren = ref([]);
 const categoryPath = ref([]);
@@ -401,6 +431,17 @@ let excelTimer = null;
 
 const currentStyle = computed(() => styles.value.find((item) => item.id === excel.style));
 const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple"));
+const policy = computed(() => ({
+  user_fills: sheetPlan.value.user_fills?.length
+    ? sheetPlan.value.user_fills
+    : currentStyle.value?.policy?.user_fills || [],
+  ai_fills: sheetPlan.value.ai_fills?.length
+    ? sheetPlan.value.ai_fills
+    : currentStyle.value?.policy?.ai_fills || [],
+  redline: sheetPlan.value.redline?.length
+    ? sheetPlan.value.redline
+    : currentStyle.value?.policy?.redline || [],
+}));
 const mappingRows = computed(() => (excel.preview?.headers || []).map((header) => ({ header })));
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
@@ -413,7 +454,7 @@ onMounted(async () => {
     listingTemplates.value = store.shopId ? await api.templates({ shop_id: store.shopId }) : [];
     templates.value = await api.imageTemplates();
     onStyleChange();
-    if (excel.categoryId) await loadSheetPlan();
+    await loadSheetPlan();
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -491,11 +532,10 @@ async function importSimple() {
 }
 
 async function loadSheetPlan() {
-  if (!store.shopId || !excel.categoryId) {
-    sheetPlan.value = { extra: [], category_name: "" };
-    return;
-  }
-  sheetPlan.value = await api.excelSheetPlan({ shop_id: store.shopId, category_id: excel.categoryId });
+  sheetPlan.value = await api.excelSheetPlan({
+    shop_id: store.shopId || "",
+    category_id: excel.categoryId || "",
+  });
 }
 
 async function openCategory() {
@@ -713,5 +753,50 @@ async function poll() {
 .erp-more summary {
   cursor: pointer;
   margin-bottom: 12px;
+}
+.excel-lead {
+  margin: 0 0 16px;
+  color: var(--ink-2);
+  max-width: 720px;
+}
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.policy-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--fill);
+  padding: 12px 14px;
+}
+.policy-card.is-redline {
+  background: var(--red-soft);
+  border-color: #efd8d5;
+}
+.policy-card small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.policy-card b {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 550;
+}
+.policy-card ul {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--ink-2);
+}
+.policy-card li + li {
+  margin-top: 4px;
+}
+@media (max-width: 900px) {
+  .policy-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
