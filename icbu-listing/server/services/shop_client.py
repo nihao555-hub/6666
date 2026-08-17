@@ -110,5 +110,5 @@ def shop_defaults(shop: Shop) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def authorize_url(state: str) -> str:
-    return platform_client().authorize_link(settings.oauth_redirect_uri, state)
+def authorize_url(state: str, redirect_uri: str | None = None) -> str:
+    return platform_client().authorize_link(redirect_uri or settings.oauth_redirect_uri, state)

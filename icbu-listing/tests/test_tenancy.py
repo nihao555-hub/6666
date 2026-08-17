@@ -80,8 +80,20 @@ class TenancyTests(unittest.TestCase):
         shops = alice.get("/api/v1/shops").json()
         self.assertEqual([shop["name"] for shop in shops], ["工厂店", "贸易店"])
         self.assertTrue(all(shop["connected"] for shop in shops))
+        self.assertTrue(all(shop["bound_by"] == "debug" for shop in shops))
         # the raw token is never handed back to the browser
         self.assertNotIn("access_token", first.text)
+
+    def test_oauth_start_uses_the_public_host_not_localhost(self) -> None:
+        owner = signup("oauth-host@example.com")
+        started = owner.get(
+            "/api/v1/alibaba/oauth/start",
+            headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "demo.trycloudflare.com"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        body = started.json()
+        self.assertEqual(body["redirect_uri"], "https://demo.trycloudflare.com/api/v1/alibaba/oauth/callback")
+        self.assertIn("redirect_uri=https%3A%2F%2Fdemo.trycloudflare.com", body["url"])
 
     def test_shops_are_invisible_across_tenants(self) -> None:
         bob = signup("bob@example.com")

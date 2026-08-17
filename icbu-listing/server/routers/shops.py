@@ -4,7 +4,7 @@ import json
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -72,16 +72,23 @@ class CloneIn(BaseModel):
     name: str = ""
 
 
-def _oauth_error(reason: str, message: str) -> RedirectResponse:
-    """Send the seller back with something they can act on.
+def oauth_callback_uri(request: Request) -> str:
+    """Callback Alibaba will hit. Must match authorize + token exchange.
 
-    A silent bounce back to the shop list is the worst outcome here: the most
-    common failure is a redirect_uri that was never registered on the open
-    platform, and nothing on screen would say so.
+    Public tunnels send X-Forwarded-*. Using the env default (127.0.0.1)
+    would send the seller back to their own laptop after they confirm.
     """
-    separator = "&" if "?" in settings.oauth_error_url else "?"
-    query = urlencode({"reason": reason, "message": message})
-    return RedirectResponse(f"{settings.oauth_error_url}{separator}{query}", status_code=302)
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
+    host = (
+        request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    ).split(",")[0].strip()
+    return f"{proto}://{host}/api/v1/alibaba/oauth/callback"
+
+
+def _oauth_error(reason: str, message: str) -> RedirectResponse:
+    """Stay on this host. The env success/error URLs still point at localhost."""
+    query = urlencode({"alibaba": "error", "reason": reason, "message": message})
+    return RedirectResponse(f"/#/shops?{query}", status_code=302)
 
 
 def shop_view(shop: Shop) -> dict[str, Any]:
@@ -94,6 +101,7 @@ def shop_view(shop: Shop) -> dict[str, Any]:
         "status": shop.status,
         "publish_mode": shop.publish_mode,
         "connected": bool(shop.access_token),
+        "bound_by": "oauth" if shop.refresh_token else "debug",
         "defaults": {**DEFAULT_TEMPLATE, **shop_defaults(shop)},
         "token_expires_at": shop.token_expires_at.isoformat() if shop.token_expires_at else None,
         "last_error": shop.last_error,
@@ -108,28 +116,35 @@ def list_shops(db: Session = Depends(get_db), user: User = Depends(current_user)
 
 
 @router.get("/alibaba/oauth/start")
-def oauth_start(user: User = Depends(current_user)) -> dict[str, str]:
+def oauth_start(request: Request, user: User = Depends(current_user)) -> dict[str, str]:
     if not settings.has_platform_app:
         raise HTTPException(status_code=400, detail="平台还没有接好国际站应用，暂时不能登录店铺")
-    state = sign_state({"user_id": user.id})
-    return {"url": authorize_url(state), "redirect_uri": settings.oauth_redirect_uri}
+    redirect_uri = oauth_callback_uri(request)
+    state = sign_state({"user_id": user.id, "redirect_uri": redirect_uri})
+    return {"url": authorize_url(state, redirect_uri), "redirect_uri": redirect_uri}
 
 
 @router.get("/alibaba/oauth/callback")
-def oauth_callback(code: str = "", state: str = "", db: Session = Depends(get_db)) -> RedirectResponse:
+def oauth_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
     payload = read_state(state)
     if not code or payload is None:
-        return _oauth_error("state", "授权回跳的校验参数无效或已过期，请重新点一次授权")
+        return _oauth_error("state", "授权回跳的校验参数无效或已过期，请重新点一次登录")
 
     user_id = str(payload.get("user_id") or "")
     user = db.get(User, user_id)
     if user is None:
         return _oauth_error("user", "找不到发起授权的账号，请重新登录后再试")
 
+    redirect_uri = str(payload.get("redirect_uri") or "") or oauth_callback_uri(request)
     try:
         raw = platform_client().execute(
             "/auth/token/create",
-            {"code": code, "redirect_uri": settings.oauth_redirect_uri},
+            {"code": code, "redirect_uri": redirect_uri},
             access_token=None,
         )
     except (GopError, ShopNotConnected) as exc:
@@ -151,7 +166,7 @@ def oauth_callback(code: str = "", state: str = "", db: Session = Depends(get_db
 
     store_token(shop, body)
     db.commit()
-    return RedirectResponse(settings.oauth_success_url, status_code=302)
+    return RedirectResponse("/#/shops?alibaba=connected", status_code=302)
 
 
 @router.post("/shops/bind-env")

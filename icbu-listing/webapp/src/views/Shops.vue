@@ -5,7 +5,7 @@
         <h2>店铺</h2>
         <p class="muted">用你自己的国际站卖家账号登录，授权本平台代你发品、改品、传图。</p>
       </div>
-      <el-button v-if="store.shops.length" type="primary" @click="authorize">再登录一家店</el-button>
+      <el-button type="primary" @click="authorize">{{ store.shops.length ? "登录自己的店铺" : "登录并授权店铺" }}</el-button>
     </div>
 
     <el-alert
@@ -18,9 +18,19 @@
       @close="oauthError = ''"
     />
 
-    <div class="connect-card" v-if="!store.shops.length">
+    <el-alert
+      v-if="hasDebugShop"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="下面这些不是你登录绑定的店"
+      description="那是调试接入，不能当成你自己的店。要点右上角「登录自己的店铺」，用你的国际站卖家账号在阿里官方页确认。"
+      style="margin-bottom: 14px"
+    />
+
+    <div class="connect-card" v-if="!hasOwnShop">
       <div class="connect-copy">
-        <div class="hero-kicker">第一步</div>
+        <div class="hero-kicker">绑定自己的店</div>
         <h3>登录你的国际站店铺</h3>
         <p class="muted">
           会跳到阿里官方页。用你平时进卖家后台的账号确认即可。
@@ -33,26 +43,32 @@
           <li>看店里现在在售的货</li>
         </ul>
         <FishboneSteps v-model="connectStep" :steps="connectSteps" :reached="2" />
-        <el-button type="primary" size="large" @click="authorize">登录并授权店铺</el-button>
+        <p class="muted" style="margin: 0 0 8px">开放平台里登记的回调地址必须和这一行完全一致，否则阿里会拒：</p>
+        <div class="callback-row">
+          <code>{{ callbackUrl }}</code>
+          <el-button text type="primary" @click="copyCallback">复制</el-button>
+        </div>
+        <el-button type="primary" size="large" style="margin-top: 14px" @click="authorize">登录并授权店铺</el-button>
       </div>
       <img class="hero-art" src="/art/hero.png" alt="" />
     </div>
 
-    <el-table v-else :data="store.shops" v-loading="loading">
+    <el-table v-if="store.shops.length" :data="store.shops" v-loading="loading" :style="hasOwnShop ? '' : 'margin-top: 16px'">
       <el-table-column label="店铺" min-width="200">
         <template #default="{ row }">
           <div class="record">
             <span class="record-mark">{{ (row.name || "店").slice(0, 1) }}</span>
             <div>
               <div>{{ row.name }}</div>
-              <div class="muted">{{ row.account || "已登录" }}</div>
+              <div class="muted">{{ row.bound_by === "debug" ? "调试接入，不是你登录的店" : (row.account || "已登录") }}</div>
             </div>
           </div>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <span v-if="row.status === 'active' && row.connected" class="status-pill green">已登录</span>
+          <span v-if="row.bound_by === 'debug'" class="status-pill yellow">调试店</span>
+          <span v-else-if="row.status === 'active' && row.connected" class="status-pill green">已登录</span>
           <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新登录</span>
           <span v-else class="status-pill red">异常</span>
         </template>
@@ -166,6 +182,9 @@ const connectSteps = [
 
 const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
 const unsupported = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "unsupported"));
+const hasDebugShop = computed(() => store.shops.some((item) => item.bound_by === "debug"));
+const hasOwnShop = computed(() => store.shops.some((item) => item.bound_by === "oauth"));
+const callbackUrl = `${window.location.origin}/api/v1/alibaba/oauth/callback`;
 
 function shown(shop, key) {
   return shop.defaults?.labels?.[key] ?? shop.defaults?.[key] ?? "";
@@ -226,6 +245,15 @@ onMounted(async () => {
     edit(newest);
   }
 });
+
+async function copyCallback() {
+  try {
+    await navigator.clipboard.writeText(callbackUrl);
+    ElMessage.success("已复制回调地址");
+  } catch {
+    ElMessage.error("复制失败，请手动选中");
+  }
+}
 
 async function authorize() {
   try {
@@ -309,6 +337,21 @@ async function unbind(shop) {
 }
 .connect-caps li + li {
   margin-top: 4px;
+}
+.callback-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--gray3);
+  border-radius: var(--radius);
+}
+.callback-row code {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  font-size: 12px;
+  color: var(--ink-2);
 }
 @media (max-width: 900px) {
   .connect-card {
