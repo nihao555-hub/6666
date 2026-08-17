@@ -88,5 +88,6 @@ python3 -m unittest discover -s tests -v
 
 ## 文档
 
+- [`docs/使用说明.md`](docs/使用说明.md)：带截图和批注的操作手册（开通、授权、投料、审稿、发布）
 - `API_MAP.md`：实测通了哪些接口、哪些没权限、schema 的结构坑
 - `USER_FLOW.md`：用户三屏和每步对应的官方接口
