@@ -113,7 +113,7 @@ def shop_view(shop: Shop) -> dict[str, Any]:
         "publish_mode": shop.publish_mode,
         "connected": bool(shop.access_token),
         "bound_by": "oauth" if shop.refresh_token else "debug",
-        "defaults": {**DEFAULT_TEMPLATE, **shop_defaults(shop)},
+        "defaults": {key: value for key, value in {**DEFAULT_TEMPLATE, **shop_defaults(shop)}.items() if key != "_meta"},
         "token_expires_at": shop.token_expires_at.isoformat() if shop.token_expires_at else None,
         "last_error": shop.last_error,
         "created_at": shop.created_at.isoformat(),
@@ -177,6 +177,10 @@ def oauth_callback(
 
     store_token(shop, body)
     db.commit()
+    try:
+        defaults_service.pull_from_shop(db, shop_api(shop), shop)
+    except (GopError, ShopNotConnected, RuntimeError, TypeError, ValueError):
+        pass
     return RedirectResponse("/#/shops?alibaba=connected", status_code=302)
 
 
@@ -213,7 +217,8 @@ def bind_env_shop(
                 shop.name = owner
         shop.online_count = total
         db.commit()
-    except (GopError, ShopNotConnected):
+        defaults_service.pull_from_shop(db, shop_api(shop), shop)
+    except (GopError, ShopNotConnected, RuntimeError, TypeError, ValueError):
         pass
 
     return shop_view(shop)
@@ -225,9 +230,19 @@ def save_defaults(
     db: Session = Depends(get_db),
     shop: Shop = Depends(owned_shop),
 ) -> dict[str, Any]:
-    merged = {**DEFAULT_TEMPLATE, **shop_defaults(shop), **payload.defaults}
+    current = shop_defaults(shop)
+    merged = {**DEFAULT_TEMPLATE, **current, **payload.defaults}
     if payload.labels:
         merged["labels"] = {**(merged.get("labels") or {}), **payload.labels}
+    if "_meta" in current:
+        merged["_meta"] = current["_meta"]
+    touched = [
+        key
+        for key in defaults_service.PULLABLE
+        if key in payload.defaults
+        and str(payload.defaults.get(key) or "").strip() != str(current.get(key) or "").strip()
+    ]
+    defaults_service.mark_user_keys(merged, touched)
     shop.defaults_json = json.dumps(merged, ensure_ascii=False)
     if payload.publish_mode in {"draft", "online"}:
         shop.publish_mode = payload.publish_mode
@@ -295,15 +310,24 @@ def online_products(
 @router.get("/shops/{shop_id}/default-options")
 def default_options(
     category_id: str = "",
+    refresh: bool = False,
+    pull: bool = True,
     db: Session = Depends(get_db),
     shop: Shop = Depends(owned_shop),
 ) -> dict[str, Any]:
-    """Official option lists for the defaults form, so nothing is typed blind."""
+    """Official option lists, with pullable values filled from a live listing."""
+    api = shop_api(shop)
+    pulled: dict[str, Any] = {"filled": [], "source_product_id": ""}
+    if pull or refresh:
+        try:
+            pulled = defaults_service.pull_from_shop(db, api, shop, refresh=refresh)
+        except (GopError, ShopNotConnected, RuntimeError, TypeError, ValueError):
+            pulled = {"filled": [], "source_product_id": ""}
     merged = {**DEFAULT_TEMPLATE, **shop_defaults(shop)}
     try:
-        return defaults_service.options_view(
+        view = defaults_service.options_view(
             db,
-            shop_api(shop),
+            api,
             shop,
             merged,
             category_id=category_id,
@@ -313,6 +337,16 @@ def default_options(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (GopError, RuntimeError) as exc:
         raise HTTPException(status_code=502, detail=f"拉取官方选项失败：{exc}") from exc
+    view["pulled"] = pulled.get("filled") or []
+    view["source_product_id"] = pulled.get("source_product_id") or ""
+    view["from_shop"] = bool(pulled.get("filled") or pulled.get("source_product_id"))
+    labels = defaults_service.remember_option_labels(merged, view.get("fields") or [])
+    if labels != (merged.get("labels") or {}):
+        current = shop_defaults(shop)
+        current["labels"] = labels
+        shop.defaults_json = json.dumps(current, ensure_ascii=False)
+        db.commit()
+    return view
 
 
 @router.get("/shops/{shop_id}/photobank")

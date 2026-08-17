@@ -88,6 +88,121 @@ class DefaultOptionTests(unittest.TestCase):
         self.assertEqual(by_key["port"]["kind"], "unsupported")
 
 
+class PullDefaultsTests(unittest.TestCase):
+    def test_extract_reads_nested_render_shape(self) -> None:
+        extracted = defaults.extract_listing_defaults(
+            {
+                "icbuCatProp": {"p-1": "100000458"},
+                "priceUnit": "4",
+                "saleType": {"$value": "1"},
+                "shippingTemplate": {"shippingTemplateId": "2041723009"},
+                "logisticsProperty": ["general_cargo_0", "battery_1"],
+                "pkgWeight": "0.35",
+                "pkgMeasure": {"length": "20", "width": "10", "height": "8"},
+                "brand": "Giorgione",
+                "ladderPeriod": {"ladderPeriod_0": {"period": "7"}},
+                "paymentMethod": "1",
+                "port": "SNH",
+                "market": "inquiry",
+            }
+        )
+        self.assertEqual(extracted["origin"], "100000458")
+        self.assertEqual(extracted["priceUnit"], "4")
+        self.assertEqual(extracted["saleType"], "1")
+        self.assertEqual(extracted["shippingTemplateId"], "2041723009")
+        self.assertEqual(extracted["logisticsProperty"], "general_cargo_0,battery_1")
+        self.assertEqual(extracted["pkgWeight"], "0.35")
+        self.assertEqual(extracted["pkgLength"], "20")
+        self.assertEqual(extracted["pkgWidth"], "10")
+        self.assertEqual(extracted["pkgHeight"], "8")
+        self.assertEqual(extracted["brand"], "Giorgione")
+        self.assertEqual(extracted["ladderPeriod"], "7")
+        self.assertEqual(extracted["paymentMethod"], "1")
+        self.assertEqual(extracted["port"], "SNH")
+        self.assertEqual(extracted["market"], "inquiry")
+
+    def test_placeholders_are_replaced_until_the_seller_saves(self) -> None:
+        current = {
+            "origin": "China",
+            "priceUnit": "Piece/Pieces",
+            "shippingTemplateId": "",
+            "brand": "",
+            "ladderPeriod": "15",
+        }
+        extracted = {
+            "origin": "100000123",
+            "priceUnit": "4",
+            "shippingTemplateId": "2041723009",
+            "brand": "Giorgione",
+            "ladderPeriod": "7",
+        }
+        merged, filled = defaults.apply_extracted(current, extracted)
+        self.assertEqual(merged["origin"], "100000123")
+        self.assertEqual(merged["priceUnit"], "4")
+        self.assertEqual(merged["shippingTemplateId"], "2041723009")
+        self.assertEqual(merged["brand"], "Giorgione")
+        self.assertEqual(merged["ladderPeriod"], "7")
+        self.assertEqual(set(filled), {"origin", "priceUnit", "shippingTemplateId", "brand", "ladderPeriod"})
+
+    def test_seller_saved_keys_are_not_overwritten(self) -> None:
+        current = {
+            "origin": "China",
+            "priceUnit": "Piece/Pieces",
+            "shippingTemplateId": "",
+            "_meta": {"user_keys": ["origin"]},
+        }
+        extracted = {"origin": "100000123", "priceUnit": "4", "shippingTemplateId": "2041723009"}
+        merged, filled = defaults.apply_extracted(current, extracted, refresh=True)
+        self.assertEqual(merged["origin"], "China")
+        self.assertEqual(merged["priceUnit"], "4")
+        self.assertEqual(merged["shippingTemplateId"], "2041723009")
+        self.assertNotIn("origin", filled)
+        self.assertIn("priceUnit", filled)
+
+    def test_empty_listing_values_do_not_wipe_placeholders(self) -> None:
+        current = {"origin": "China", "brand": ""}
+        merged, filled = defaults.apply_extracted(current, {"origin": "", "brand": ""})
+        self.assertEqual(merged["origin"], "China")
+        self.assertEqual(merged["brand"], "")
+        self.assertEqual(filled, [])
+
+    def test_already_set_shop_skips_another_pull(self) -> None:
+        import types
+
+        shop = types.SimpleNamespace(
+            defaults_json='{"origin":"100000458","priceUnit":"4","saleType":"1",'
+            '"logisticsProperty":"battery_1","marketSample":"yes",'
+            '"shippingTemplateId":"2041723009","paymentMethod":"1","port":"SNH",'
+            '"market":"inquiry","ladderPeriod":"7","pkgWeight":"0.3",'
+            '"pkgLength":"20","pkgWidth":"10","pkgHeight":"8","brand":"Giorgione"}'
+        )
+
+        class BoomApi:
+            def list_products(self, *args, **kwargs):
+                raise AssertionError("should not list when defaults are already filled")
+
+            def schema_render(self, *args, **kwargs):
+                raise AssertionError("should not render when defaults are already filled")
+
+        result = defaults.pull_from_shop(types.SimpleNamespace(), BoomApi(), shop)
+        self.assertEqual(result["reason"], "already_set")
+        self.assertEqual(result["filled"], [])
+
+    def test_option_labels_are_remembered_for_the_shop_list(self) -> None:
+        labels = defaults.remember_option_labels(
+            {},
+            [
+                {
+                    "key": "shippingTemplateId",
+                    "kind": "select",
+                    "value": "2041723009",
+                    "options": [{"value": "2041723009", "label": "画笔运费"}],
+                }
+            ],
+        )
+        self.assertEqual(labels["shippingTemplateId"], "画笔运费")
+
+
 def _options_view(db, shop):
     """Run options_view with the schema and category caches stubbed out."""
     from server.services import catalog

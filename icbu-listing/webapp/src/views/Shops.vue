@@ -109,7 +109,14 @@
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
       <p class="muted" style="margin-bottom: 16px">
-        这些是后面成稿的依据。交易和物流信息 AI 不猜。填一次，每条商品自动套。
+        {{
+          optionSource.source_product_id
+            ? "能从店里拉的已经拉过来了，你随时可以改。改过的以后不会被再覆盖。"
+            : "能拉的会从店里补上，你随时可以改。改过的以后不会被再覆盖。"
+        }}
+      </p>
+      <p v-if="optionSource.pulled?.length" class="muted" style="margin: -8px 0 16px">
+        刚从在线商品补上：{{ pulledLabels }}。
       </p>
       <el-form v-if="editing" v-loading="optionsLoading" label-width="110px">
         <el-form-item label="店铺名">
@@ -162,7 +169,10 @@
         <p v-if="unsupported.length" class="muted" style="margin: 0 0 14px">
           这个店的类目没有{{ unsupported.map((item) => item.label).join("、") }}，官方规则里就没有这些字段，不用填。
         </p>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+          <el-button :loading="optionsLoading" @click="reloadFromShop">重新从店里拉</el-button>
+        </div>
       </el-form>
     </el-drawer>
   </div>
@@ -194,6 +204,10 @@ const connectSteps = [
 
 const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
 const unsupported = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "unsupported"));
+const pulledLabels = computed(() => {
+  const names = { origin: "产地", priceUnit: "单位", saleType: "售卖方式", shippingTemplateId: "运费模板", logisticsProperty: "物流属性", marketSample: "样品", paymentMethod: "付款", port: "港口", market: "市场", pkgWeight: "包装重量", pkgLength: "包装长", pkgWidth: "包装宽", pkgHeight: "包装高", brand: "品牌", ladderPeriod: "交期" };
+  return (optionSource.value.pulled || []).map((key) => names[key] || key).join("、");
+});
 const hasTokenShop = computed(() => store.shops.some((item) => item.bound_by === "debug"));
 const hasOauthShop = computed(() => store.shops.some((item) => item.bound_by === "oauth"));
 const callbackUrl = `${window.location.origin}/api/v1/alibaba/oauth/callback`;
@@ -218,20 +232,31 @@ function rememberLabel(field) {
   pickedLabels.value[field.key] = picked.join("、");
 }
 
-async function loadOptions(shopId) {
+async function loadOptions(shopId, refresh = false) {
   optionsLoading.value = true;
   try {
-    optionSource.value = await api.shopDefaultOptions(shopId);
-    for (const field of pickable.value) {
+    optionSource.value = await api.shopDefaultOptions(shopId, "", { refresh });
+    if (!editing.value.defaults) editing.value.defaults = {};
+    for (const field of optionSource.value.fields || []) {
+      if (field.kind === "unsupported") continue;
       editing.value.defaults[field.key] = field.multiple ? splitValues(field.value) : field.value;
-      rememberLabel(field);
+      if (field.kind === "select") rememberLabel(field);
     }
+    if (refresh && optionSource.value.pulled?.length) {
+      ElMessage.success(`已从店里更新：${pulledLabels.value}`);
+    }
+    await store.loadShops();
   } catch (error) {
-    optionSource.value = { category_name: "", fields: [] };
+    optionSource.value = { category_name: "", fields: [], pulled: [] };
     ElMessage.warning(`拉不到官方选项，先手填：${error.message}`);
   } finally {
     optionsLoading.value = false;
   }
+}
+
+function reloadFromShop() {
+  if (!editing.value?.id) return;
+  loadOptions(editing.value.id, true);
 }
 
 if (route.query.alibaba === "error") {
@@ -253,7 +278,7 @@ onMounted(async () => {
   await reload();
   if (route.query.alibaba === "connected" && store.shops.length) {
     const newest = store.shops[store.shops.length - 1];
-    ElMessage.success("店铺已登录。先填一次默认值，之后每条商品不用再问。");
+    ElMessage.success("店铺已登录。能从店里拉的默认已填上，你可改。");
     edit(newest);
   }
 });

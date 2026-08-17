@@ -187,32 +187,17 @@ def clone_to_draft(
 
 
 def learn_defaults(db: Session, shop: Shop, *, product_id: str, category_id: str) -> dict[str, Any]:
-    """Fill empty shop defaults from one live listing. Never overwrite."""
-    api = shop_api(shop)
-    language = str(shop_defaults(shop).get("language") or "en_US")
-    values = extract_values(render_xml(api, category_id, product_id, language))
-    current = shop_defaults(shop)
-    extracted = {
-        "origin": values.get("origin") or "",
-        "priceUnit": values.get("priceUnit") or "",
-        "logisticsProperty": values.get("logisticsProperty") or "",
-        "marketSample": values.get("marketSample") or "",
-        "shippingTemplateId": _nested(values, "shippingTemplate", "shippingTemplateId") or values.get("shippingTemplateId") or "",
-        "pkgWeight": values.get("pkgWeight") or "",
-        "brand": values.get("brand") or "",
-        "paymentMethod": values.get("paymentMethod") or "",
-        "port": values.get("port") or "",
-        "ladderPeriod": _period_days(values),
-    }
-    merged = dict(current)
-    filled = []
-    for key, value in extracted.items():
-        if value and not str(current.get(key) or "").strip():
-            merged[key] = value if not isinstance(value, dict) else str(value)
-            filled.append(key)
-    shop.defaults_json = json.dumps(merged, ensure_ascii=False)
-    db.commit()
-    return {"defaults": merged, "filled": filled, "source_product_id": product_id}
+    """Fill pullable shop defaults from one live listing. Never overwrite seller edits."""
+    from . import defaults as defaults_service
+
+    return defaults_service.pull_from_shop(
+        db,
+        shop_api(shop),
+        shop,
+        product_id=product_id,
+        category_id=category_id,
+        refresh=False,
+    )
 
 
 def learn_template(db: Session, user: User, shop: Shop, *, product_id: str, category_id: str, name: str = "") -> Template:

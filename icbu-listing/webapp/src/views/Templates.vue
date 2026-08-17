@@ -117,7 +117,7 @@ async function loadOptions(categoryId) {
   if (!store.shopId || !categoryId) return;
   optionsLoading.value = true;
   try {
-    const data = await api.shopDefaultOptions(store.shopId, categoryId);
+    const data = await api.shopDefaultOptions(store.shopId, categoryId, { pull: false });
     optionFields.value = data.fields || [];
     for (const field of pickable.value) {
       if (form.values[field.key] == null || form.values[field.key] === "") {
