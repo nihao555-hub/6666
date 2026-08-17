@@ -167,7 +167,7 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("Color", help_text)
         self.assertIn("红线", help_text)
         policy = fill_policy(category_attr_columns(brushes))
-        self.assertIn("Type", {item["label"] for item in policy["ai_fills"]})
+        self.assertIn("类型", {item["label"] for item in policy["ai_fills"]})
         self.assertTrue(any(item["id"] == "price" for item in policy["redline"]))
 
     def test_uploaded_official_attr_columns_still_parse(self) -> None:
@@ -208,6 +208,19 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("补转化位", help_text)
         images_fill = next(item for item in fill_policy()["user_fills"] if item["id"] == "images")
         self.assertFalse(images_fill["required"])
+
+    def test_trade_and_logistics_are_shop_defaults_not_ai(self) -> None:
+        policy = fill_policy()
+        self.assertNotIn("交易和物流", {item["label"] for item in policy["ai_fills"]})
+        self.assertIn("运费模板", {item["label"] for item in policy["shop_fills"]})
+        self.assertIn("计量单位", {item["label"] for item in policy["shop_fills"]})
+        self.assertIn("零出错", policy["guarantee"])
+        note = next(item for item in policy["user_fills"] if item["id"] == "note")
+        self.assertIn("色数", note["hint"])
+        book = load_workbook(io.BytesIO(build_template("simple")))
+        help_text = " ".join(str(cell or "") for row in book["说明"].iter_rows(values_only=True) for cell in row)
+        self.assertIn("店里套", help_text)
+        self.assertIn("人核对", help_text)
 
     def test_one_sheet_carries_many_products(self) -> None:
         payload = build_template("simple")

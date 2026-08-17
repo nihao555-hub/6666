@@ -1,8 +1,14 @@
 <template>
-  <div class="console">
+  <div class="console" :class="{ 'is-collapsed': store.sidebarCollapsed }">
     <aside class="sidebar">
       <div class="sidebar-brand">
         <Brand />
+        <button class="sidebar-toggle" type="button" :title="store.sidebarCollapsed ? '展开侧栏' : '收起侧栏'" @click="store.toggleSidebar()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path v-if="store.sidebarCollapsed" d="M9 6l6 6-6 6" />
+            <path v-else d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
       </div>
 
       <div class="shop-switcher">
@@ -17,50 +23,50 @@
       </div>
 
       <nav class="nav-list">
-        <router-link class="nav-link" :class="{ 'is-active': on('/overview') }" to="/overview">
+        <router-link class="nav-link" :class="{ 'is-active': on('/overview') }" to="/overview" title="概览">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <rect x="3" y="3" width="7" height="7" rx="1" />
             <rect x="14" y="3" width="7" height="7" rx="1" />
             <rect x="3" y="14" width="7" height="7" rx="1" />
             <rect x="14" y="14" width="7" height="7" rx="1" />
           </svg>
-          概览
+          <span class="nav-text">概览</span>
         </router-link>
-        <router-link class="nav-link" :class="{ 'is-active': on('/shops') }" to="/shops">
+        <router-link class="nav-link" :class="{ 'is-active': on('/shops') }" to="/shops" title="店铺">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M3 10.5 12 4l9 6.5" />
             <path d="M5 10v9h14v-9" />
           </svg>
-          店铺
+          <span class="nav-text">店铺</span>
         </router-link>
-        <router-link class="nav-link" :class="{ 'is-active': on('/feed') }" to="/feed">
+        <router-link class="nav-link" :class="{ 'is-active': on('/feed') }" to="/feed" title="投料">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          投料
+          <span class="nav-text">投料</span>
         </router-link>
-        <router-link class="nav-link" :class="{ 'is-active': on('/drafts') }" to="/drafts">
+        <router-link class="nav-link" :class="{ 'is-active': on('/drafts') }" to="/drafts" title="商品">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M7 3h7l5 5v13H7z" />
             <path d="M14 3v5h5" />
           </svg>
-          商品
+          <span class="nav-text">商品</span>
         </router-link>
-        <router-link class="nav-link" :class="{ 'is-active': on('/queue') }" to="/queue">
+        <router-link class="nav-link" :class="{ 'is-active': on('/queue') }" to="/queue" title="队列">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M4 12a8 8 0 1 0 2.3-5.7" />
             <path d="M4 4v4h4" />
           </svg>
-          队列
+          <span class="nav-text">队列</span>
         </router-link>
       </nav>
 
       <div class="sidebar-foot">
         <div class="sidebar-user">
           <span class="avatar">{{ initials }}</span>
-          <span>{{ store.user?.email }}</span>
+          <span class="nav-text">{{ store.user?.email }}</span>
         </div>
-        <el-button text @click="logout">退出</el-button>
+        <el-button class="nav-text" text @click="logout">退出</el-button>
       </div>
     </aside>
 

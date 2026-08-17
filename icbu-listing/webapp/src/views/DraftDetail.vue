@@ -4,7 +4,7 @@
       <div>
         <h2>核对 · {{ draft.sku || draft.title || "未命名" }}</h2>
         <p class="muted">
-          AI 会填错类目和规格。改完点「审过了」，没审过不能发。预估质量
+          不能保证 AI 零出错。改完点「审过了」，没审过不能发。预估质量
           <b>{{ draft.quality?.score ?? "—" }}</b> / 5.0
         </p>
       </div>

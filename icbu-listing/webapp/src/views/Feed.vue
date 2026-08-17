@@ -358,8 +358,15 @@
             </ul>
           </section>
           <section class="policy-card">
+            <small>店里套</small>
+            <b>不进表，填一次</b>
+            <ul>
+              <li v-for="item in policy.shop_fills" :key="item.id">{{ item.label }}</li>
+            </ul>
+          </section>
+          <section class="policy-card">
             <small>AI 填</small>
-            <b>不要写进表</b>
+            <b>不要写进表，人要核对</b>
             <ul>
               <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
             </ul>
@@ -374,6 +381,16 @@
             </ul>
           </section>
         </div>
+        <el-alert
+          type="warning"
+          show-icon
+          :closable="false"
+          :title="policy.guarantee"
+          style="margin-top: 12px"
+        />
+        <p class="muted" style="margin-top: 10px">
+          以彩铅为例：官方还要计量单位、产地、运费模板、铅芯颜色、铅芯硬度。前三项走店默认；颜色和硬度 AI 从官方选项里选，人在商品页改。色数、是否水溶写备注，不要加进表。
+        </p>
         <div class="step-actions">
           <el-button @click="excelStep = 0">上一步</el-button>
           <el-button type="primary" @click="downloadAndAdvance">下载填写表</el-button>
@@ -649,7 +666,7 @@ const excel = reactive({
   photoPolicy: "complete",
   emptyPolicy: "draw",
 });
-const sheetPlan = ref({ user_fills: [], ai_fills: [], redline: [], ai_attrs: [], category_name: "", preview: null });
+const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null });
 const categoryBrowser = ref(false);
 const excelProgress = ref({ done: 0 });
 let timer = null;
@@ -660,8 +677,13 @@ const currentStyle = computed(() => styles.value.find((item) => item.id === exce
 const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple"));
 const policy = computed(() => ({
   user_fills: sheetPlan.value.user_fills?.length ? sheetPlan.value.user_fills : currentStyle.value?.policy?.user_fills || [],
+  shop_fills: sheetPlan.value.shop_fills?.length ? sheetPlan.value.shop_fills : currentStyle.value?.policy?.shop_fills || [],
   ai_fills: sheetPlan.value.ai_fills?.length ? sheetPlan.value.ai_fills : currentStyle.value?.policy?.ai_fills || [],
   redline: sheetPlan.value.redline?.length ? sheetPlan.value.redline : currentStyle.value?.policy?.redline || [],
+  guarantee:
+    sheetPlan.value.guarantee ||
+    currentStyle.value?.policy?.guarantee ||
+    "不能保证 AI 零出错。红线不让它编，对不上发不出，没人审过发不出。",
 }));
 const previewColumns = computed(() => sheetPlan.value.preview?.columns || policy.value.user_fills.map((item) => ({
   id: item.id,
@@ -1482,7 +1504,7 @@ async function poll() {
 }
 .policy-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 .policy-card {

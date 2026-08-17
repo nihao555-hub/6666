@@ -113,16 +113,26 @@ USER_FILLS: list[dict[str, Any]] = [
     {"id": "images", "label": "图片", "required": False, "hint": "选填。有图写链接或文件名；没图留空。导入时再选原图上架、补转化位或重画"},
     {"id": "brand", "label": "品牌", "required": False, "hint": "没有就留空，等于无品牌"},
     {"id": "name", "label": "品名（中文）", "required": False, "hint": "给自己看，也可当提示"},
-    {"id": "note", "label": "备注", "required": False, "hint": "给自己看"},
+    {"id": "note", "label": "备注", "required": False, "hint": "色数、是否水溶、硬度若和别的货不一样，写这里。AI 当提示，不编 24 色 / HB"},
+]
+
+# Official trade/logistics are shop resources, not model output.
+SHOP_FILLS: list[dict[str, Any]] = [
+    {"id": "origin", "label": "原产地", "hint": "整店填一次"},
+    {"id": "priceUnit", "label": "计量单位", "hint": "按支 / 按套 / 按盒。跟货走的兜底"},
+    {"id": "saleType", "label": "询盘或一口价", "hint": "整店通用"},
+    {"id": "shipping", "label": "运费模板", "hint": "店里建好，发品时引用"},
+    {"id": "leadTime", "label": "交期", "hint": "跟货走的兜底"},
+    {"id": "pack", "label": "包装重量尺寸", "hint": "跟货走的兜底"},
+    {"id": "payment", "label": "付款 / 港口", "hint": "整店通用"},
 ]
 
 AI_FILLS_BASE: list[dict[str, Any]] = [
-    {"id": "productTitle", "label": "英文标题", "hint": "按官方字节限制写"},
-    {"id": "productKeywords", "label": "关键词", "hint": "1～3 个"},
+    {"id": "productTitle", "label": "英文标题", "hint": "按官方字节限制写。人要核对"},
+    {"id": "productKeywords", "label": "关键词", "hint": "1～3 个。人要核对"},
     {"id": "textDesc", "label": "详描", "hint": "按图写，不编认证"},
-    {"id": "catAttrs", "label": "类目属性", "hint": "按官方选项选，不选 Other"},
+    {"id": "catAttrs", "label": "类目属性", "hint": "按官方选项选。铅笔是铅芯颜色、铅芯硬度。选错但合法的只能人审拦住"},
     {"id": "superText", "label": "详描 / FAQ", "hint": "按图写，不编认证"},
-    {"id": "trade", "label": "交易和物流", "hint": "从店铺默认套，不编港口和交期"},
 ]
 
 REDLINE: list[dict[str, str]] = [
@@ -299,21 +309,37 @@ def sheet_preview(style: str = "simple") -> dict[str, Any]:
     }
 
 
+ATTR_LABELS_ZH = {
+    "lead color": "铅芯颜色",
+    "lead hardness": "铅芯硬度",
+    "origin": "原产地",
+    "type": "类型",
+    "color": "颜色",
+}
+
+
+def _attr_label(name: str) -> str:
+    return ATTR_LABELS_ZH.get((name or "").strip().lower(), name)
+
+
 def fill_policy(ai_attrs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     extras = ai_attrs or []
     ai_fills = [item for item in AI_FILLS_BASE if item["id"] != "catAttrs" or not extras]
     for extra in extras:
+        raw = extra.get("header") or extra.get("label") or extra.get("name") or ""
         ai_fills.append(
             {
                 "id": extra.get("id") or extra.get("field_id") or extra.get("header"),
-                "label": extra.get("header") or extra.get("label") or extra.get("name") or "",
-                "hint": "按官方选项选，不选 Other",
+                "label": _attr_label(str(raw)),
+                "hint": "按官方选项选，不选 Other。选错但合法的只能人审拦住",
             }
         )
     return {
         "user_fills": [dict(item) for item in USER_FILLS],
+        "shop_fills": [dict(item) for item in SHOP_FILLS],
         "ai_fills": ai_fills,
         "redline": [dict(item) for item in REDLINE],
+        "guarantee": "不能保证 AI 零出错。能保证：红线不让它编；官方必填对不上发不出；没人审过发不出。选了错误但合法的选项（比如 HB 写成 2B），只能人看出来。",
     }
 
 
@@ -746,7 +772,7 @@ def build_template(
         "images": "选填。有图写文件名或 URL，分号分隔。没图留空。导入时再选原图上架、留下补转化位、或当参考重画套图。",
         "brand": "红线。有品牌就填；空着=无品牌。AI 不准编品牌名。",
         "name": "选填。给自己看，也可当中文提示。",
-        "note": "选填。给自己看。",
+        "note": "选填。色数、是否水溶、硬度若和别的货不一样，写这里。AI 当提示，不编数字。",
         "title": "有现成英文标题才填。短表不用填，交给 AI。",
         "keywords": "有现成关键词才填。短表不用填，交给 AI。",
         "category_id": "红线。短表在下载时整表选定，不要每行让 AI 猜。",
@@ -774,7 +800,7 @@ def build_template(
     help_sheet["A1"] = "这不是官方表"
     help_sheet["A1"].font = Font(bold=True, size=14)
     help_sheet["A2"] = spec["summary"]
-    help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来，交给 AI。红线字段不准给 AI。"
+    help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来。交易物流走店铺默认，不是 AI 编的。红线字段不准给 AI。AI 会选错，成稿后要人核对。"
     help_sheet["A4"] = "一行 = 一个商品。图片选填：有图写链接或文件名，没图留空。导入时再选原图上架、补转化位或重画。第 2 行灰色是示例，导入时自动跳过。"
     help_sheet["A4"].font = Font(bold=True)
 
@@ -788,7 +814,15 @@ def build_template(
         help_sheet.cell(row, 2, hints_by_id.get(field_id) or header_hints.get(field_id) or "")
         row += 1
     row += 1
-    help_sheet.cell(row, 1, "AI 填（不要写进填写页）")
+    help_sheet.cell(row, 1, "店里套（店铺默认，不进填写页）")
+    help_sheet.cell(row, 1).font = Font(bold=True)
+    row += 1
+    for item in SHOP_FILLS:
+        help_sheet.cell(row, 1, item["label"])
+        help_sheet.cell(row, 2, item.get("hint") or "店铺默认，AI 不准改")
+        row += 1
+    row += 1
+    help_sheet.cell(row, 1, "AI 填（不要写进填写页，人要核对）")
     help_sheet.cell(row, 1).font = Font(bold=True)
     row += 1
     for item in fill_policy(extras)["ai_fills"]:
