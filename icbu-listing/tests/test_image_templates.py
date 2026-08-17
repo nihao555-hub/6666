@@ -59,6 +59,8 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertEqual(pick_family("wireless earbuds").id, "electronics")
         self.assertEqual(pick_family("women floral midi dress").id, "apparel")
         self.assertEqual(pick_family("unknown widget").id, "general")
+        self.assertEqual(pick_family("سماعات أذن لاسلكية").id, "electronics")
+        self.assertEqual(pick_family("Taza de cerámica").id, "home")
 
     def test_official_alibaba_category_names_pick_a_stack(self) -> None:
         self.assertEqual(pick_family("", "Tools & Hardware / 五金工具").id, "tools")
@@ -100,6 +102,8 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertIn("paint brush", prompt)
         self.assertIn("bristle", prompt)
         self.assertIn("upper left", prompt)
+        detail = assemble_prompt("detail", product="paint brush", family_id="tools", material="bristle")
+        self.assertNotIn("port precision", detail)
 
     def test_non_english_names_become_english_in_the_prompt(self) -> None:
         self.assertEqual(english_brief("油漆刷"), "wall paint brush")

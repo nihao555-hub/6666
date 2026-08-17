@@ -929,7 +929,8 @@ def _norm(text: str) -> str:
 def pick_family(*hints: str, family_id: str = "") -> Family:
     if family_id and family_id in FAMILY_BY_ID:
         return FAMILY_BY_ID[family_id]
-    blob = _norm(" ".join(str(item or "") for item in hints))
+    raw = " ".join(str(item or "") for item in hints)
+    blob = _norm(f"{raw} {english_brief(raw)}")
     if not blob:
         return FAMILY_BY_ID["general"]
     best: Family | None = None

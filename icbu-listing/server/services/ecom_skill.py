@@ -61,18 +61,12 @@ SLOT_FILE = {
 }
 
 FAMILY_TIP_KEY = {
-    "stationery": "home",
-    "tools": "electronics",
     "electronics": "electronics",
     "apparel": "fashion",
     "beauty": "beauty",
     "home": "home",
-    "toys": "home",
     "jewelry": "jewelry",
-    "industrial": "electronics",
     "food": "food",
-    "sports": "home",
-    "general": "home",
 }
 
 FAMILY_MATERIAL = {
