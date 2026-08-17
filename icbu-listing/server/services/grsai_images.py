@@ -178,7 +178,7 @@ def generate_one(
         raise GrsaiError(_error_from(payload, "这一张没画出来"))
     remote_urls = _result_urls(payload)
     if not remote_urls:
-        if payload.get("error"):
+        if payload.get("error") or payload.get("msg") or payload.get("message"):
             raise GrsaiError(_error_from(payload, "这一张没画出来"))
         raise GrsaiError("出图服务没有给出图片")
     return download_image(remote_urls[0]), remote_urls[0]

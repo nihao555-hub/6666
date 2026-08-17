@@ -280,3 +280,15 @@ class GrsaiClientTests(unittest.TestCase):
             with self.assertRaises(GrsaiError) as ctx:
                 grsai_images.generate_one("x")
         self.assertIn("额度", ctx.exception.message)
+
+    def test_code_minus_one_insufficient_credits(self) -> None:
+        from server.services import grsai_images
+
+        class FakeResponse:
+            status_code = 200
+            text = '{"code":-1,"data":null,"msg":"insufficient credits"}'
+
+        with patch.object(grsai_images.requests, "post", return_value=FakeResponse()):
+            with self.assertRaises(GrsaiError) as ctx:
+                grsai_images.generate_one("x")
+        self.assertIn("额度", ctx.exception.message)
