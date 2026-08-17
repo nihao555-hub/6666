@@ -1,0 +1,4 @@
+{$LINE_DOMAIN} {
+	encode gzip
+	reverse_proxy line-hub:8000
+}

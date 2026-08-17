@@ -17,6 +17,10 @@ Baby 44 · Beauty 59 · Car 50 · Cleaning 17 · Electronics 45 · Factory 162 �
 
 注：超过 GitHub 100MB 限制的少数视频已用 ffmpeg 压缩。
 
+## LINE 多账号托管教程
+
+LINE 后台操作说明（按官方文档）：[docs/line-multi-account/index.html](docs/line-multi-account/index.html)。
+
 ## 使用脚本
 ```bash
 export TIKHUB_KEY=<your_tikhub_api_key>

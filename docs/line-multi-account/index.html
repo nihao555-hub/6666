@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LINE 拿密钥（傻瓜式）</title>
+<style>
+  body { margin: 0 auto; max-width: 860px; padding: 24px 16px 72px; font: 17px/1.7 "PingFang SC","Hiragino Sans GB","WenQuanYi Micro Hei","Microsoft YaHei",sans-serif; color: #1a1d21; background: #f5f6f8; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .sub { color: #5c6570; margin: 0 0 20px; }
+  h2 { font-size: 20px; margin: 32px 0 10px; }
+  .step { background: #fff; border: 1px solid #e6e8eb; border-radius: 12px; padding: 16px 16px 8px; margin: 0 0 16px; }
+  .step b { display: inline-block; background: #06c755; color: #06210f; border-radius: 999px; padding: 0 10px; margin-right: 6px; }
+  img { display: block; width: 100%; height: auto; border: 1px solid #e6e8eb; border-radius: 8px; margin: 10px 0 8px; background: #fff; }
+  p { margin: 0 0 10px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; background: #eef1f4; padding: .1em .35em; border-radius: 4px; }
+  .tip { background: #fff6ee; border: 1px solid #f0d2b6; color: #8a3b12; border-radius: 10px; padding: 10px 12px; margin: 8px 0 12px; }
+</style>
+</head>
+<body>
+  <h1>LINE 拿密钥：照着点就行</h1>
+  <p class="sub">5 个号就做 5 遍。每个号只要复制 2 个密钥，再填 1 个网址。</p>
+
+  <div class="step">
+    <p><b>1</b> 打开 <a href="https://developers.line.biz/console/">developers.line.biz/console</a>，点进这个账号的 <b>Messaging API</b> 卡片。</p>
+    <img src="images/s3-open-channel.png" alt="点进 Messaging API channel">
+  </div>
+
+  <div class="step">
+    <p><b>2</b> 点顶部 <b>Basic settings</b>，找到 <b>Channel secret</b>，点复制。同页的 Channel ID 也可以记一下。</p>
+    <img src="images/s3-secret.png" alt="复制 Channel secret">
+  </div>
+
+  <div class="step">
+    <p><b>3</b> 再点顶部 <b>Messaging API</b>，找到 <b>Channel access token (long-lived)</b>，点 <b>Issue</b>，再复制 token。</p>
+    <img src="images/s3-token.png" alt="Issue 并复制 token">
+    <p class="tip">不要随便再点 Issue。再点一次，旧 token 立刻作废。</p>
+  </div>
+
+  <div class="step">
+    <p><b>4</b> 还在 <b>Messaging API</b> 这一页，往下找到 Webhook：</p>
+    <p>点 <b>Edit</b>，填下面这个地址（把「你的域名」和数字换成这个号的），再点 <b>Update</b>。</p>
+    <p>
+      1 号：<code>https://你的域名/webhook/acc1</code><br>
+      2 号：<code>https://你的域名/webhook/acc2</code><br>
+      3 号：<code>https://你的域名/webhook/acc3</code><br>
+      4 号：<code>https://你的域名/webhook/acc4</code><br>
+      5 号：<code>https://你的域名/webhook/acc5</code>
+    </p>
+    <p>然后点 <b>Verify</b>，看到 Success。最后把 <b>Use webhook</b> 打开。</p>
+    <img src="images/s3-webhook.png" alt="填 Webhook">
+  </div>
+
+  <div class="step">
+    <p><b>5</b> 同一页把 Greeting messages、Auto-reply messages 关掉，不然官方账号会自己回消息。</p>
+    <p>做完一个号，换下一个 channel，从第 1 步再来一遍。</p>
+  </div>
+</body>
+</html>
