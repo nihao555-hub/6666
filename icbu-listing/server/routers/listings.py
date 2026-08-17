@@ -282,6 +282,7 @@ def feed_from_generated(
 
     product_name = str(job.get("product_name") or "").strip()
     sku = (payload.sku or "").strip() or re.sub(r"[^A-Za-z0-9]+", "-", product_name).strip("-")[:40] or "GEN"
+    category_id = (payload.category_id or job.get("category_id") or "").strip()
     extra = "平台按类目生成了 6 张套图，不是实拍。买家要实拍时再补。"
     note = "\n".join(part for part in (payload.note.strip(), extra) if part)
 
@@ -295,7 +296,7 @@ def feed_from_generated(
             price=payload.price,
             moq=payload.moq,
             note=note,
-            category_id=payload.category_id,
+            category_id=category_id,
         )
     except ShopNotConnected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -682,10 +683,10 @@ def retry_job(
 
 @router.get("/shops/{shop_id}/categories")
 def browse_categories(
+    shop_id: str,
     parent: str = "0",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
-    shop_id: str = "",
 ) -> dict[str, Any]:
     shop = shop_for(db, user, shop_id)
     api = shop_api(shop)

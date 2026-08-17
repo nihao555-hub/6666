@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/v1/image-templates", tags=["image-templates"])
 class PlanIn(BaseModel):
     family_id: str = ""
     product_name: str = ""
+    category_id: str = ""
     category_hint: str = ""
     material: str = ""
     colors: list[str] = []
@@ -63,6 +64,8 @@ def generate(payload: PlanIn, user: User = Depends(current_user)) -> dict[str, A
         raise HTTPException(status_code=400, detail="平台还没接上出图服务")
     planned = _plan(payload)
     planned["product_name"] = payload.product_name or planned.get("family", {}).get("name") or ""
+    planned["category_id"] = payload.category_id
+    planned["category_hint"] = payload.category_hint or planned.get("category_hint") or ""
     job = image_jobs.create_job(user.id, planned)
     thread = threading.Thread(target=image_jobs.run_job, args=(job["id"],), daemon=True)
     thread.start()

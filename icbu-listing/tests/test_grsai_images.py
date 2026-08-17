@@ -112,10 +112,18 @@ class ImageGenerateApiTests(unittest.TestCase):
             patch("server.services.grsai_images.generate_one", side_effect=fake_generate),
             patch("server.routers.image_templates.threading.Thread", ImmediateThread),
         ):
-            started = owner.post("/api/v1/image-templates/generate", json={"product_name": "paint brush"})
+            started = owner.post(
+                "/api/v1/image-templates/generate",
+                json={
+                    "product_name": "paint brush",
+                    "category_id": "21111112",
+                    "category_hint": "Tools & Hardware / 五金工具",
+                },
+            )
         self.assertEqual(started.status_code, 200, started.text)
         job = started.json()
         self.assertEqual(job["status"], "succeeded")
+        self.assertEqual(job["category_id"], "21111112")
         self.assertEqual(job["done"], 6)
         self.assertEqual(len(job["slots"]), 6)
         self.assertTrue(all(slot["url"] for slot in job["slots"]))

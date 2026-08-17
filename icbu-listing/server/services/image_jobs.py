@@ -89,6 +89,8 @@ def create_job(user_id: str, plan: dict[str, Any]) -> dict[str, Any]:
         "total": len(slots),
         "error": "",
         "product_name": plan.get("product_name") or family.get("name") or "",
+        "category_id": plan.get("category_id") or "",
+        "category_name": plan.get("category_hint") or "",
         "family": family,
         "slots": slots,
     }
@@ -121,6 +123,8 @@ def public_view(job: dict[str, Any]) -> dict[str, Any]:
         "total": job.get("total") or len(slots),
         "error": job.get("error") or "",
         "product_name": job.get("product_name") or "",
+        "category_id": job.get("category_id") or "",
+        "category_name": job.get("category_name") or "",
         "family": job.get("family") or {},
         "slots": slots,
     }

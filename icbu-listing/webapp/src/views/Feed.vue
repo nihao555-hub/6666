@@ -133,11 +133,29 @@
       <div v-if="aiStep === 0" class="step-panel">
         <h3>写出品名</h3>
         <p class="muted">没有实拍时，平台按国际站 6 个坑位画套图：白底主图、尺寸、细节、场景、外箱、OEM。生成图不是实拍。</p>
-        <el-form label-width="88px" style="max-width: 640px; margin-top: 12px">
+        <el-form label-width="88px" style="max-width: 720px; margin-top: 12px">
           <el-form-item label="类目">
-            <el-select v-model="aiForm.familyId" placeholder="不选则按品名自动匹配" clearable style="width: 320px">
-              <el-option v-for="item in templates.families || []" :key="item.id" :label="item.name" :value="item.id" />
-            </el-select>
+            <div>
+              <el-button @click="openAiCategory">{{ aiForm.categoryName || "选择国际站类目" }}</el-button>
+              <p class="muted" style="margin: 6px 0 0">从这家店的官方类目树选到可发布的叶子。不选也能先出图。</p>
+            </div>
+          </el-form-item>
+          <el-form-item label="出图风格">
+            <div>
+              <div class="family-chips">
+                <button
+                  v-for="item in templates.families || []"
+                  :key="item.id"
+                  type="button"
+                  class="family-chip"
+                  :class="{ 'is-active': aiForm.familyId === item.id }"
+                  @click="aiForm.familyId = aiForm.familyId === item.id ? '' : item.id"
+                >
+                  {{ item.name }}
+                </button>
+              </div>
+              <p class="muted" style="margin: 6px 0 0">可不选。不选则按官方类目和品名自动匹配。</p>
+            </div>
           </el-form-item>
           <el-form-item label="品名">
             <el-input v-model="aiForm.productName" placeholder="例如 油漆刷 / colored pencil set" />
@@ -475,7 +493,15 @@ const excelSteps = [
 
 const templates = ref({ families: [], sources: [] });
 const imageJob = ref(null);
-const aiForm = reactive({ familyId: "", productName: "", note: "", planning: false });
+const aiForm = reactive({
+  familyId: "",
+  productName: "",
+  note: "",
+  planning: false,
+  categoryId: "",
+  categoryName: "",
+});
+const categoryTarget = ref("excel");
 const loading = ref(false);
 const files = ref([]);
 const batchFiles = ref([]);
@@ -552,9 +578,13 @@ function advanceAi(index) {
 
 onMounted(async () => {
   try {
+    templates.value = await api.imageTemplates();
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+  try {
     styles.value = await api.excelStyles();
     listingTemplates.value = store.shopId ? await api.templates({ shop_id: store.shopId }) : [];
-    templates.value = await api.imageTemplates();
     onStyleChange();
     await loadSheetPlan();
     if (excel.categoryId) excelReached.value = Math.max(excelReached.value, 1);
@@ -574,6 +604,8 @@ async function startGenerate() {
       family_id: aiForm.familyId,
       product_name: aiForm.productName,
       note: aiForm.note,
+      category_id: aiForm.categoryId,
+      category_hint: aiForm.categoryName,
     });
     if (imageJob.value?.family?.id) aiForm.familyId = imageJob.value.family.id;
     advanceAi(1);
@@ -619,6 +651,7 @@ async function submitGenerated() {
       price: form.price,
       moq: form.moq,
       note: form.note,
+      category_id: aiForm.categoryId || imageJob.value.category_id || "",
     });
     ElMessage.success(`草稿已生成：${draft.category_name || "待定类目"}`);
     router.push(`/drafts/${draft.id}`);
@@ -658,10 +691,36 @@ function openCategory() {
     ElMessage.warning("先登录一个店铺");
     return;
   }
+  categoryTarget.value = "excel";
+  categoryBrowser.value = true;
+}
+
+function openAiCategory() {
+  if (!store.shopId) {
+    ElMessage.warning("先登录一个店铺");
+    return;
+  }
+  categoryTarget.value = "ai";
   categoryBrowser.value = true;
 }
 
 async function pickCategory(node) {
+  if (categoryTarget.value === "ai") {
+    aiForm.categoryId = node.category_id;
+    aiForm.categoryName = node.label || node.name || node.cn_name || "";
+    try {
+      const planned = await api.planImages({
+        product_name: aiForm.productName,
+        category_hint: aiForm.categoryName,
+        note: aiForm.note,
+      });
+      aiForm.familyId = planned.family?.id || "";
+      ElMessage.success(`已选「${aiForm.categoryName}」，出图按「${planned.family?.name || "通用"}」`);
+    } catch {
+      ElMessage.success(`已选「${aiForm.categoryName}」`);
+    }
+    return;
+  }
   excel.categoryId = node.category_id;
   try {
     await loadSheetPlan();
@@ -875,6 +934,25 @@ async function poll() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.family-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.family-chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  cursor: pointer;
+}
+.family-chip.is-active {
+  background: var(--accent-wash);
+  border-color: var(--accent-line);
 }
 .erp-more {
   margin-top: 22px;

@@ -94,6 +94,19 @@
       </el-table-column>
     </el-table>
 
+    <div v-if="store.shops.length" class="connect-caps" style="margin-top: 16px">
+      <p class="muted" style="margin: 0 0 8px">这家店已经用密钥接通的官方能力</p>
+      <ul>
+        <li>登录授权、刷新店铺登录</li>
+        <li>官方类目树，选到可发布的叶子</li>
+        <li>该类目的发布规则（标题、属性、物流选项）</li>
+        <li>图片银行：上传、列表</li>
+        <li>在售商品：列表、详情、按规则回读再改</li>
+        <li>发到官方草稿箱；确认后再切直接上架</li>
+      </ul>
+      <p class="muted">旧版「一键 add」已经不对新商家开放，发品只走现在这套规则接口。运费模板、付款、港口从该类目规则里拉，不手填编号。</p>
+    </div>
+
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
       <p class="muted" style="margin-bottom: 16px">
         这些是后面成稿的依据。交易和物流信息 AI 不猜。填一次，每条商品自动套。

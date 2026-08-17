@@ -27,17 +27,37 @@ from typing import Any, Mapping, Sequence
 ICBU_MAX_IMAGES = 6
 
 # Shared rules every generated frame must keep. Main image is stricter.
+# Distilled from high-star ecom skills (layouts/rules only, not their photos):
+# buluslan/gpt-image2-ecommerce (312★) — concise lighting/composition/quality
+# motiful/product-shots — main image 85% fill, white, no text
+# gpt-img-2/gpt-image-2-ecommerce-skill — identity lock first
 ICBU_BASE = (
-    "Alibaba.com wholesale listing photo, square 1:1, commercial studio quality. "
+    "Alibaba.com wholesale listing photo, square 1:1, commercial studio packshot. "
+    "Soft diffused studio lighting, even illumination, true color, crisp edges. "
     "English text only if text is allowed. No Chinese characters. "
     "No Amazon or Prime badges, no star ratings, no prices, no watermarks, "
     "no fake CE/ISO/FDA marks, no invented accessories."
 )
 MAIN_RULES = (
-    "Pure white background RGB 255,255,255. Product only. Fill most of the frame. "
+    "Pure white background RGB 255,255,255. Product only, centered, "
+    "fill about 85 percent of the frame. Subtle physically plausible contact shadow. "
     "No overlay text, no logos that are not on the real product, no props "
     "unless they ship in the box."
 )
+CRAFT = {
+    "stationery": "Show true pigment and paper or wood tooth. Tidy factory-ready set.",
+    "tools": "Working end visible. Honest metal or bristle texture. Include a scale cue if the slot allows.",
+    "electronics": "True plastic or metal finish. Keep port and button layout exact. No fake screen UI.",
+    "apparel": "Show real fabric drape and stitching. Ghost mannequin or tidy flat-lay. No invented prints.",
+    "beauty": "Emphasize real texture and finish. Soft beauty dish. No glow that invents a formula.",
+    "home": "Show material and craftsmanship. Believable domestic scale. No lifestyle clutter.",
+    "toys": "Safe, tidy, age-plausible scene. No licensed characters unless they are on the real product.",
+    "jewelry": "Macro sparkle and cut. Controlled specular highlights. Neutral luxury, not costume.",
+    "industrial": "Technical, honest machine geometry. No cutaways of unseen internals.",
+    "food": "Fresh true color and texture. No fake steam or nutrition claims.",
+    "sports": "Use-ready gear, real materials. Outdoor light only in the lifestyle slot.",
+    "general": "Neutral industrial catalog lighting. Product first.",
+}
 IDENTITY = (
     "PRODUCT IDENTITY LOCK: keep the exact silhouette, color, material, labels, "
     "port layout and accessory count. Do not redesign the SKU."
@@ -880,23 +900,41 @@ FAMILIES: tuple[Family, ...] = (
 
 FAMILY_BY_ID = {item.id: item for item in FAMILIES}
 
+# Official Alibaba.com top-level names, so a shop category pick matches a stack.
+OFFICIAL_HINTS = {
+    "stationery": ("office & school", "office supplies", "writing instruments", "办公", "文具"),
+    "tools": ("tools & hardware", "construction & decoration", "五金工具", "建筑"),
+    "electronics": ("consumer electronics", "electrical equipment", "消费电子", "电工"),
+    "apparel": ("apparel & accessories", "shoes & accessories", "luggage, bags", "服装及配饰", "鞋", "箱包"),
+    "beauty": ("beauty", "personal care", "health & medical", "美妆", "个护"),
+    "home": ("home & garden", "furniture", "lights & lighting", "家居", "家具", "灯"),
+    "toys": ("mother, kids & toys", "toys", "母婴", "玩具"),
+    "jewelry": ("jewelry", "watches", "饰品", "手表"),
+    "industrial": ("machinery", "industrial", "vehicle parts", "机械", "工业"),
+    "food": ("food & beverage", "agriculture", "食品", "农业", "饮料"),
+    "sports": ("sports & entertainment", "运动", "户外"),
+}
+
 # Repos we learned the slot grammar from — shown in the UI so sellers know
 # this is a method, not a scraped image pack.
 SOURCES = [
     {
+        "repo": "buluslan/gpt-image2-ecommerce",
+        "url": "https://github.com/buluslan/gpt-image2-ecommerce",
+        "stars": 312,
+        "took": "灯光/构图/画质写短，按类目加一条材质提示，主图白底居中",
+    },
+    {
         "repo": "motiful/product-shots",
         "url": "https://github.com/motiful/product-shots",
-        "took": "主图白底规则、按类目换视觉 DNA、整套图锁同一 SKU",
+        "stars": 25,
+        "took": "主图白底、约占画面 85%、按类目换视觉 DNA、整套锁同一 SKU",
     },
     {
-        "repo": "OnestarQQ/amazon-listing-skill",
-        "url": "https://github.com/OnestarQQ/amazon-listing-skill",
-        "took": "L1–L7 构图（面板 / 卖点块 / 极简 / 特写 / 分解 / 平铺）",
-    },
-    {
-        "repo": "liangdabiao/ecom-details-image",
-        "url": "https://github.com/liangdabiao/ecom-details-image",
-        "took": "25 类场景名 + 整套图风格锁定",
+        "repo": "gpt-img-2/ai-image-prompt-cookbook",
+        "url": "https://github.com/gpt-img-2/ai-image-prompt-cookbook",
+        "stars": 83,
+        "took": "中文电商主图常用约束：真材质、不编认证、不堆字",
     },
     {
         "repo": "gpt-img-2/gpt-image-2-ecommerce-skill",
@@ -904,9 +942,9 @@ SOURCES = [
         "took": "先锁产品身份，一图只做一件购买决策，禁止编认证",
     },
     {
-        "repo": "Ali-Aria/amazon-image-studio",
-        "url": "https://github.com/Ali-Aria/amazon-image-studio",
-        "took": "MAIN + 后续槽位的套图顺序",
+        "repo": "liangdabiao/ecom-details-image",
+        "url": "https://github.com/liangdabiao/ecom-details-image",
+        "took": "25 类场景名 + 整套图风格锁定",
     },
 ]
 
@@ -927,6 +965,7 @@ def pick_family(*hints: str, family_id: str = "") -> Family:
         if family.id == "general":
             continue
         hits = sum(1 for word in family.keywords if word and word in blob)
+        hits += sum(1 for word in OFFICIAL_HINTS.get(family.id, ()) if word and word in blob)
         if hits > best_hits:
             best, best_hits = family, hits
     return best or FAMILY_BY_ID["general"]
@@ -1006,10 +1045,11 @@ def plan_stack(
             text_rule = "At most 6 short English words. No Chinese. No prices."
         else:
             text_rule = "Short English labels only. No Chinese. No prices. No fake certificates."
-        extra = ""
-        if spec.id == "main":
-            extra = MAIN_RULES
-        prompt = " ".join(part for part in (ICBU_BASE, extra, campaign, lock, body, text_rule) if part)
+        extra = MAIN_RULES if spec.id == "main" else ""
+        craft = CRAFT.get(family.id, CRAFT["general"])
+        prompt = " ".join(
+            part for part in (ICBU_BASE, extra, craft, campaign, lock, body, text_rule) if part
+        )
         slots.append(
             {
                 "id": spec.id,

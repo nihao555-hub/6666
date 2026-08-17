@@ -59,6 +59,12 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertEqual(pick_family("women floral midi dress").id, "apparel")
         self.assertEqual(pick_family("unknown widget").id, "general")
 
+    def test_official_alibaba_category_names_pick_a_stack(self) -> None:
+        self.assertEqual(pick_family("", "Tools & Hardware / 五金工具").id, "tools")
+        self.assertEqual(pick_family("", "Apparel & Accessories / 服装及配饰").id, "apparel")
+        self.assertEqual(pick_family("", "Office & School Supplies").id, "stationery")
+        self.assertEqual(pick_family("", "Consumer Electronics").id, "electronics")
+
     def test_plan_locks_identity_and_forbids_fake_marks(self) -> None:
         plan = plan_stack(
             product_name="colored pencil set",
@@ -72,6 +78,8 @@ class ImageTemplateTests(unittest.TestCase):
         main = plan["slots"][0]
         self.assertIn("No overlay text", main["prompt"])
         self.assertIn("pure white", main["prompt"].lower())
+        self.assertIn("85", main["prompt"])
+        self.assertIn("soft diffused studio lighting", main["prompt"].lower())
         for slot in plan["slots"]:
             self.assertIn("PRODUCT IDENTITY LOCK", slot["prompt"])
             self.assertIn("basswood", slot["prompt"])
