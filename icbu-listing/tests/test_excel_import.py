@@ -205,7 +205,7 @@ class TemplateTests(unittest.TestCase):
             for row in book["说明"].iter_rows(values_only=True)
             for cell in row
         )
-        self.assertIn("一张也行", help_text)
+        self.assertIn("补转化位", help_text)
         images_fill = next(item for item in fill_policy()["user_fills"] if item["id"] == "images")
         self.assertFalse(images_fill["required"])
 
@@ -275,9 +275,9 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(result["ready_count"], 2)
         self.assertEqual(result["blocked_count"], 0)
         self.assertEqual(result["image_stats"]["without_sheet_images"], 1)
-        self.assertEqual(result["image_stats"]["single_sheet_image"], 1)
+        self.assertEqual(result["image_stats"]["partial_sheet_images"], 1)
         self.assertTrue(any("画一套" in item["message"] for item in result["row_issues"]))
-        self.assertTrue(any("一张图" in warning for warning in result["warnings"]))
+        self.assertTrue(any("不满 6 张" in warning for warning in result["warnings"]))
 
         photos_only = preview(buffer.getvalue(), "simple", image_mode="photos_only")
         self.assertTrue(any("跳过" in item["message"] for item in photos_only["row_issues"]))
@@ -288,6 +288,9 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(decide_image_action(True, "generate_all"), "generate")
         self.assertEqual(decide_image_action(False, "photos_only"), "skip")
         self.assertEqual(decide_image_action(True, "photos_only"), "use_photos")
+        self.assertEqual(decide_image_action(True, "complete_draw"), "complete")
+        self.assertEqual(decide_image_action(True, "boost_skip"), "generate")
+        self.assertEqual(decide_image_action(False, "complete_skip"), "skip")
 
     def test_brand_is_a_redline_default_not_an_ai_seed(self) -> None:
         row = ExcelRow(brand="Acme", price="1.80")

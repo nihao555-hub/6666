@@ -35,7 +35,7 @@
           <button class="path-card" @click="startPath('excel')">
             <small>一次很多、每个价不一样</small>
             <b>填表批量</b>
-            <p class="muted">下载短表，一行一个商品。有图用图（一张也行），没图的行按品名画一套并标黄。</p>
+            <p class="muted">下载短表，一行一个商品。有图可原图上架、补齐转化位或重画套图；没图可画可跳过。</p>
           </button>
         </div>
       </div>
@@ -323,7 +323,7 @@
         <h3>下载填写表</h3>
         <p class="muted">
           这张表的列是平台定的短表（货号、单价、起订量、图片、品牌、品名、备注），不是阿里后台下载的 40 列。
-          货号、单价、起订量必填；图片选填，一张也行，没图留空。上面选的官方类目只用来让 AI 按该叶子的发布规则补标题和属性。
+          货号、单价、起订量必填；图片选填，有几张写几张，没图留空。上面选的官方类目只用来让 AI 按该叶子的发布规则补标题和属性。
         </p>
         <div class="sheet-preview" v-if="previewColumns.length">
           <table>
@@ -416,8 +416,8 @@
           识别到 {{ excel.preview.row_count }} 个商品，其中 {{ excel.preview.ready_count }} 个价和起订量齐了。
           <template v-if="excel.preview.image_stats">
             表里有图 {{ excel.preview.image_stats.with_sheet_images }} 个
-            <template v-if="excel.preview.image_stats.single_sheet_image">
-              （{{ excel.preview.image_stats.single_sheet_image }} 个只有一张）
+            <template v-if="excel.preview.image_stats.partial_sheet_images">
+              （{{ excel.preview.image_stats.partial_sheet_images }} 个不满 6 张）
             </template>
             ，没图 {{ excel.preview.image_stats.without_sheet_images }} 个。
           </template>
@@ -430,53 +430,53 @@
 
       <div v-else-if="excelStep === 3" class="step-panel">
         <h3>这批图怎么处理</h3>
-        <p class="muted">有图、没图、只有一张，都可以在同一张表里。先选这批怎么走，再决定要不要拖本地图。</p>
-        <div class="path-grid" style="margin-top: 14px">
-          <button
-            type="button"
-            class="path-card"
-            :class="{ 'is-active': excel.imageMode === 'mixed' }"
-            @click="excel.imageMode = 'mixed'"
-          >
-            <small>推荐</small>
-            <b>有图用图，没图画套图</b>
-            <p class="muted">表里或拖进来的图当实拍，一张也行。没对上图的行按品名画 6 张，并标黄不是实拍。</p>
-          </button>
-          <button
-            type="button"
-            class="path-card"
-            :class="{ 'is-active': excel.imageMode === 'generate_all' }"
-            @click="excel.imageMode = 'generate_all'"
-          >
-            <small>这批都没实拍</small>
-            <b>全部按品名画套图</b>
-            <p class="muted">不管表里有没有链接，都画 6 张。生成图会标黄，不准冒充实拍。</p>
-          </button>
-          <button
-            type="button"
-            class="path-card"
-            :class="{ 'is-active': excel.imageMode === 'photos_only' }"
-            @click="excel.imageMode = 'photos_only'"
-          >
-            <small>只要实拍</small>
-            <b>只做成有图的行</b>
-            <p class="muted">没对上图的行跳过。一张实拍也够，不会再补生成图。</p>
-          </button>
+        <p class="muted">一张表里可以有的行有图、有的没图，图多图少都按下面两句话走，不按张数分路。</p>
+        <div class="policy-block">
+          <small>有图的行</small>
+          <div class="path-grid">
+            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'keep' }" @click="excel.photoPolicy = 'keep'">
+              <small>工厂图已经能用</small>
+              <b>原图上架</b>
+              <p class="muted">有几张用几张，不改、不补。适合已经修好的实拍。</p>
+            </button>
+            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'complete' }" @click="excel.photoPolicy = 'complete'">
+              <small>推荐，想提高转化</small>
+              <b>原图留下，再补转化位</b>
+              <p class="muted">实拍不动。缺的白底主图、细节、使用、外箱等由平台补，补的标黄。</p>
+            </button>
+            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'boost' }" @click="excel.photoPolicy = 'boost'">
+              <small>图太乱，要重做</small>
+              <b>当参考，重画转化套图</b>
+              <p class="muted">原图只用来认货，6 张都重画并标黄，不准冒充实拍。</p>
+            </button>
+          </div>
+        </div>
+        <div class="policy-block">
+          <small>没图的行</small>
+          <div class="path-grid path-grid-2">
+            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'draw' }" @click="excel.emptyPolicy = 'draw'">
+              <small>一张实拍都没有</small>
+              <b>按品名画套图</b>
+              <p class="muted">画 6 张并标黄。没写的尺寸、装箱量、认证一律不画。</p>
+            </button>
+            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'skip' }" @click="excel.emptyPolicy = 'skip'">
+              <small>只要有实拍的货</small>
+              <b>跳过没图的行</b>
+              <p class="muted">对不上图就不做成稿。</p>
+            </button>
+          </div>
         </div>
         <el-alert
-          v-if="excel.imageMode !== 'photos_only'"
+          v-if="excel.photoPolicy !== 'keep' || excel.emptyPolicy === 'draw'"
           type="warning"
           show-icon
           :closable="false"
           title="生成图不是实拍"
-          description="没写的尺寸、装箱量、认证一律不画。没图的行出图要时间，额度不够会停在那一行。"
+          description="补上或重画的图会标黄。没写的尺寸、装箱量、认证一律不画。出图要时间，额度不够会停在那一行。"
           style="margin-top: 14px"
         />
-        <p class="muted" style="margin-top: 16px">
-          {{ excelImageUploadHint }}
-        </p>
+        <p class="muted" style="margin-top: 16px">{{ excelImageUploadHint }}</p>
         <el-upload
-          v-if="excel.imageMode !== 'generate_all'"
           v-model:file-list="excelImages"
           :auto-upload="false"
           multiple
@@ -484,7 +484,7 @@
           drag
           style="margin-top: 10px"
         >
-          <div style="padding: 22px 0">把本地图拖进来，按货号命名，例如 SKU-1001.jpg 或 SKU-1001_1.jpg</div>
+          <div style="padding: 22px 0">有本地图就拖进来，按货号命名，例如 SKU-1001.jpg 或 SKU-1001_1.jpg</div>
         </el-upload>
         <div class="step-actions">
           <el-button @click="excelStep = 2">上一步</el-button>
@@ -646,7 +646,8 @@ const excel = reactive({
   preview: null,
   mapping: {},
   batch: null,
-  imageMode: "mixed",
+  photoPolicy: "complete",
+  emptyPolicy: "draw",
 });
 const sheetPlan = ref({ user_fills: [], ai_fills: [], redline: [], ai_attrs: [], category_name: "", preview: null });
 const categoryBrowser = ref(false);
@@ -673,23 +674,24 @@ const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
   return Math.min(100, Math.round((excelProgress.value.done / excel.batch.count) * 100));
 });
+const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const excelImageUploadHint = computed(() => {
-  if (excel.imageMode === "photos_only") {
-    return "有本地图就拖进来，按货号命名。一张也行。对不上的行会跳过。";
+  if (excel.photoPolicy === "boost") {
+    return "有本地图或表里的链接都只当认货参考。没图的行看下面第二条。";
   }
-  if (excel.imageMode === "generate_all") {
-    return "不用传图。有参考图链接可以写在表里，只当画图参考，不当实拍。";
+  if (excel.emptyPolicy === "skip") {
+    return "有本地图就拖进来，按货号命名。对不上的行会跳过。";
   }
-  return "有本地图就拖进来，按货号命名，一张也行。没有的行按品名画套图。表里写了链接也不用再传。";
+  return "有本地图就拖进来，按货号命名。表里写了链接也不用再传。没对上的行按品名画套图。";
 });
 const excelGoHint = computed(() => {
-  if (excel.imageMode === "generate_all") {
-    return "这批都会画套图并标黄。后台一条一条过。";
-  }
-  if (excel.imageMode === "photos_only") {
-    return "只做成对上图的行，一张也行。没图的跳过。";
-  }
-  return "有图的用实拍（一张也行），没图的按品名画套图并标黄。后台一条一条过。";
+  const photoText = {
+    keep: "有图的原图上架",
+    complete: "有图的原图留下并补转化位",
+    boost: "有图的当参考重画套图",
+  }[excel.photoPolicy] || "有图的按你选的规则处理";
+  const emptyText = excel.emptyPolicy === "skip" ? "没图的跳过" : "没图的按品名画套图并标黄";
+  return `${photoText}，${emptyText}。后台一条一条过。`;
 });
 const percent = computed(() => {
   if (!batch.value?.count) return 0;
@@ -700,6 +702,26 @@ const imagePercent = computed(() => {
   const total = imageJob.value?.total || 6;
   return Math.min(100, Math.round(((imageJob.value?.done || 0) / total) * 100));
 });
+
+function applyExcelImageMode(raw, photo, empty) {
+  if (photo && empty) {
+    excel.photoPolicy = photo;
+    excel.emptyPolicy = empty;
+    return;
+  }
+  const aliases = {
+    mixed: "keep_draw",
+    photos_only: "keep_skip",
+    generate_all: "boost_draw",
+    keep: "keep_draw",
+    complete: "complete_draw",
+    boost: "boost_draw",
+  };
+  const mode = aliases[raw] || raw || "complete_draw";
+  const [nextPhoto, nextEmpty] = String(mode).split("_");
+  excel.photoPolicy = ["keep", "complete", "boost"].includes(nextPhoto) ? nextPhoto : "complete";
+  excel.emptyPolicy = nextEmpty === "skip" ? "skip" : "draw";
+}
 
 function pathToTab(path) {
   if (path === "ai") return "ai";
@@ -730,7 +752,9 @@ function sessionPayload() {
       mapping: excel.mapping,
       preview: excel.preview,
       batch: excel.batch,
-      imageMode: excel.imageMode,
+      imageMode: excelImageMode.value,
+      photoPolicy: excel.photoPolicy,
+      emptyPolicy: excel.emptyPolicy,
     },
     categoryName: sheetPlan.value.category_name || "",
     rowCount: excel.preview?.row_count || excel.batch?.count || batch.value?.count || 0,
@@ -830,7 +854,7 @@ function applySession(session) {
     excel.mapping = payload.excel.mapping || {};
     excel.preview = payload.excel.preview || null;
     excel.batch = payload.excel.batch || null;
-    excel.imageMode = payload.excel.imageMode || excel.imageMode || "mixed";
+    applyExcelImageMode(payload.excel.imageMode, payload.excel.photoPolicy, payload.excel.emptyPolicy);
   }
   files.value = filesFromSession(session, "photos");
   batchFiles.value = filesFromSession(session, "batch");
@@ -977,7 +1001,7 @@ watch(batchFiles, () => syncKind("batch", batchFiles.value), { deep: true });
 watch(excelFile, () => syncKind("excel", excelFile.value), { deep: true });
 watch(excelImages, () => syncKind("excel_images", excelImages.value), { deep: true });
 watch(
-  () => excel.imageMode,
+  () => [excel.photoPolicy, excel.emptyPolicy],
   () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistSession, 400);
@@ -1153,7 +1177,7 @@ async function previewExcel() {
   body.append("style", excel.style);
   body.append("shop_id", store.shopId || "");
   body.append("category_id", excel.categoryId || "");
-  body.append("image_mode", excel.imageMode || "mixed");
+  body.append("image_mode", excelImageMode.value);
   body.append("file", excelFile.value[0].raw);
   excel.loading = true;
   try {
@@ -1178,7 +1202,7 @@ async function importExcel() {
   body.append("listing_template_id", excel.listingTemplateId);
   body.append("category_id", excel.categoryId);
   body.append("session_id", sessionId.value);
-  body.append("image_mode", excel.imageMode || "mixed");
+  body.append("image_mode", excelImageMode.value);
   if (excelFile.value[0]?.raw) body.append("file", excelFile.value[0].raw);
   excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
   excel.loading = true;
@@ -1281,6 +1305,22 @@ async function poll() {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 18px;
+}
+.path-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.policy-block {
+  margin-top: 16px;
+}
+.policy-block > small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.policy-block .path-grid {
+  margin-bottom: 0;
 }
 .path-card {
   text-align: left;
@@ -1511,6 +1551,7 @@ async function poll() {
 }
 @media (max-width: 900px) {
   .path-grid,
+  .path-grid-2,
   .policy-grid {
     grid-template-columns: 1fr;
   }

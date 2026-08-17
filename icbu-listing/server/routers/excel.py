@@ -123,7 +123,7 @@ async def preview_excel(
     style: str = Form("detect"),
     shop_id: str = Form(""),
     category_id: str = Form(""),
-    image_mode: str = Form("mixed"),
+    image_mode: str = Form("keep_draw"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -147,7 +147,7 @@ async def import_excel(
     listing_template_id: str = Form(""),
     category_id: str = Form(""),
     session_id: str = Form(""),
-    image_mode: str = Form("mixed"),
+    image_mode: str = Form("keep_draw"),
     file: UploadFile | None = File(None),
     images: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
@@ -268,7 +268,7 @@ def _run_import(
     create_drafts: bool,
     listing_template_id: str,
     style: str,
-    image_mode: str = "mixed",
+    image_mode: str = "keep_draw",
 ) -> None:
     del style  # reserved so a later importer can branch on the chosen style
     db = SessionLocal()
@@ -314,7 +314,7 @@ def _import_one(
     create_drafts: bool,
     listing: Template | None,
     batch_id: str,
-    image_mode: str = "mixed",
+    image_mode: str = "keep_draw",
 ) -> None:
     forced = row.category_id or (listing.category_id if listing is not None else "")
     try:
@@ -365,6 +365,9 @@ def _import_one(
     if source == "generated":
         extra = "平台按品名画了套图，不是实拍。买家要实拍时再补。"
         note = "\n".join(part for part in (row.note.strip(), extra) if part)
+    elif source == "completed":
+        extra = "原图留下了，缺的转化位是平台补的，不是实拍。"
+        note = "\n".join(part for part in (row.note.strip(), extra) if part)
     product = Product(
         user_id=user.id,
         sku=sku,
@@ -413,8 +416,8 @@ def _import_one(
         issues.append({"field_id": "ai", "field_name": "AI 成稿", "level": "yellow", "message": error, "path": "ai"})
         draft.issues_json = json.dumps(issues, ensure_ascii=False)
         db.commit()
-    if source == "generated":
-        excel_images.mark_generated_images(db, draft)
+    if source in {"generated", "completed"}:
+        excel_images.mark_generated_images(db, draft, source)
 
 
 def _fetch_image(url: str) -> tuple[str, bytes] | None:

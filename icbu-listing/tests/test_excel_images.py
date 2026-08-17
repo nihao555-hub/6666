@@ -67,6 +67,33 @@ class ExcelImageModeTests(unittest.TestCase):
         with self.assertRaises(ExcelImageError):
             prepare_row_images(ExcelRow(sku="A-03"), {}, "mixed", user_id="u1")
 
+    def test_complete_keeps_originals_and_fills_the_rest(self) -> None:
+        row = ExcelRow(sku="A-01", name="油漆刷", images=["a.jpg"])
+        files, source = prepare_row_images(
+            row,
+            {"a.jpg": b"shot"},
+            "complete_draw",
+            user_id="u1",
+            generate=lambda *args, **kwargs: [("02-detail.png", b"gen")],
+        )
+        self.assertEqual(source, "completed")
+        self.assertEqual(files[0], ("a.jpg", b"shot"))
+        self.assertEqual(files[1], ("02-detail.png", b"gen"))
+
+    def test_complete_with_a_full_set_does_not_draw(self) -> None:
+        names = [f"{index}.jpg" for index in range(6)]
+        row = ExcelRow(sku="A-01", name="油漆刷", images=names)
+        uploads = {name: name.encode() for name in names}
+        files, source = prepare_row_images(
+            row,
+            uploads,
+            "complete_draw",
+            user_id="u1",
+            generate=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("already full")),
+        )
+        self.assertEqual(source, "photos")
+        self.assertEqual(len(files), 6)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,9 +29,19 @@ from openpyxl.utils import get_column_letter
 # Official origin. Always a shop default, never a per-row column.
 SKIP_ATTR_IDS = {"p-1"}
 
-# How this batch treats photos. Default mixed: use whatever the row has
-# (one shot is enough); rows with nothing get a generated 6-slot set.
-IMAGE_MODES = ("mixed", "generate_all", "photos_only")
+# Two axes, not a photo count: what to do when a row has shots, and when it does not.
+# Legacy aliases: mixed=keep_draw, photos_only=keep_skip, generate_all=boost_draw.
+PHOTO_POLICIES = ("keep", "complete", "boost")
+EMPTY_POLICIES = ("draw", "skip")
+IMAGE_MODES = tuple(f"{photo}_{empty}" for photo in PHOTO_POLICIES for empty in EMPTY_POLICIES)
+IMAGE_MODE_ALIASES = {
+    "mixed": "keep_draw",
+    "photos_only": "keep_skip",
+    "generate_all": "boost_draw",
+    "keep": "keep_draw",
+    "complete": "complete_draw",
+    "boost": "boost_draw",
+}
 
 # Row 2 of every template we hand out is a worked example. Sellers overwrite
 # it about half the time and append below it the other half, so it has to be
@@ -100,7 +110,7 @@ USER_FILLS: list[dict[str, Any]] = [
     {"id": "sku", "label": "货号", "required": True, "hint": "你自己的编码"},
     {"id": "price", "label": "单价 USD", "required": True, "hint": "红线，AI 不准定价"},
     {"id": "moq", "label": "起订量", "required": True, "hint": "红线，AI 不准编"},
-    {"id": "images", "label": "图片", "required": False, "hint": "选填。有图写链接或文件名，一张也行；没图留空，导入时按品名画一套并标黄"},
+    {"id": "images", "label": "图片", "required": False, "hint": "选填。有图写链接或文件名；没图留空。导入时再选原图上架、补转化位或重画"},
     {"id": "brand", "label": "品牌", "required": False, "hint": "没有就留空，等于无品牌"},
     {"id": "name", "label": "品名（中文）", "required": False, "hint": "给自己看，也可当提示"},
     {"id": "note", "label": "备注", "required": False, "hint": "给自己看"},
@@ -118,7 +128,7 @@ AI_FILLS_BASE: list[dict[str, Any]] = [
 REDLINE: list[dict[str, str]] = [
     {"id": "price", "label": "售价", "reason": "生意决策，AI 不准定价"},
     {"id": "moq", "label": "起订量", "reason": "生意决策，AI 不准编数量"},
-    {"id": "images", "label": "实拍图", "reason": "有实拍就用实拍，一张也行。没图才画套图，必须标黄，不准冒充实拍"},
+    {"id": "images", "label": "实拍图", "reason": "有实拍可原图上架、留下再补转化位、或只当参考重画。生成图必须标黄，不准冒充实拍"},
     {"id": "brand", "label": "品牌", "reason": "有品牌你填；空着=无品牌。AI 不准编品牌名"},
     {"id": "category_id", "label": "叶子类目", "reason": "整表选一次。猜错类目发不出去、属性全废"},
     {"id": "origin", "label": "原产地", "reason": "走店铺默认，AI 不准改"},
@@ -143,7 +153,7 @@ STYLES: dict[str, dict[str, Any]] = {
     "simple": {
         "id": "simple",
         "label": "短表批量上品",
-        "summary": "填写页只收依据。价和起订量必填。图可选：有图用图（一张也行），没图按品名画套图并标黄。",
+        "summary": "填写页只收依据。价和起订量必填。图可选：原图上架、留下再补转化位、或当参考重画套图；没图可画可跳过。",
         "columns": ["sku", "price", "moq", "images", "brand", "name", "note"],
         "create_drafts_default": True,
         "primary": True,
@@ -283,7 +293,7 @@ def sheet_preview(style: str = "simple") -> dict[str, Any]:
     return {
         "style": spec["id"],
         "from_official_form": False,
-        "note": "不是阿里后台那张 40 列表。货号、单价、起订量必填；图片选填，一张也行，没图的行按品名画套图。标题和类目属性按这家店的官方发布规则由 AI 补。",
+        "note": "不是阿里后台那张 40 列表。货号、单价、起订量必填；图片选填。导入时再选原图上架、补转化位或重画套图。标题和类目属性按这家店的官方发布规则由 AI 补。",
         "columns": columns,
         "example_skipped": True,
     }
@@ -494,44 +504,54 @@ def parse_rows(
 
 
 def normalize_image_mode(value: str | None) -> str:
-    mode = (value or "mixed").strip().lower()
-    return mode if mode in IMAGE_MODES else "mixed"
+    mode = (value or "keep_draw").strip().lower().replace("-", "_")
+    mode = IMAGE_MODE_ALIASES.get(mode, mode)
+    return mode if mode in IMAGE_MODES else "keep_draw"
+
+
+def split_image_mode(value: str | None) -> tuple[str, str]:
+    mode = normalize_image_mode(value)
+    photo, empty = mode.rsplit("_", 1)
+    return photo, empty
 
 
 def decide_image_action(has_photos: bool, mode: str | None) -> str:
-    """use_photos | generate | skip — one row, after files have been resolved."""
-    chosen = normalize_image_mode(mode)
-    if chosen == "generate_all":
-        return "generate"
+    """use_photos | complete | generate | skip — after files have been resolved."""
+    photo, empty = split_image_mode(mode)
     if has_photos:
-        return "use_photos"
-    if chosen == "photos_only":
+        if photo == "keep":
+            return "use_photos"
+        if photo == "complete":
+            return "complete"
+        return "generate"
+    if empty == "skip":
         return "skip"
     return "generate"
 
 
 def image_stats(rows: list[ExcelRow]) -> dict[str, int]:
+    counts = [len(row.images) for row in rows]
     return {
-        "with_sheet_images": sum(1 for row in rows if row.images),
-        "without_sheet_images": sum(1 for row in rows if not row.images),
-        "single_sheet_image": sum(1 for row in rows if len(row.images) == 1),
+        "with_sheet_images": sum(1 for count in counts if count),
+        "without_sheet_images": sum(1 for count in counts if not count),
+        "partial_sheet_images": sum(1 for count in counts if 0 < count < 6),
+        "full_sheet_images": sum(1 for count in counts if count >= 6),
+        "single_sheet_image": sum(1 for count in counts if count == 1),
     }
 
 
 def missing_image_message(mode: str | None) -> str:
-    chosen = normalize_image_mode(mode)
-    if chosen == "photos_only":
+    _photo, empty = split_image_mode(mode)
+    if empty == "skip":
         return "表里没写图片。导入时若没拖进同货号的图，这行会跳过。"
-    if chosen == "generate_all":
-        return "这批按品名画套图。表里有图也不当实拍，生成图会标黄。"
-    return "表里没写图片。导入时拖进同货号的图（一张也行）就用实拍；否则按品名画一套并标黄。"
+    return "表里没写图片。导入时拖进同货号的图就用；否则按品名画一套并标黄。"
 
 
 def preview(
     content: bytes,
     style: str = "detect",
     extra_columns: list[dict[str, Any]] | None = None,
-    image_mode: str = "mixed",
+    image_mode: str = "keep_draw",
 ) -> dict[str, Any]:
     rows = read_sheet(content)
     if not rows:
@@ -560,11 +580,13 @@ def preview(
         "mapped_count": len(mapping),
         "warnings": _preview_warnings(parsed, mapping, sample_skipped, mode),
         "image_mode": mode,
+        "photo_policy": split_image_mode(mode)[0],
+        "empty_policy": split_image_mode(mode)[1],
         "image_stats": image_stats(parsed),
     }
 
 
-def row_checks(rows: list[ExcelRow], image_mode: str = "mixed") -> list[dict[str, Any]]:
+def row_checks(rows: list[ExcelRow], image_mode: str = "keep_draw") -> list[dict[str, Any]]:
     """Per-row problems, found before a single AI call is spent on the batch."""
     issues: list[dict[str, Any]] = []
     seen: dict[str, int] = {}
@@ -591,7 +613,7 @@ def _preview_warnings(
     rows: list[ExcelRow],
     mapping: dict[str, str],
     sample_skipped: int = 0,
-    image_mode: str = "mixed",
+    image_mode: str = "keep_draw",
 ) -> list[str]:
     warnings: list[str] = []
     if sample_skipped:
@@ -601,17 +623,23 @@ def _preview_warnings(
     if "price" not in mapping.values():
         warnings.append("没有对上价格列。价格是生意决策，AI 不会代填。")
     if "images" not in mapping.values():
-        warnings.append("没有对上图片列。有图可拖进来按货号匹配（一张也行）；没图的行会按品名画套图并标黄。")
+        warnings.append("没有对上图片列。有图可拖进来按货号匹配；没图的行按你选的规则画套图或跳过。")
     stats = image_stats(rows)
-    mode = normalize_image_mode(image_mode)
-    if mode == "generate_all":
-        warnings.append("这批按品名画套图，不当实拍，会标黄。表里或拖进来的图只当参考。")
-    elif stats["without_sheet_images"]:
+    photo, empty = split_image_mode(image_mode)
+    if photo == "boost":
+        warnings.append("有图的行只当参考，会重画 6 张转化套图并标黄，不当实拍。")
+    elif photo == "complete" and stats["partial_sheet_images"]:
         warnings.append(
-            f"{stats['without_sheet_images']} 行表里没图。拖进同货号的图（一张也行）就用实拍；否则按品名画一套并标黄。"
+            f"{stats['partial_sheet_images']} 行图还不满 6 张。原图会留下，缺的按国际站转化位补上并标黄。"
         )
-    if stats["single_sheet_image"] and mode != "generate_all":
-        warnings.append(f"{stats['single_sheet_image']} 行只有一张图。一张实拍也够，不会凑满 6 张。")
+    elif photo == "keep" and stats["partial_sheet_images"]:
+        warnings.append(
+            f"{stats['partial_sheet_images']} 行图不满 6 张。选「原图上架」就有几张用几张；想提高转化可选补齐或重画套图。"
+        )
+    if empty == "skip" and stats["without_sheet_images"]:
+        warnings.append(f"{stats['without_sheet_images']} 行表里没图，导入时若对不上文件会跳过。")
+    elif empty == "draw" and stats["without_sheet_images"] and photo != "boost":
+        warnings.append(f"{stats['without_sheet_images']} 行表里没图。对不上文件就按品名画一套并标黄。")
     empty_sku = sum(1 for item in rows if not item.sku)
     if empty_sku:
         warnings.append(f"{empty_sku} 行没有货号。")
@@ -686,7 +714,7 @@ def who_fills(field_id: str) -> str:
     if field_id in {"ladderPrice", "fob", "scPrice", "minOrderQuantity"}:
         return "红线：你在「填写」表填（价格、起订量）"
     if field_id in {"scImages"}:
-        return "有图你填，一张也行；没图按品名画套图并标黄，不准冒充实拍"
+        return "有图你填；导入时再选原图上架、补转化位或重画。生成图必须标黄"
     if field_id in {"brand"}:
         return "红线：有品牌你填；空着=无品牌。AI 不准编"
     if field_id in {"origin", "priceUnit", "paymentMethod", "port", "shippingTemplateId", "pkgMeasure", "pkgWeight", "logisticsMode", "logisticsProperty", "marketSample", "market"}:
@@ -715,7 +743,7 @@ def build_template(
         "sku": "你自己的货号。一行一个商品，往下接着写就行，一张表可以写很多个。",
         "price": "红线。生意决策，AI 不准定价。",
         "moq": "红线。AI 不准编起订量。",
-        "images": "选填。有图写文件名或 URL，分号分隔，一张也行。没图留空，导入时按品名画一套并标黄不是实拍。导入时也可把图拖进来。",
+        "images": "选填。有图写文件名或 URL，分号分隔。没图留空。导入时再选原图上架、留下补转化位、或当参考重画套图。",
         "brand": "红线。有品牌就填；空着=无品牌。AI 不准编品牌名。",
         "name": "选填。给自己看，也可当中文提示。",
         "note": "选填。给自己看。",
@@ -747,7 +775,7 @@ def build_template(
     help_sheet["A1"].font = Font(bold=True, size=14)
     help_sheet["A2"] = spec["summary"]
     help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来，交给 AI。红线字段不准给 AI。"
-    help_sheet["A4"] = "一行 = 一个商品。图片选填：有图写链接或文件名，一张也行；没图留空，导入时按品名画一套并标黄。第 2 行灰色是示例，导入时自动跳过。"
+    help_sheet["A4"] = "一行 = 一个商品。图片选填：有图写链接或文件名，没图留空。导入时再选原图上架、补转化位或重画。第 2 行灰色是示例，导入时自动跳过。"
     help_sheet["A4"].font = Font(bold=True)
 
     row = 5
