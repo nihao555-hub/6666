@@ -37,21 +37,40 @@ ORIGIN_HINTS = ("place of origin", "origin", "产地", "原产地")
 # language of the call, so a saved label stops matching as soon as the shop
 # switches language. Values are stable, and `option_by_label` resolves either,
 # which keeps defaults saved before this change working.
+# Official seller backend has no "one form for every listing". Shop settings
+# hold policy (origin, payment, sample). Pack, unit, freight association and
+# lead time are filled per product — or copied from a similar listing in the
+# same leaf. We keep a shop-wide fallback for the latter so a new shop can
+# still publish, but a category template wins when this leaf is different.
+SHOP_POLICY = ("origin", "saleType", "marketSample", "paymentMethod", "port", "market")
+LEAF_HABIT = (
+    "priceUnit",
+    "logisticsProperty",
+    "shippingTemplateId",
+    "ladderPeriod",
+    "pkgWeight",
+    "pkgLength",
+    "pkgWidth",
+    "pkgHeight",
+    "brand",
+)
+
 SPECS: list[dict[str, Any]] = [
-    {"key": "origin", "label": "产地", "path": ("icbuCatProp", "@origin")},
-    {"key": "priceUnit", "label": "计量单位", "path": ("priceUnit",)},
-    {"key": "saleType", "label": "售卖方式", "path": ("saleType",)},
+    {"key": "origin", "label": "产地", "path": ("icbuCatProp", "@origin"), "scope": "shop"},
+    {"key": "saleType", "label": "售卖方式", "path": ("saleType",), "scope": "shop"},
+    {"key": "marketSample", "label": "样品服务", "path": ("marketSample",), "scope": "shop"},
+    {"key": "paymentMethod", "label": "付款方式", "path": ("paymentMethod",), "scope": "shop"},
+    {"key": "port", "label": "出运港口", "path": ("port",), "scope": "shop"},
+    {"key": "market", "label": "市场", "path": ("market",), "scope": "shop"},
     {
         "key": "shippingTemplateId",
-        "label": "运费模板",
+        "label": "常用运费模板",
         "path": ("shippingTemplate", "shippingTemplateId"),
-        "hint": "店铺自己的模板，接口直接拉。留空走买卖双方协商。",
+        "scope": "product",
+        "hint": "店里建好的模板。官方是每条货自己选；这里只当这类目还没单独习惯时的兜底。",
     },
-    {"key": "logisticsProperty", "label": "物流属性", "path": ("logisticsProperty",)},
-    {"key": "marketSample", "label": "样品服务", "path": ("marketSample",)},
-    {"key": "paymentMethod", "label": "付款方式", "path": ("paymentMethod",)},
-    {"key": "port", "label": "出运港口", "path": ("port",)},
-    {"key": "market", "label": "市场", "path": ("market",)},
+    {"key": "priceUnit", "label": "常用计量单位", "path": ("priceUnit",), "scope": "product", "hint": "笔和套装单位不一样。跟货走，这里只是兜底。"},
+    {"key": "logisticsProperty", "label": "常用物流属性", "path": ("logisticsProperty",), "scope": "product", "hint": "带电和普货不是同一条规则。跟货走。"},
 ]
 
 # Stock placeholders from DEFAULT_TEMPLATE. Auto-pull may replace these
@@ -78,13 +97,35 @@ PULLABLE = tuple(PLACEHOLDERS)
 
 # Free text, but still worth showing so the form is one list instead of two.
 FREE_TEXT: list[dict[str, str]] = [
-    {"key": "ladderPeriod", "label": "交期（天）", "hint": "起订量对应的备货天数。"},
-    {"key": "pkgWeight", "label": "包装重量 kg", "hint": "官方物流分算这一桶。"},
-    {"key": "pkgLength", "label": "包装长 cm", "hint": ""},
-    {"key": "pkgWidth", "label": "包装宽 cm", "hint": ""},
-    {"key": "pkgHeight", "label": "包装高 cm", "hint": ""},
-    {"key": "brand", "label": "品牌", "hint": "红线。没有就留空，等于无品牌，AI 不准编。"},
+    {"key": "ladderPeriod", "label": "常用交期（天）", "hint": "官方批量改交期是按每条货改的。这里是店里常用备货天数。", "scope": "product"},
+    {"key": "pkgWeight", "label": "常用包装重量 kg", "hint": "官方包装跟货走，批量改也是一条一条改。这里只当兜底。", "scope": "product"},
+    {"key": "pkgLength", "label": "包装长 cm", "hint": "", "scope": "product"},
+    {"key": "pkgWidth", "label": "包装宽 cm", "hint": "", "scope": "product"},
+    {"key": "pkgHeight", "label": "包装高 cm", "hint": "", "scope": "product"},
+    {"key": "brand", "label": "整店品牌", "hint": "短表每行可填。只有整店一个品牌才写这里。没有就留空，AI 不准编。", "scope": "product"},
 ]
+
+
+def _filled(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def layer_defaults(
+    shop: Mapping[str, Any],
+    category: Mapping[str, Any] | None = None,
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Shop policy, then this leaf's habit, then this row — same order official copy uses."""
+    merged = {key: value for key, value in dict(shop).items() if key != "_meta"}
+    for key in LEAF_HABIT:
+        value = (category or {}).get(key)
+        if _filled(value):
+            merged[key] = value
+    for key, value in dict(extra or {}).items():
+        if key == "_meta" or not _filled(value):
+            continue
+        merged[key] = value
+    return merged
 
 
 def _find(specs: Mapping[str, SchemaField], path: Iterable[str]) -> SchemaField | None:
@@ -328,6 +369,7 @@ def options_view(
                 "kind": "select" if options else ("text" if found is not None else "unsupported"),
                 "multiple": bool(found is not None and found.type.startswith("multi")),
                 "required": bool(found is not None and found.required),
+                "scope": spec.get("scope") or "shop",
                 "options": options,
             }
         )
@@ -387,6 +429,7 @@ def _free_text_only(defaults: Mapping[str, Any]) -> list[dict[str, Any]]:
             "kind": "text",
             "multiple": False,
             "required": False,
+            "scope": item.get("scope") or "shop",
             "options": [],
         }
         for item in FREE_TEXT

@@ -48,7 +48,7 @@ def build_draft_for_shop(
     extra_defaults: dict[str, Any] | None = None,
 ) -> Draft:
     api = shop_api(shop)
-    defaults = {**shop_defaults(shop), **(extra_defaults or {})}
+    defaults = shop_defaults(shop)
     images = catalogue.images_of(db, product)
     bank, errors = catalogue.ensure_photobank(db, api, shop, images)
 
@@ -68,6 +68,7 @@ def build_draft_for_shop(
         forced_category_id=forced_category_id,
         language=str(defaults.get("language") or "en_US"),
         copy_angle=angle,
+        extra_defaults=extra_defaults,
     )
     field_sources = sources.infer_initial(result.values, provided_sources)
     if seed_values:

@@ -80,6 +80,8 @@ class DefaultOptionTests(unittest.TestCase):
         view = _options_view(db, shop)
         by_key = {item["key"]: item for item in view["fields"]}
         self.assertEqual(by_key["priceUnit"]["kind"], "select")
+        self.assertEqual(by_key["priceUnit"]["scope"], "product")
+        self.assertEqual(by_key["origin"]["scope"], "shop")
         self.assertEqual(by_key["shippingTemplateId"]["kind"], "select")
         self.assertTrue(by_key["logisticsProperty"]["multiple"])
         # Plenty of leaves have no payment or port field at all. Asking for
@@ -187,6 +189,26 @@ class PullDefaultsTests(unittest.TestCase):
         result = defaults.pull_from_shop(types.SimpleNamespace(), BoomApi(), shop)
         self.assertEqual(result["reason"], "already_set")
         self.assertEqual(result["filled"], [])
+
+    def test_leaf_habit_beats_shop_fallback_but_row_wins(self) -> None:
+        shop = {
+            "origin": "100000458",
+            "priceUnit": "4",
+            "pkgLength": "20",
+            "pkgWidth": "10",
+            "pkgHeight": "8",
+            "shippingTemplateId": "2041723009",
+        }
+        category = {"pkgLength": "40", "pkgWidth": "30", "pkgHeight": "20", "priceUnit": "1"}
+        extra = {"pkgLength": "12", "brand": "Giorgione"}
+        layered = defaults.layer_defaults(shop, category, extra)
+        self.assertEqual(layered["origin"], "100000458")
+        self.assertEqual(layered["priceUnit"], "1")
+        self.assertEqual(layered["pkgLength"], "12")
+        self.assertEqual(layered["pkgWidth"], "30")
+        self.assertEqual(layered["pkgHeight"], "20")
+        self.assertEqual(layered["shippingTemplateId"], "2041723009")
+        self.assertEqual(layered["brand"], "Giorgione")
 
     def test_option_labels_are_remembered_for_the_shop_list(self) -> None:
         labels = defaults.remember_option_labels(

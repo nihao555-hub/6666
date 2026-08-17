@@ -109,14 +109,10 @@
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
       <p class="muted" style="margin-bottom: 16px">
-        {{
-          optionSource.source_product_id
-            ? "能从店里拉的已经拉过来了，你随时可以改。改过的以后不会被再覆盖。"
-            : "能拉的会从店里补上，你随时可以改。改过的以后不会被再覆盖。"
-        }}
+        官方不是整店填一套就套所有货。店里定产地、付款、样品；包装、单位、运费、交期跟每条货走，成稿时先用这类目自己的习惯，没有才用下面的兜底。
       </p>
       <p v-if="optionSource.pulled?.length" class="muted" style="margin: -8px 0 16px">
-        刚从在线商品补上：{{ pulledLabels }}。
+        刚从在线商品补上：{{ pulledLabels }}。你随时可以改，改过的以后不会被再覆盖。
       </p>
       <el-form v-if="editing" v-loading="optionsLoading" label-width="110px">
         <el-form-item label="店铺名">
@@ -130,11 +126,11 @@
           <div class="muted" style="margin-top: 6px">先用草稿模式跑通，确认无误再切上架。</div>
         </el-form-item>
 
-        <p v-if="optionSource.category_name" class="muted" style="margin: 0 0 12px">
-          选项来自这家店的官方发布规则（{{ optionSource.category_name }}），按官方选项选就行。
+        <p class="section-label">整店通用</p>
+        <p class="muted" style="margin: -4px 0 12px">
+          官方也是店里设好这些，发品时每条引用。选项来自{{ optionSource.category_name || "这家店的发布规则" }}。
         </p>
-
-        <el-form-item v-for="field in pickable" :key="field.key" :label="field.label">
+        <el-form-item v-for="field in shopFields" :key="field.key" :label="field.label">
           <el-select
             v-model="editing.defaults[field.key]"
             :multiple="field.multiple"
@@ -148,21 +144,38 @@
           <div v-if="field.hint" class="muted" style="margin-top: 6px">{{ field.hint }}</div>
         </el-form-item>
 
-        <el-form-item label="包装尺寸">
+        <p class="section-label">跟货走的兜底</p>
+        <p class="muted" style="margin: -4px 0 12px">
+          官方批量改包装、单位、运费、交期是一条一条改的。这里只在这类目还没有自己的习惯时用。某类货不一样，去「类目模板」或草稿里改那一类。
+        </p>
+        <el-form-item v-for="field in productFields" :key="field.key" :label="field.label">
+          <el-select
+            v-model="editing.defaults[field.key]"
+            :multiple="field.multiple"
+            filterable
+            clearable
+            style="width: 100%"
+            @change="rememberLabel(field)"
+          >
+            <el-option v-for="option in field.options" :key="option.value" :label="option.label" :value="option.value" />
+          </el-select>
+          <div v-if="field.hint" class="muted" style="margin-top: 6px">{{ field.hint }}</div>
+        </el-form-item>
+        <el-form-item label="常用包装">
           <div style="display: flex; gap: 8px">
             <el-input v-model="editing.defaults.pkgLength" placeholder="长 cm" />
             <el-input v-model="editing.defaults.pkgWidth" placeholder="宽 cm" />
             <el-input v-model="editing.defaults.pkgHeight" placeholder="高 cm" />
           </div>
         </el-form-item>
-        <el-form-item label="包装重量">
+        <el-form-item label="常用重量">
           <el-input v-model="editing.defaults.pkgWeight" placeholder="kg" />
         </el-form-item>
-        <el-form-item label="发货期">
+        <el-form-item label="常用交期">
           <el-input v-model="editing.defaults.ladderPeriod" placeholder="15" />
-          <div class="muted" style="margin-top: 6px">天数。交期必须是你定的，AI 不准编。</div>
+          <div class="muted" style="margin-top: 6px">天数。交期必须是你定的，AI 不准编。单条货不一样就在草稿改。</div>
         </el-form-item>
-        <el-form-item label="品牌">
+        <el-form-item label="整店品牌">
           <el-input v-model="editing.defaults.brand" placeholder="没有就留空" />
         </el-form-item>
 
@@ -203,6 +216,8 @@ const connectSteps = [
 ];
 
 const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
+const shopFields = computed(() => pickable.value.filter((item) => item.scope !== "product"));
+const productFields = computed(() => pickable.value.filter((item) => item.scope === "product"));
 const unsupported = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "unsupported"));
 const pulledLabels = computed(() => {
   const names = { origin: "产地", priceUnit: "单位", saleType: "售卖方式", shippingTemplateId: "运费模板", logisticsProperty: "物流属性", marketSample: "样品", paymentMethod: "付款", port: "港口", market: "市场", pkgWeight: "包装重量", pkgLength: "包装长", pkgWidth: "包装宽", pkgHeight: "包装高", brand: "品牌", ladderPeriod: "交期" };
@@ -374,6 +389,12 @@ async function unbind(shop) {
 }
 .connect-caps li + li {
   margin-top: 4px;
+}
+.section-label {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
 }
 .callback-row {
   display: flex;

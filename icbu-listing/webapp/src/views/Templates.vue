@@ -3,12 +3,12 @@
     <div class="page-head">
       <div>
         <h2>类目模板</h2>
-        <p class="muted">少数类目要单独固化字段时才用。日常在店铺里填一次默认值即可。</p>
+        <p class="muted">官方是按叶子类目发品的。画笔和家具包装、单位、运费可以不一样，在这里给这一类单独定习惯。</p>
       </div>
       <el-button type="primary" :disabled="!store.shopId" @click="openNew">新建模板</el-button>
     </div>
 
-    <div class="advanced-note">这页不在日常导航里。店铺默认值已经覆盖大多数字段。</div>
+    <div class="advanced-note">这页不在日常导航里。整店政策在店铺默认里填；只有这一类货跟店里常用的不一样才建模板。</div>
     <el-table :data="rows" v-loading="loading">
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column label="类目" min-width="220">

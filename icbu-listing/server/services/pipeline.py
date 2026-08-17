@@ -30,7 +30,7 @@ from schema import (  # noqa: E402
 )
 
 from ..models import CategoryMemory, Shop
-from . import catalog, quality
+from . import catalog, defaults as defaults_service, quality, templates as template_service
 from .images import BankImage
 
 MAX_DESCENT_DEPTH = 6
@@ -666,6 +666,7 @@ def build_draft(
     forced_category_id: str = "",
     language: str = "en_US",
     copy_angle: str = "",
+    extra_defaults: Mapping[str, Any] | None = None,
 ) -> DraftResult:
     result = DraftResult(ai={"understanding": understanding.raw})
 
@@ -691,16 +692,22 @@ def build_draft(
     specs = index_fields(fields)
     values: dict[str, Any] = {"catId": category_id}
 
+    category_values = {}
+    template = template_service.find_for(db, shop.id, category_id)
+    if template is not None:
+        category_values = template_service.values_of(template)
+    layered = defaults_service.layer_defaults(defaults, category_values, extra_defaults)
+
     for group_id in ("icbuCatProp", "saleProp"):
         group = specs.get(group_id)
         if group is None or not group.children:
             continue
-        group_values, group_issues = align_attributes(group, understanding, defaults, ai)
+        group_values, group_issues = align_attributes(group, understanding, layered, ai)
         if group_values:
             values[group_id] = group_values
         result.issues.extend(group_issues)
 
-    apply_trade_terms(specs, values, defaults, price, moq)
+    apply_trade_terms(specs, values, layered, price, moq)
 
     title_spec = specs.get("productTitle")
     keyword_spec = specs.get("productKeywords")
