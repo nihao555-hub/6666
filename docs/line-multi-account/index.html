@@ -3,165 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LINE 后台操作说明（按官方文档）</title>
+<title>LINE 拿密钥（傻瓜式）</title>
 <style>
-  body { margin: 0 auto; max-width: 900px; padding: 28px 20px 80px; font: 16px/1.7 "PingFang SC","Hiragino Sans GB","WenQuanYi Micro Hei","Microsoft YaHei",sans-serif; color: #1a1d21; background: #f5f6f8; }
-  h1 { font-size: 26px; margin: 0 0 8px; }
-  h2 { font-size: 20px; margin: 36px 0 10px; padding-top: 12px; border-top: 1px solid #e6e8eb; }
-  h3 { font-size: 16px; margin: 20px 0 8px; }
-  .sub, figcaption, .src { color: #5c6570; }
-  .sub { margin: 0 0 20px; }
-  figure { margin: 12px 0 20px; }
-  img { display: block; width: 100%; height: auto; background: #fff; border: 1px solid #e6e8eb; }
-  code { font-family: ui-monospace, Menlo, Consolas, monospace; background: #eef1f4; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
-  table { width: 100%; border-collapse: collapse; background: #fff; }
-  th, td { border-bottom: 1px solid #e6e8eb; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14.5px; }
-  th { background: #f3f5f7; color: #5c6570; font-size: 13px; }
-  ol { padding-left: 1.25em; }
-  li { margin: 6px 0; }
-  .box { background: #fff; border: 1px solid #e6e8eb; padding: 14px 16px; margin: 12px 0; }
+  body { margin: 0 auto; max-width: 860px; padding: 24px 16px 72px; font: 17px/1.7 "PingFang SC","Hiragino Sans GB","WenQuanYi Micro Hei","Microsoft YaHei",sans-serif; color: #1a1d21; background: #f5f6f8; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .sub { color: #5c6570; margin: 0 0 20px; }
+  h2 { font-size: 20px; margin: 32px 0 10px; }
+  .step { background: #fff; border: 1px solid #e6e8eb; border-radius: 12px; padding: 16px 16px 8px; margin: 0 0 16px; }
+  .step b { display: inline-block; background: #06c755; color: #06210f; border-radius: 999px; padding: 0 10px; margin-right: 6px; }
+  img { display: block; width: 100%; height: auto; border: 1px solid #e6e8eb; border-radius: 8px; margin: 10px 0 8px; background: #fff; }
+  p { margin: 0 0 10px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; background: #eef1f4; padding: .1em .35em; border-radius: 4px; }
+  .tip { background: #fff6ee; border: 1px solid #f0d2b6; color: #8a3b12; border-radius: 10px; padding: 10px 12px; margin: 8px 0 12px; }
 </style>
 </head>
 <body>
-  <h1>LINE 后台操作说明</h1>
-  <p class="sub">
-    按 LINE 官方文档整理。原文：
-    <a href="https://developers.line.biz/en/docs/messaging-api/getting-started/">Get started with the Messaging API</a>、
-    <a href="https://developers.line.biz/en/docs/messaging-api/building-bot/">Build a bot</a>、
-    <a href="https://developers.line.biz/en/docs/basics/channel-access-token/">Channel access token</a>。
-    下面截图都是官方文档原图，没有改过。
-  </p>
+  <h1>LINE 拿密钥：照着点就行</h1>
+  <p class="sub">5 个号就做 5 遍。每个号只要复制 2 个密钥，再填 1 个网址。</p>
 
-  <h2>你要拿到的两样密钥</h2>
-  <p>每个官方账号启用 Messaging API 后，会在 LINE Developers Console 里出现一个 channel。进这个 channel 拿密钥：</p>
-  <table>
-    <tr><th>密钥</th><th>去哪拿</th><th>干什么</th></tr>
-    <tr>
-      <td>Channel secret</td>
-      <td><a href="https://developers.line.biz/console/">LINE Developers Console</a> → 选 Provider → 点进该账号的 Messaging API channel → 顶部 <b>Basic settings</b> 标签 → 找到 <b>Channel secret</b> → 复制</td>
-      <td>校验 LINE 发来的 webhook 是不是真的（签名）</td>
-    </tr>
-    <tr>
-      <td>Channel access token</td>
-      <td>同一个 channel → 顶部 <b>Messaging API</b> 标签 → 拉到 <b>Channel access token (long-lived)</b> → 点 <b>Issue</b> → 复制<br>
-      官方说明：长期 token 只在 Messaging API channel 的 Messaging API 标签页签发。<a href="https://developers.line.biz/en/docs/basics/channel-access-token/#long-lived-channel-access-token">原文</a></td>
-      <td>调用 Messaging API 发消息</td>
-    </tr>
-  </table>
-  <p>5 个账号就进 5 个 channel，各复制一套。官方文档没有这两页的截图，按上面的标签名找即可。</p>
-  <p>注意（官方原文）：重新签发长期 token 会让当前正在用的长期 token 失效。</p>
-
-  <h2>你要改的设置</h2>
-  <p>还是在同一个 channel 的 <b>Messaging API</b> 标签页。官方步骤如下（<a href="https://developers.line.biz/en/docs/messaging-api/building-bot/#set-a-webhook-url">Set a webhook URL</a>）：</p>
-  <ol>
-    <li>登录 <a href="https://developers.line.biz/console/">LINE Developers Console</a>，点开该 channel 所属的 Provider。</li>
-    <li>点进 Messaging API channel。</li>
-    <li>点 <b>Messaging API</b> 标签。</li>
-    <li>在 <b>Webhook URL</b> 点 <b>Edit</b>，填入地址，点 <b>Update</b>。必须是 HTTPS，且证书由浏览器普遍信任的 CA 签发，自签证书不行。</li>
-    <li>点 <b>Verify</b>。通过会显示 Success。</li>
-    <li>打开 <b>Use webhook</b>。</li>
-  </ol>
-  <p>5 个账号各填各的地址，例如：</p>
-  <p>
-    账号 1：<code>https://你的域名/webhook/acc1</code><br>
-    账号 2：<code>https://你的域名/webhook/acc2</code><br>
-    账号 3：<code>https://你的域名/webhook/acc3</code><br>
-    账号 4：<code>https://你的域名/webhook/acc4</code><br>
-    账号 5：<code>https://你的域名/webhook/acc5</code>
-  </p>
-  <p>同一页建议把 <b>Greeting messages</b>、<b>Auto-reply messages</b> 设为 Disabled。官方说明：默认是 Enabled，会和 Messaging API 的回复叠在一起，分不清是谁回的。<a href="https://developers.line.biz/en/docs/messaging-api/building-bot/#settings-on-line-official-account-manager">原文</a></p>
-
-  <h2>1. 创建 LINE 官方账号</h2>
-  <p>官方：<a href="https://developers.line.biz/en/docs/messaging-api/getting-started/#create-a-line-official-account">Create a LINE Official Account</a></p>
-  <ol>
-    <li>先注册 Business ID（可用 LINE 账号或邮箱）。</li>
-    <li>填写官方账号申请表。</li>
-    <li>到 <a href="https://manager.line.biz/">LINE Official Account Manager</a> 确认账号已建好。</li>
-  </ol>
-  <figure>
-    <img src="images/sign-up-business-id-en.png" alt="Register for Business ID">
-    <figcaption>官方图：注册 Business ID。</figcaption>
-  </figure>
-  <figure>
-    <img src="images/oa-entry-form-en.png" alt="Official Account entry form">
-    <figcaption>官方图：填写官方账号申请表。</figcaption>
-  </figure>
-  <figure>
-    <img src="images/oa-manager-list-en.png" alt="Official Account Manager account list">
-    <figcaption>官方图：Official Account Manager 的账号列表。左侧 Create new 可再建号。</figcaption>
-  </figure>
-
-  <h2>2. 为官方账号启用 Messaging API</h2>
-  <p>官方：<a href="https://developers.line.biz/en/docs/messaging-api/getting-started/#enable-the-messaging-api">Enable the Messaging API</a></p>
-  <p>在 Official Account Manager 里为该账号启用 Messaging API 后，才会自动生成 Messaging API channel。不能再从 Developers Console 直接新建 Messaging API channel。</p>
-  <ol>
-    <li>在 Official Account Manager 打开该账号，启用 Messaging API。</li>
-    <li>若该登录账号从没进过 Developers Console，会先让你填开发者姓名和邮箱。</li>
-    <li>选择管理这个官方账号的 <b>Provider</b>。5 个号请选同一个。官方警告：Provider 一旦指定不能更换；不同 Provider 下同一用户的 userId 不同。</li>
-    <li>用同一账号登录 <a href="https://developers.line.biz/console/">LINE Developers Console</a>。</li>
-    <li>点开刚才选的 Provider，确认已经出现 Messaging API channel。</li>
-  </ol>
-  <figure>
-    <img src="images/developer-registration-en.png" alt="Developer registration">
-    <figcaption>官方图：第一次进 Console 时的开发者登记。</figcaption>
-  </figure>
-  <figure>
-    <img src="images/create-provider-en.png" alt="Create a new provider">
-    <figcaption>官方图：没有 Provider 时新建一个。</figcaption>
-  </figure>
-  <figure>
-    <img src="images/console-home-en.png" alt="LINE Developers Console channels">
-    <figcaption>官方图：Provider 下的 channel 列表。点进带 Messaging API 的那张卡片。</figcaption>
-  </figure>
-
-  <h2>3. 在 Console 里拿密钥、填 Webhook</h2>
-  <p>官方：<a href="https://developers.line.biz/en/docs/messaging-api/building-bot/#settings-on-line-developers-console">Settings on LINE Developers Console</a></p>
-
-  <div class="box">
-    <b>拿 Channel secret</b>
-    <ol>
-      <li>点进该账号的 Messaging API channel。</li>
-      <li>打开 <b>Basic settings</b>。</li>
-      <li>复制 <b>Channel secret</b>。同页还有 Channel ID，可记下来对账。</li>
-    </ol>
-  </div>
-  <figure>
+  <div class="step">
+    <p><b>1</b> 打开 <a href="https://developers.line.biz/console/">developers.line.biz/console</a>，点进这个账号的 <b>Messaging API</b> 卡片。</p>
     <img src="images/s3-open-channel.png" alt="点进 Messaging API channel">
-    <figcaption>官方原图：Provider 的 channel 列表。点进带 Messaging API 的卡片。</figcaption>
-  </figure>
-  <figure>
+  </div>
+
+  <div class="step">
+    <p><b>2</b> 点顶部 <b>Basic settings</b>，找到 <b>Channel secret</b>，点复制。同页的 Channel ID 也可以记一下。</p>
     <img src="images/s3-secret.png" alt="复制 Channel secret">
-    <figcaption>官方原图：<a href="https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/">Get Channel Secret</a>。Basic settings 里复制这一行。同页还有 Channel ID。</figcaption>
-  </figure>
-
-  <div class="box">
-    <b>拿 Channel access token</b>
-    <ol>
-      <li>打开 <b>Messaging API</b> 标签。</li>
-      <li>找到 <b>Channel access token (long-lived)</b>，点 <b>Issue</b>，复制生成的 token。</li>
-      <li>同一页有官方账号 QR code，扫码加好友方便自测。</li>
-    </ol>
   </div>
-  <figure>
-    <img src="images/s3-token.png" alt="Issue Channel access token">
-    <figcaption>官方文档没有 token 这一行的截图。这一张用官方 Channel secret 同一套控件（Issue / 复制图标是官方原图像素），标签改成 Channel access token (long-lived)。点 Issue 后再复制。重新 Issue 会作废旧 token。</figcaption>
-  </figure>
 
-  <div class="box">
-    <b>填 Webhook（官方 6 步）</b>
-    <ol>
-      <li>仍在 <b>Messaging API</b> 标签。</li>
-      <li>Webhook URL 点 <b>Edit</b>，填 <code>https://你的域名/webhook/accN</code>，点 <b>Update</b>。</li>
-      <li>点 <b>Verify</b>，看到 Success。</li>
-      <li>打开 <b>Use webhook</b>。</li>
-    </ol>
+  <div class="step">
+    <p><b>3</b> 再点顶部 <b>Messaging API</b>，找到 <b>Channel access token (long-lived)</b>，点 <b>Issue</b>，再复制 token。</p>
+    <img src="images/s3-token.png" alt="Issue 并复制 token">
+    <p class="tip">不要随便再点 Issue。再点一次，旧 token 立刻作废。</p>
   </div>
-  <figure>
-    <img src="images/s3-webhook.png" alt="填写 Webhook">
-    <figcaption>官方原图：<a href="https://developers.line.biz/en/docs/messaging-api/building-bot/#set-a-webhook-url">Set a webhook URL</a>。先 Edit 填地址，再 Verify，最后打开 Use webhook。</figcaption>
-  </figure>
 
-  <h2>5 个账号怎么做</h2>
-  <p>上面整套对每个官方账号各做一遍。只有 Webhook URL 的最后一段不同（acc1 … acc5），两套密钥不要贴串。</p>
+  <div class="step">
+    <p><b>4</b> 还在 <b>Messaging API</b> 这一页，往下找到 Webhook：</p>
+    <p>点 <b>Edit</b>，填下面这个地址（把「你的域名」和数字换成这个号的），再点 <b>Update</b>。</p>
+    <p>
+      1 号：<code>https://你的域名/webhook/acc1</code><br>
+      2 号：<code>https://你的域名/webhook/acc2</code><br>
+      3 号：<code>https://你的域名/webhook/acc3</code><br>
+      4 号：<code>https://你的域名/webhook/acc4</code><br>
+      5 号：<code>https://你的域名/webhook/acc5</code>
+    </p>
+    <p>然后点 <b>Verify</b>，看到 Success。最后把 <b>Use webhook</b> 打开。</p>
+    <img src="images/s3-webhook.png" alt="填 Webhook">
+  </div>
+
+  <div class="step">
+    <p><b>5</b> 同一页把 Greeting messages、Auto-reply messages 关掉，不然官方账号会自己回消息。</p>
+    <p>做完一个号，换下一个 channel，从第 1 步再来一遍。</p>
+  </div>
 </body>
 </html>
