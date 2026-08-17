@@ -115,7 +115,7 @@ USER_FILLS: list[dict[str, Any]] = [
     {"id": "images", "label": "图片", "required": False, "hint": "选填。有图写链接或文件名；没图留空。导入时再选原图上架、补转化位或重画"},
     {"id": "brand", "label": "品牌", "required": False, "hint": "没有就留空，等于无品牌"},
     {"id": "name", "label": "品名（中文）", "required": False, "hint": "给自己看，也可当提示"},
-    {"id": "note", "label": "备注", "required": False, "hint": "色数、是否水溶、硬度若和别的货不一样，写这里。选了类目后，这些会拆成单独列。AI 当提示，不编 24 色 / HB"},
+    {"id": "note", "label": "备注", "required": False, "hint": "规格列已经分开写了就不用重复。其它和别的货不一样的事实写这里。AI 当提示，不编没写的数字。"},
 ]
 
 SPEC_LABELS = {
@@ -611,9 +611,26 @@ FAMILY_SHEETS: dict[str, dict[str, Any]] = {
 }
 
 
+FAMILY_HEADER_COLORS = {
+    "stationery": "1D4ED8",
+    "tools": "B45309",
+    "electronics": "0F766E",
+    "apparel": "7C3AED",
+    "beauty": "BE185D",
+    "home": "047857",
+    "toys": "C2410C",
+    "jewelry": "A16207",
+    "industrial": "334155",
+    "food": "15803D",
+    "sports": "0369A1",
+    "general": "334155",
+}
+
+
 def sheet_profile(category_name: str = "", product_hint: str = "") -> dict[str, Any]:
     """Per-leaf fill sheet: same 7 core columns, plus family-specific spec columns."""
-    if not (category_name or product_hint).strip():
+    hint = " / ".join(part for part in (category_name, product_hint) if str(part or "").strip())
+    if not hint.strip():
         return {
             "family_id": "",
             "family_name": "",
@@ -624,21 +641,27 @@ def sheet_profile(category_name: str = "", product_hint: str = "") -> dict[str, 
             "spec_columns": [],
             "example": dict(EXAMPLE_ROW),
             "note_hint": USER_FILLS[-1]["hint"],
+            "category_name": "",
+            "header_color": "171717",
         }
     from .image_templates import pick_family
 
     family = pick_family(category_name, product_hint)
     preset = dict(FAMILY_SHEETS.get(family.id) or FAMILY_SHEETS["general"])
+    short = (category_name or product_hint or "").split("/")[-1].strip()[:32]
+    title = preset["title"] if not short else f"{preset['title']} · {short}"
     return {
         "family_id": family.id,
         "family_name": family.name,
-        "title": preset["title"],
+        "title": title,
         "filename": preset["filename"],
         "filename_id": preset["filename_id"],
         "guide": preset["guide"],
         "spec_columns": [dict(item) for item in preset["spec_columns"]],
         "example": dict(preset.get("example") or EXAMPLE_ROW),
         "note_hint": preset.get("note_hint") or USER_FILLS[-1]["hint"],
+        "category_name": hint,
+        "header_color": FAMILY_HEADER_COLORS.get(family.id, "171717"),
     }
 
 
@@ -653,7 +676,7 @@ def fill_headers(style: str, profile: dict[str, Any] | None = None) -> list[tupl
         "brand": "红线。有品牌就填；空着=无品牌。AI 不准编品牌名。",
         "name": "选填。给自己看，也可当中文提示。",
         "note": (profile or {}).get("note_hint")
-        or "选填。色数、是否水溶、硬度若和别的货不一样，写这里。AI 当提示，不编数字。",
+        or "选填。规格列已经分开写了就不用重复。其它事实写这里。AI 当提示，不编没写的数字。",
         "title": "有现成英文标题才填。短表不用填，交给 AI。",
         "keywords": "有现成关键词才填。短表不用填，交给 AI。",
         "category_id": "红线。短表在下载时整表选定，不要每行让 AI 猜。",
@@ -1185,8 +1208,10 @@ def build_template(
         profile = None
     book = Workbook()
     sheet = book.active
-    sheet.title = "填写"
-    fill = PatternFill("solid", fgColor="171717" if spec.get("primary") else "1D4ED8")
+    tab = ((profile or {}).get("filename") or "填写").replace("/", "")[:31] or "填写"
+    sheet.title = tab
+    color = (profile or {}).get("header_color") or ("171717" if spec.get("primary") else "1D4ED8")
+    fill = PatternFill("solid", fgColor=color)
     font = Font(color="FFFFFF", bold=True)
     example = {
         **EXAMPLE_ROW,

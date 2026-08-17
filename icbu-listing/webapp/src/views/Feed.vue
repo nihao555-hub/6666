@@ -320,11 +320,18 @@
 
       <div v-if="excelStep === 0" class="step-panel">
         <h3>这批货是哪一类</h3>
-        <p class="muted">一次上很多、每个价不一样时用这张短表。整表共用一个类目。选错后面属性全废，所以这一步要人点一下，不能交给 AI。</p>
+        <p class="muted">
+          一次上很多、每个价不一样时用短表。整表共用一个叶子类目。选完后填写表按品类家族加规格列，大概十来种，不是七千张官方表。
+        </p>
         <div style="margin-top: 16px">
-          <el-button @click="openCategory">{{ sheetPlan.category_name || "选择类目" }}</el-button>
-          <p v-if="sheetPlan.ai_attrs?.length" class="muted" style="margin-top: 10px">
-            选好后，标题、关键词和 {{ sheetPlan.ai_attrs.map((item) => item.header).join("、") }} 都由 AI 补。
+          <el-button @click="openCategory">{{ sheetPlan.category_name || excel.categoryName || "选择类目" }}</el-button>
+          <p v-if="sheetPlan.sheet?.family_name" class="muted" style="margin-top: 10px">
+            短表按「{{ sheetPlan.sheet.family_name }}」加规格列
+            <template v-if="familySpecLabels.length">：{{ familySpecLabels.join("、") }}</template>。
+          </p>
+          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在按这个叶子拉取官方必填…</p>
+          <p v-else-if="officialAttrLabels.length" class="muted" style="margin-top: 6px">
+            这个叶子的官方必填会出现在「AI 填」和核对页：{{ officialAttrLabels.join("、") }}。
           </p>
         </div>
         <div class="step-actions">
@@ -335,14 +342,18 @@
       <div v-else-if="excelStep === 1" class="step-panel">
         <h3>下载「{{ sheetPlan.sheet?.title || "填写表" }}」</h3>
         <p class="muted">
-          {{ sheetPlan.sheet?.guide || "选了叶子类目后，这张表会按品类多出规格列，不是每家店同一张空表。" }}
-          货号、单价、起订量必填；图片选填。官方 40 列和类目选项不抄进填写页，由 AI 补，人要核对。
+          {{ sheetPlan.sheet?.guide || "选了叶子类目后，这张表会按品类家族多出规格列。" }}
+          货号、单价、起订量必填；图片选填。官方必填不抄进填写页，出现在下面「AI 填」和核对页。
         </p>
         <div class="sheet-preview" v-if="previewColumns.length">
           <table>
             <thead>
               <tr>
-                <th v-for="col in previewColumns" :key="col.id">
+                <th
+                  v-for="col in previewColumns"
+                  :key="col.id"
+                  :style="sheetPlan.sheet?.header_color ? { background: `#${sheetPlan.sheet.header_color}` } : {}"
+                >
                   {{ col.label }}<span v-if="col.required" class="need">必填</span>
                 </th>
               </tr>
@@ -379,10 +390,11 @@
           </section>
           <section class="policy-card">
             <small>AI 填</small>
-            <b>不要写进表，人要核对</b>
+            <b>这个叶子的官方必填</b>
             <ul>
               <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
             </ul>
+            <p v-if="officialLoading" class="muted" style="margin-top: 8px">正在按 schema.get 拉取…</p>
           </section>
           <section class="policy-card is-redline">
             <small>红线</small>
@@ -402,7 +414,7 @@
           style="margin-top: 12px"
         />
         <p class="muted" style="margin-top: 10px">
-          以彩铅为例：官方还要计量单位、产地、运费模板、铅芯颜色、铅芯硬度。前三项走店默认；颜色和硬度 AI 从官方选项里选，人在商品页改。色数、是否水溶写备注，不要加进表。
+          短表只按品类家族加规格列（彩铅出色数/硬度，刷具出尺寸/材质）。官方必填按这个叶子的 schema.get 出现在「AI 填」和核对页。填完表不能撒手：导入后每条还要打开看标题和官方属性，点「审过了」才能发。
         </p>
         <div class="step-actions">
           <el-button @click="excelStep = 0">上一步</el-button>
@@ -523,8 +535,11 @@
       </div>
 
       <div v-else class="step-panel">
-        <h3>开始成稿</h3>
-        <p class="muted">{{ excelGoHint }} 关掉页面也不影响，去商品里核对 AI 填的再发。</p>
+        <h3>成稿之后还要人审</h3>
+        <p class="muted">
+          填完短表不能撒手不管。{{ excelGoHint }}
+          导入后 AI 会成稿，但每条还要打开看标题和官方属性，点「审过了」才能发。选错但合法的选项（HB 写成 2B）红线拦不住，只能人看出来。
+        </p>
         <div class="step-actions">
           <el-button @click="excelStep = 3">上一步</el-button>
           <el-button
@@ -537,9 +552,9 @@
           </el-button>
         </div>
         <div v-if="excel.batch" style="margin-top: 18px">
-          <p>共 {{ excel.batch.count }} 个商品，已成稿 {{ excelProgress.done }} 个。</p>
+          <p>共 {{ excel.batch.count }} 个商品，已成稿 {{ excelProgress.done }} 个。成稿不等于能发，还要一条条打开审。</p>
           <el-progress :percentage="excelPercent" :stroke-width="10" />
-          <el-button style="margin-top: 12px" @click="$router.push('/drafts?filter=pending')">去商品里核对</el-button>
+          <el-button style="margin-top: 12px" @click="$router.push('/drafts?filter=pending')">去商品里一条条审</el-button>
         </div>
       </div>
 
@@ -638,7 +653,7 @@ const excelSteps = [
   { key: "dl", label: "下载表格" },
   { key: "up", label: "传回表格" },
   { key: "img", label: "图怎么处理" },
-  { key: "go", label: "开始成稿" },
+  { key: "go", label: "成稿人审" },
 ];
 
 const templates = ref({ families: [], sources: [] });
@@ -672,6 +687,7 @@ const excel = reactive({
   style: route.query.style || "simple",
   listingTemplateId: "",
   categoryId: route.query.category || "",
+  categoryName: "",
   createDrafts: true,
   loading: false,
   preview: null,
@@ -681,6 +697,7 @@ const excel = reactive({
   emptyPolicy: "draw",
 });
 const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null, sheet: null });
+const officialLoading = ref(false);
 const categoryBrowser = ref(false);
 const excelProgress = ref({ done: 0 });
 let timer = null;
@@ -710,6 +727,13 @@ const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
   return Math.min(100, Math.round((excelProgress.value.done / excel.batch.count) * 100));
 });
+const familySpecLabels = computed(() => (sheetPlan.value.sheet?.spec_columns || []).map((item) => item.label).filter(Boolean));
+const officialAttrLabels = computed(() =>
+  (sheetPlan.value.ai_attrs || [])
+    .map((item) => item.header || item.label || item.name)
+    .filter(Boolean)
+    .slice(0, 8),
+);
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const excelImageUploadHint = computed(() => {
   if (excel.photoPolicy === "boost") {
@@ -785,6 +809,7 @@ function sessionPayload() {
       style: excel.style,
       listingTemplateId: excel.listingTemplateId,
       categoryId: excel.categoryId,
+      categoryName: excel.categoryName,
       mapping: excel.mapping,
       preview: excel.preview,
       batch: excel.batch,
@@ -888,6 +913,7 @@ function applySession(session) {
     excel.style = payload.excel.style || excel.style;
     excel.listingTemplateId = payload.excel.listingTemplateId || "";
     excel.categoryId = payload.excel.categoryId || "";
+    excel.categoryName = payload.excel.categoryName || payload.categoryName || "";
     excel.mapping = payload.excel.mapping || {};
     excel.preview = payload.excel.preview || null;
     excel.batch = payload.excel.batch || null;
@@ -942,7 +968,10 @@ async function resumeSession(id) {
       excelTimer = setInterval(pollExcel, 3000);
       await pollExcel();
     }
-    if (excel.categoryId) await loadSheetPlan();
+    if (excel.categoryId) {
+      await loadSheetPlan();
+      loadOfficialAttrs();
+    }
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -1001,7 +1030,10 @@ onMounted(async () => {
     listingTemplates.value = store.shopId ? await api.templates({ shop_id: store.shopId }) : [];
     onStyleChange();
     await loadSheetPlan();
-    if (excel.categoryId) excelReached.value = Math.max(excelReached.value, 1);
+    if (excel.categoryId) {
+      excelReached.value = Math.max(excelReached.value, 1);
+      loadOfficialAttrs();
+    }
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -1157,7 +1189,25 @@ async function loadSheetPlan() {
   sheetPlan.value = await api.excelSheetPlan({
     shop_id: store.shopId || "",
     category_id: excel.categoryId || "",
+    category_name: excel.categoryName || "",
   });
+}
+
+async function loadOfficialAttrs() {
+  if (!store.shopId || !excel.categoryId) return;
+  officialLoading.value = true;
+  try {
+    const data = await api.officialExcelAttrs(store.shopId, excel.categoryId);
+    sheetPlan.value = {
+      ...sheetPlan.value,
+      ai_attrs: data.ai_attrs || [],
+      ai_fills: data.ai_fills || sheetPlan.value.ai_fills,
+    };
+  } catch {
+    /* cached sheet-plan already has whatever we have locally */
+  } finally {
+    officialLoading.value = false;
+  }
 }
 
 function openCategory() {
@@ -1181,25 +1231,27 @@ function openAiCategory() {
 async function pickCategory(node) {
   if (categoryTarget.value === "ai") {
     aiForm.categoryId = node.category_id;
-    aiForm.categoryName = node.label || node.name || node.cn_name || "";
-    try {
-      const planned = await api.planImages({
+    aiForm.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
+    ElMessage.success(`已选「${aiForm.categoryName}」`);
+    api
+      .planImages({
         product_name: aiForm.productName,
         category_hint: aiForm.categoryName,
         note: aiForm.note,
-      });
-      aiForm.familyId = planned.family?.id || "";
-      ElMessage.success(`已选「${aiForm.categoryName}」，出图按「${planned.family?.name || "通用"}」`);
-    } catch {
-      ElMessage.success(`已选「${aiForm.categoryName}」`);
-    }
+      })
+      .then((planned) => {
+        aiForm.familyId = planned.family?.id || "";
+      })
+      .catch(() => {});
     return;
   }
   excel.categoryId = node.category_id;
+  excel.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
   try {
     await loadSheetPlan();
-    ElMessage.success(`已选「${sheetPlan.value.category_name || node.label}」`);
+    ElMessage.success(`已选「${sheetPlan.value.category_name || excel.categoryName}」，短表按「${sheetPlan.value.sheet?.family_name || "通用"}」`);
     advanceExcel(1);
+    loadOfficialAttrs();
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -1209,6 +1261,7 @@ function downloadTemplate() {
   window.location.href = api.excelTemplateUrl(excel.style, excel.listingTemplateId, {
     categoryId: excel.categoryId,
     shopId: store.shopId,
+    categoryName: excel.categoryName || sheetPlan.value.category_name,
   });
 }
 

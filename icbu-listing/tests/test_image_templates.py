@@ -67,6 +67,7 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertEqual(pick_family("", "Tools & Hardware / 五金工具").id, "tools")
         self.assertEqual(pick_family("", "Apparel & Accessories / 服装及配饰").id, "apparel")
         self.assertEqual(pick_family("", "Office & School Supplies").id, "stationery")
+        self.assertEqual(pick_family("", "Office & School Supplies / Other").id, "stationery")
         self.assertEqual(pick_family("", "Consumer Electronics").id, "electronics")
 
     def test_plan_locks_identity_and_forbids_fake_marks(self) -> None:

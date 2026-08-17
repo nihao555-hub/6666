@@ -67,7 +67,14 @@ def _online_counts(api: IcbuApi, shop_id: str) -> Counter[str]:
     return counts
 
 
-def used_leaves(db: Session, api: IcbuApi, shop: Shop, *, limit: int = 12) -> list[dict[str, Any]]:
+def used_leaves(
+    db: Session,
+    api: IcbuApi,
+    shop: Shop,
+    *,
+    limit: int = 12,
+    include_online: bool = True,
+) -> list[dict[str, Any]]:
     """Ranked leaves this shop already sells or has drafted."""
     counts: Counter[str] = Counter()
     sources: dict[str, str] = {}
@@ -86,17 +93,29 @@ def used_leaves(db: Session, api: IcbuApi, shop: Shop, *, limit: int = 12) -> li
     for (cid,) in db.query(Template.category_id).filter(Template.shop_id == shop.id, Template.category_id != "").all():
         _add(counts, sources, str(cid), "template")
 
-    online = _online_counts(api, shop.id)
-    for cid, n in online.items():
-        _add(counts, sources, cid, "online", n)
+    if include_online:
+        online = _online_counts(api, shop.id)
+        for cid, n in online.items():
+            _add(counts, sources, cid, "online", n)
 
     ranked = [cid for cid, _ in counts.most_common(limit)]
     items: list[dict[str, Any]] = []
     for cid in ranked:
-        node = catalog.get_node(db, api, cid)
+        node = catalog.get_node(db, api, cid, fetch=include_online)
         if node is None:
-            continue
-        row = catalog.as_dict(node)
+            row = {
+                "category_id": cid,
+                "name": cid,
+                "cn_name": "",
+                "label": cid,
+                "is_leaf": True,
+                "level": 0,
+            }
+        else:
+            row = catalog.as_dict(node)
+            crumbs = [catalog.label(item) for item in catalog.path_of(db, api, cid, fetch=False)]
+            row["path_label"] = " / ".join(crumbs) or row.get("label") or cid
+        row.setdefault("path_label", row.get("label") or cid)
         row["count"] = int(counts[cid])
         row["source"] = sources.get(cid, "online")
         items.append(row)

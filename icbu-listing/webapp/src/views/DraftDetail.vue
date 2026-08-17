@@ -96,7 +96,7 @@
 
         <div class="card" v-if="attrGroups.length">
           <h3>规格属性，不对就改</h3>
-          <p class="muted" style="margin: 6px 0 12px">这些是 AI 按官方选项填的。选错了发得出去，买家看到的却是错货。</p>
+          <p class="muted" style="margin: 6px 0 12px">这些是这个叶子的官方必填，AI 按 schema.get 的选项填的。选错但合法（比如 HB 写成 2B）红线拦不住，只能人看出来。</p>
           <div v-for="group in attrGroups" :key="group.name" class="attr-group">
             <div class="attr-group-name">{{ group.name }}</div>
             <el-form label-width="120px">

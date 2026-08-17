@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>商品</h2>
-        <p class="muted">AI 会填错。点进去核对标题和规格，审过了才能发。</p>
+        <p class="muted">填完短表、AI 成稿之后还不能发。每条打开看标题和官方属性，点「审过了」才能发。选错但合法的选项（HB 写成 2B）只能人看出来。</p>
       </div>
       <div v-if="tab === 'local'">
         <el-button :disabled="!selected.length" @click="publishSelected">

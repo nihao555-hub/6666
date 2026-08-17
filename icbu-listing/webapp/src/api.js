@@ -66,6 +66,8 @@ export const api = {
 
   excelStyles: () => http.get("/excel/styles"),
   excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),
+  officialExcelAttrs: (shopId, categoryId) =>
+    http.get("/excel/official-attrs", { params: { shop_id: shopId, category_id: categoryId } }),
   excelPreview: (form) => http.post("/excel/preview", form),
   excelImport: (form) => http.post("/excel/import", form),
   excelTemplateUrl: (style, listingTemplateId, extra = {}) => {
@@ -73,6 +75,7 @@ export const api = {
     if (listingTemplateId) params.set("listing_template_id", listingTemplateId);
     if (extra.categoryId) params.set("category_id", extra.categoryId);
     if (extra.shopId) params.set("shop_id", extra.shopId);
+    if (extra.categoryName) params.set("category_name", extra.categoryName);
     return `/api/v1/excel/template?${params.toString()}`;
   },
   cloneOnline: (shopId, body) => http.post(`/shops/${shopId}/online/clone`, body),

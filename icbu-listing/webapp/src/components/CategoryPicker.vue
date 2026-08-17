@@ -96,8 +96,16 @@ async function openNode(parent) {
   }
 }
 
+function pathLabel(node) {
+  const crumbs = path.value.map((item) => item.name || item.label || item.cn_name).filter(Boolean);
+  const leaf = node.label || node.name || node.cn_name || "";
+  const bits = [...crumbs];
+  if (leaf && !bits.some((item) => item === leaf || String(item).includes(leaf))) bits.push(leaf);
+  return bits.join(" / ");
+}
+
 function pick(row) {
-  emit("pick", row);
+  emit("pick", { ...row, path_label: row.path_label || pathLabel(row) });
   open.value = false;
 }
 </script>

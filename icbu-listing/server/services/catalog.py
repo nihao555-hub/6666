@@ -51,13 +51,17 @@ def _store_node(db: Session, raw: dict[str, Any]) -> CategoryNode:
     return node
 
 
-def get_node(db: Session, api: IcbuApi, category_id: str | int) -> CategoryNode | None:
+def get_node(db: Session, api: IcbuApi, category_id: str | int, *, fetch: bool = True) -> CategoryNode | None:
     category_id = str(category_id)
     node = db.get(CategoryNode, category_id)
     if node is not None and datetime.utcnow() - node.fetched_at < TREE_TTL:
         # A non-leaf with no children is a bad cache (empty picker). Refetch.
-        if node.is_leaf or child_ids(node):
+        if node.is_leaf or child_ids(node) or not fetch:
             return node
+    elif node is not None and not fetch:
+        return node
+    if not fetch:
+        return node
     raw = _unwrap(api.get_category(category_id))
     if not raw.get("category_id") and category_id != ROOT_ID:
         return node
@@ -102,17 +106,17 @@ def _safe_get(api: IcbuApi, category_id: str) -> dict[str, Any] | None:
         return None
 
 
-def path_of(db: Session, api: IcbuApi, category_id: str) -> list[CategoryNode]:
+def path_of(db: Session, api: IcbuApi, category_id: str, *, fetch: bool = True) -> list[CategoryNode]:
     """Root-to-leaf breadcrumb, used to show the seller where a product landed."""
     chain: list[CategoryNode] = []
-    current = get_node(db, api, category_id)
+    current = get_node(db, api, category_id, fetch=fetch)
     seen: set[str] = set()
     while current is not None and current.category_id not in seen and current.category_id != ROOT_ID:
         seen.add(current.category_id)
         chain.append(current)
         if not current.parent_id or current.parent_id == ROOT_ID:
             break
-        current = get_node(db, api, current.parent_id)
+        current = get_node(db, api, current.parent_id, fetch=fetch)
     return list(reversed(chain))
 
 
@@ -122,11 +126,13 @@ def label(node: CategoryNode) -> str:
     return node.name or node.category_id
 
 
-def get_schema_xml(db: Session, api: IcbuApi, category_id: str, language: str = "en_US") -> str:
+def get_schema_xml(db: Session, api: IcbuApi, category_id: str, language: str = "en_US", *, fetch: bool = True) -> str:
     key = f"{category_id}:{language}"
     cached = db.get(SchemaCache, key)
     if cached is not None and datetime.utcnow() - cached.fetched_at < SCHEMA_TTL:
         return cached.xml
+    if not fetch:
+        raise RuntimeError(f"类目 {category_id} 的发布规则还没缓存")
     xml = api.schema_xml(int(category_id), language)
     if not xml:
         raise RuntimeError(f"类目 {category_id} 拿不到发布规则")

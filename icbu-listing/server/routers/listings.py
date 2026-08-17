@@ -789,7 +789,7 @@ def browse_categories(
     node = catalog.get_node(db, api, parent)
     if node is None:
         raise HTTPException(status_code=404, detail="类目不存在")
-    used = shop_categories.used_leaves(db, api, shop) if parent == "0" else []
+    used = shop_categories.used_leaves(db, api, shop, include_online=False) if parent == "0" else []
     return {
         "origin": "official_icbu_tree",
         "note": "这是国际站官方类目树，和后台选类目是同一棵，所有店铺的一级都一样。没有单独的类目历史接口；下面「已经上过的」是从这家店在线商品和本地草稿里汇总的叶子。",

@@ -27,14 +27,53 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = 15
 
 
-def _attr_columns(db: Session, user: User, shop_id: str, category_id: str) -> list[dict[str, Any]]:
+def _attr_columns(
+    db: Session,
+    user: User,
+    shop_id: str,
+    category_id: str,
+    *,
+    fetch: bool = True,
+) -> list[dict[str, Any]]:
     if not shop_id or not category_id:
         return []
     from schema import parse_schema  # noqa: E402
 
     shop = shop_for(db, user, shop_id)
-    xml = catalog.get_schema_xml(db, shop_api(shop), category_id, str(shop_defaults(shop).get("language") or "en_US"))
+    try:
+        xml = catalog.get_schema_xml(
+            db,
+            shop_api(shop),
+            category_id,
+            str(shop_defaults(shop).get("language") or "en_US"),
+            fetch=fetch,
+        )
+    except RuntimeError:
+        return []
     return excel_import.category_attr_columns(parse_schema(xml))
+
+
+def _category_hint(db: Session, user: User, shop_id: str, category_id: str, category_name: str) -> str:
+    bits = [str(category_name or "").strip()]
+    if shop_id and category_id:
+        try:
+            shop = shop_for(db, user, shop_id)
+            api = shop_api(shop)
+            node = catalog.get_node(db, api, category_id, fetch=False)
+            if node is not None:
+                bits.append(catalog.label(node))
+            for item in catalog.path_of(db, api, category_id, fetch=False):
+                bits.append(catalog.label(item))
+        except Exception:
+            pass
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for part in bits:
+        key = part.strip()
+        if key and key not in seen:
+            seen.add(key)
+            ordered.append(key)
+    return " / ".join(ordered)
 
 
 @router.get("/styles")
@@ -46,21 +85,21 @@ def list_styles() -> list[dict[str, Any]]:
 def sheet_plan(
     shop_id: str = "",
     category_id: str = "",
+    category_name: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    extras = _attr_columns(db, user, shop_id, category_id)
-    node = None
-    if shop_id and category_id:
-        shop = shop_for(db, user, shop_id)
-        node = catalog.get_node(db, shop_api(shop), category_id)
-    category_name = catalog.label(node) if node is not None else ""
-    profile = excel_import.sheet_profile(category_name)
-    policy = excel_import.fill_policy(extras, profile if category_name else None)
-    preview = excel_import.sheet_preview("simple", profile if category_name else None)
+    # Fill sheet is local (family spec columns). Official attrs come from cache
+    # if we already have schema.get; otherwise the UI loads /official-attrs.
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    profile = excel_import.sheet_profile(hint)
+    use_profile = profile if hint else None
+    extras = _attr_columns(db, user, shop_id, category_id, fetch=False)
+    policy = excel_import.fill_policy(extras, use_profile)
+    preview = excel_import.sheet_preview("simple", use_profile)
     return {
         "category_id": category_id,
-        "category_name": category_name,
+        "category_name": hint or category_name,
         "user_fills": policy["user_fills"],
         "shop_fills": policy["shop_fills"],
         "ai_fills": policy["ai_fills"],
@@ -74,8 +113,28 @@ def sheet_plan(
             "kind": "platform_short",
             "from_official_form": False,
             "columns_from": profile.get("title") or "平台短表：货号、单价、起订量、图片、品牌、品名、备注",
-            "official_attrs": "选了叶子类目后，官方属性出现在「AI 填」，不写进填写表。规格列按品类定制，不是官方选项 ID。",
+            "official_attrs": "选了叶子类目后，官方属性出现在「AI 填」和核对页，不写进填写表。规格列按品类家族定制，不是 7521 张官方表。",
         },
+    }
+
+
+@router.get("/official-attrs")
+def official_attrs(
+    shop_id: str = "",
+    category_id: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    extras: list[dict[str, Any]] = []
+    try:
+        extras = _attr_columns(db, user, shop_id, category_id, fetch=True)
+    except Exception:
+        extras = []
+    policy = excel_import.fill_policy(extras)
+    return {
+        "category_id": category_id,
+        "ai_attrs": extras,
+        "ai_fills": policy["ai_fills"],
     }
 
 
@@ -85,6 +144,7 @@ def download_template(
     listing_template_id: str = "",
     category_id: str = "",
     shop_id: str = "",
+    category_name: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Response:
@@ -111,18 +171,15 @@ def download_template(
                 for item in parse_schema(xml)
                 if item.required and item.type != "label"
             ]
-    category_name = ""
-    if style == "simple" and category_id and shop_id:
-        shop = shop_for(db, user, shop_id)
-        node = catalog.get_node(db, shop_api(shop), category_id)
-        category_name = catalog.label(node) if node is not None else ""
-        listing = listing or {"name": category_name or category_id, "category_id": category_id}
-        # Official attrs go onto 说明 for AI, never onto the fill sheet.
-        ai_attrs = _attr_columns(db, user, shop_id, category_id)
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    if style == "simple" and (hint or category_id):
+        listing = listing or {"name": hint or category_id, "category_id": category_id}
+        # Official attrs stay on 说明 if already cached. Never block the fill sheet.
+        ai_attrs = _attr_columns(db, user, shop_id, category_id, fetch=False)
     payload = excel_import.build_template(
-        style, listing, official_required, ai_attrs, category_name=category_name
+        style, listing, official_required, ai_attrs, category_name=hint
     )
-    profile = excel_import.sheet_profile(category_name) if category_name else None
+    profile = excel_import.sheet_profile(hint) if hint else None
     ascii_name = f"auto-shoper-{(profile or {}).get('filename_id') or style}-{category_id or 'generic'}.xlsx"
     utf_name = f"{(profile or {}).get('filename') or ascii_name}.xlsx" if profile and profile.get("filename") else ascii_name
     return Response(

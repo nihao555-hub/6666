@@ -217,7 +217,7 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("计量单位", {item["label"] for item in policy["shop_fills"]})
         self.assertIn("零出错", policy["guarantee"])
         note = next(item for item in policy["user_fills"] if item["id"] == "note")
-        self.assertIn("色数", note["hint"])
+        self.assertIn("规格列", note["hint"])
         book = load_workbook(io.BytesIO(build_template("simple")))
         help_text = " ".join(str(cell or "") for row in book["说明"].iter_rows(values_only=True) for cell in row)
         self.assertIn("店里套", help_text)
@@ -321,6 +321,23 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(set(result["mapping"].values()), {"sku", "price", "moq", "images", "note"})
         self.assertNotIn("英文标题", result["headers"])
 
+    def test_office_other_leaf_uses_stationery_family_not_generic(self) -> None:
+        other = sheet_profile("Office & School Supplies / Other")
+        self.assertEqual(other["family_id"], "stationery")
+        labels = [item["label"] for item in other["spec_columns"]]
+        self.assertIn("色数", labels)
+        self.assertIn("硬度", labels)
+        policy = fill_policy(
+            [{"id": "leadHardness", "header": "Lead Hardness", "name": "Lead Hardness"}],
+            other,
+        )
+        user_labels = [item["label"] for item in policy["user_fills"]]
+        ai_labels = [item["label"] for item in policy["ai_fills"]]
+        self.assertIn("色数", user_labels)
+        self.assertNotIn("Lead Hardness", user_labels)
+        self.assertTrue(any("硬度" in label or "Hardness" in label for label in ai_labels))
+        self.assertIn("审过", policy["guarantee"])
+
     def test_category_sheet_adds_family_spec_columns(self) -> None:
         pencils = sheet_profile("Office & School Supplies / Colored Pencils")
         brushes = sheet_profile("Tools & Hardware / Paint Brushes")
@@ -341,7 +358,8 @@ class TemplateTests(unittest.TestCase):
         )
         payload = build_template("simple", {"name": "Colored Pencils", "category_id": "1"}, category_name="Colored Pencils")
         book = load_workbook(io.BytesIO(payload))
-        headers = [cell.value for cell in next(book["填写"].iter_rows(min_row=1, max_row=1))]
+        fill_sheet = next(name for name in book.sheetnames if name != "说明")
+        headers = [cell.value for cell in next(book[fill_sheet].iter_rows(min_row=1, max_row=1))]
         self.assertIn("色数", headers)
         self.assertNotIn("Lead Color", headers)
         help_text = " ".join(str(cell or "") for row in book["说明"].iter_rows(values_only=True) for cell in row)

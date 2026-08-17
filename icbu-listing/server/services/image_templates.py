@@ -904,17 +904,31 @@ FAMILY_BY_ID = {item.id: item for item in FAMILIES}
 
 # Official Alibaba.com top-level names, so a shop category pick matches a stack.
 OFFICIAL_HINTS = {
-    "stationery": ("office & school", "office supplies", "writing instruments", "办公", "文具"),
-    "tools": ("tools & hardware", "construction & decoration", "五金工具", "建筑"),
-    "electronics": ("consumer electronics", "electrical equipment", "消费电子", "电工"),
-    "apparel": ("apparel & accessories", "shoes & accessories", "luggage, bags", "服装及配饰", "鞋", "箱包"),
-    "beauty": ("beauty", "personal care", "health & medical", "美妆", "个护"),
-    "home": ("home & garden", "furniture", "lights & lighting", "家居", "家具", "灯"),
+    "stationery": (
+        "office & school",
+        "office and school",
+        "office supplies",
+        "writing instruments",
+        "writing",
+        "drawing",
+        "办公",
+        "文具",
+        "文教",
+        "书写",
+        "绘画",
+        "铅笔",
+        "蜡笔",
+    ),
+    "tools": ("tools & hardware", "tools and hardware", "construction & decoration", "五金工具", "建筑", "刷", "工具"),
+    "electronics": ("consumer electronics", "electrical equipment", "消费电子", "电工", "耳机", "充电"),
+    "apparel": ("apparel & accessories", "apparel and accessories", "shoes & accessories", "luggage, bags", "服装及配饰", "鞋", "箱包", "服装"),
+    "beauty": ("beauty", "personal care", "health & medical", "美妆", "个护", "护肤"),
+    "home": ("home & garden", "home and garden", "furniture", "lights & lighting", "家居", "家具", "灯", "厨"),
     "toys": ("mother, kids & toys", "toys", "母婴", "玩具"),
     "jewelry": ("jewelry", "watches", "饰品", "手表"),
     "industrial": ("machinery", "industrial", "vehicle parts", "机械", "工业"),
     "food": ("food & beverage", "agriculture", "食品", "农业", "饮料"),
-    "sports": ("sports & entertainment", "运动", "户外"),
+    "sports": ("sports & entertainment", "sports and entertainment", "运动", "户外"),
 }
 
 # Repos we learned the slot grammar from — shown in the UI so sellers know
