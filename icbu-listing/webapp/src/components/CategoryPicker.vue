@@ -1,6 +1,24 @@
 <template>
   <el-dialog v-model="open" title="选择类目" width="640px" @open="openNode('0')">
-    <p class="muted" style="margin-bottom: 8px">类目来自这家店的国际站后台，一级一级点进去，选到「可发布」。</p>
+    <p class="muted" style="margin-bottom: 8px">
+      这是国际站官方类目树，和后台选类目是同一棵。所有店铺看到的一级都一样，不是店里自建的分类。
+    </p>
+    <div v-if="used.length" class="used-box">
+      <small>这家店已经上过的</small>
+      <p class="muted" style="margin: 4px 0 8px">从在线商品和本地草稿汇总，点一下就能选到可发布的叶子。</p>
+      <div class="used-list">
+        <button
+          v-for="item in used"
+          :key="item.category_id"
+          type="button"
+          class="used-chip"
+          @click="chooseUsed(item)"
+        >
+          <b>{{ item.label }}</b>
+          <span class="muted">{{ usedHint(item) }}</span>
+        </button>
+      </div>
+    </div>
     <p class="muted" style="margin-bottom: 10px">
       <span v-for="(node, index) in path" :key="node.category_id">
         <el-link type="primary" @click="openNode(node.category_id)">{{ node.name }}</el-link>
@@ -38,6 +56,7 @@ const emit = defineEmits(["update:modelValue", "pick"]);
 const open = ref(props.modelValue);
 const children = ref([]);
 const path = ref([]);
+const used = ref([]);
 
 watch(
   () => props.modelValue,
@@ -46,6 +65,21 @@ watch(
   },
 );
 watch(open, (value) => emit("update:modelValue", value));
+
+function usedHint(item) {
+  if (item.source === "online") return `店里约 ${item.count} 个`;
+  if (item.source === "draft") return "本地草稿用过";
+  if (item.source === "template") return "刊登模板";
+  return "以前选过";
+}
+
+function chooseUsed(item) {
+  if (item.is_leaf) {
+    pick(item);
+    return;
+  }
+  openNode(item.category_id);
+}
 
 async function openNode(parent) {
   if (!store.shopId) {
@@ -56,6 +90,7 @@ async function openNode(parent) {
     const data = await api.categories(store.shopId, parent);
     children.value = data.children || [];
     path.value = data.path || [];
+    if (parent === "0") used.value = data.used || [];
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -66,3 +101,44 @@ function pick(row) {
   open.value = false;
 }
 </script>
+
+<style scoped>
+.used-box {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--gray3);
+}
+.used-box small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.used-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.used-chip {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  max-width: 100%;
+}
+.used-chip:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
+}
+.used-chip b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+</style>
