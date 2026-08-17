@@ -1,5 +1,6 @@
 <template>
   <el-dialog v-model="open" title="选择类目" width="640px" @open="openNode('0')">
+    <p class="muted" style="margin-bottom: 8px">类目来自这家店的国际站后台，一级一级点进去，选到「可发布」。</p>
     <p class="muted" style="margin-bottom: 10px">
       <span v-for="(node, index) in path" :key="node.category_id">
         <el-link type="primary" @click="openNode(node.category_id)">{{ node.name }}</el-link>

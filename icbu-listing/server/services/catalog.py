@@ -55,7 +55,9 @@ def get_node(db: Session, api: IcbuApi, category_id: str | int) -> CategoryNode 
     category_id = str(category_id)
     node = db.get(CategoryNode, category_id)
     if node is not None and datetime.utcnow() - node.fetched_at < TREE_TTL:
-        return node
+        # A non-leaf with no children is a bad cache (empty picker). Refetch.
+        if node.is_leaf or child_ids(node):
+            return node
     raw = _unwrap(api.get_category(category_id))
     if not raw.get("category_id") and category_id != ROOT_ID:
         return node

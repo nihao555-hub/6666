@@ -266,8 +266,8 @@
       <div v-else-if="excelStep === 1" class="step-panel">
         <h3>下载填写表</h3>
         <p class="muted">
-          不是阿里后台那张 40 列表。填写页只有这几列。
-          标题和类目属性按这家店的官方发布规则由 AI 补，不要写进表。
+          这张表的列是平台定的短表（货号、单价、起订量、图片、品牌、品名、备注），不是阿里后台下载的 40 列。
+          上面选的官方类目只用来让 AI 按该叶子的发布规则补标题和属性，那些列不写进表。
         </p>
         <div class="sheet-preview" v-if="previewColumns.length">
           <table>

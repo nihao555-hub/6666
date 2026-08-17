@@ -92,6 +92,7 @@ class TemplateTests(unittest.TestCase):
         self.assertFalse(preview_data["from_official_form"])
         self.assertNotIn("英文标题", labels)
         self.assertNotIn("叶子类目 ID", labels)
+        self.assertIn("不是阿里后台", preview_data["note"])
 
     def test_generated_lingxing_template_round_trips(self) -> None:
         payload = build_template("lingxing")

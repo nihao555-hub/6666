@@ -1,17 +1,17 @@
-# 套图提示词来源
+# 套图 skill
 
-从开源 skill 收了 6 个国际站用得上的场景模板（MIT）：
+主 skill：https://github.com/buluslan/gpt-image2-ecommerce （312★，MIT）
 
-- https://github.com/liangdabiao/ecom-details-image
-  `01-hero-image` `02-lifestyle-scene` `04-detail-macro`
-  `10-packaging` `11-infographic` `13-size-spec`
-- https://github.com/gpt-img-2/gpt-image-2-ecommerce-skill
-  `prompt-patterns.md`（产品身份锁）
+国际站只用它的 6 个坑位模板，按它的规则把提示词写短：
 
-类目套图逻辑在 `server/services/image_templates.py`。没图时由平台用 Grsai `gpt-image-2` 按这 6 个坑位出图。
+| 坑位 | 模板 |
+|---|---|
+| 白底主图 | `01-hero-image.json` |
+| 色号/规格平铺 | `03-flat-lay.json` |
+| 尺寸 | `13-size-spec.json` |
+| 细节 | `04-detail-macro.json` |
+| 场景 | `02-lifestyle-scene.json` |
+| 外箱 | `10-packaging.json`（改成出口纸箱，不用礼盒大理石） |
+| OEM / 卖点 | `11-infographic.json`（不准编认证） |
 
-后来对照过的高星配方（只收规则，不收别人的图）：
-
-- https://github.com/buluslan/gpt-image2-ecommerce （312★，灯光/构图写短、按类目加材质）
-- https://github.com/gpt-img-2/ai-image-prompt-cookbook （83★，电商主图约束）
-- https://github.com/motiful/product-shots （主图约 85% 画面、白底无字）
+拼词在 `server/services/ecom_skill.py`。类目套哪一组坑位仍在 `server/services/image_templates.py`。

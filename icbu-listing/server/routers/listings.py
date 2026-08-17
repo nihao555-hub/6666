@@ -694,6 +694,8 @@ def browse_categories(
     if node is None:
         raise HTTPException(status_code=404, detail="类目不存在")
     return {
+        "origin": "official_shop_tree",
+        "note": "来自这家店国际站后台的类目，一级一级往下点，不是我们自己编的。",
         "node": catalog.as_dict(node),
         "path": catalog.summarise(catalog.path_of(db, api, parent)) if parent != "0" else [],
         "children": catalog.summarise(catalog.get_children(db, api, node)),

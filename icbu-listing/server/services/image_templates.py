@@ -24,6 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .ecom_skill import SKILL, assemble_prompt
+
 ICBU_MAX_IMAGES = 6
 
 # Shared rules every generated frame must keep. Main image is stricter.
@@ -917,36 +919,7 @@ OFFICIAL_HINTS = {
 
 # Repos we learned the slot grammar from — shown in the UI so sellers know
 # this is a method, not a scraped image pack.
-SOURCES = [
-    {
-        "repo": "buluslan/gpt-image2-ecommerce",
-        "url": "https://github.com/buluslan/gpt-image2-ecommerce",
-        "stars": 312,
-        "took": "灯光/构图/画质写短，按类目加一条材质提示，主图白底居中",
-    },
-    {
-        "repo": "motiful/product-shots",
-        "url": "https://github.com/motiful/product-shots",
-        "stars": 25,
-        "took": "主图白底、约占画面 85%、按类目换视觉 DNA、整套锁同一 SKU",
-    },
-    {
-        "repo": "gpt-img-2/ai-image-prompt-cookbook",
-        "url": "https://github.com/gpt-img-2/ai-image-prompt-cookbook",
-        "stars": 83,
-        "took": "中文电商主图常用约束：真材质、不编认证、不堆字",
-    },
-    {
-        "repo": "gpt-img-2/gpt-image-2-ecommerce-skill",
-        "url": "https://github.com/gpt-img-2/gpt-image-2-ecommerce-skill",
-        "took": "先锁产品身份，一图只做一件购买决策，禁止编认证",
-    },
-    {
-        "repo": "liangdabiao/ecom-details-image",
-        "url": "https://github.com/liangdabiao/ecom-details-image",
-        "took": "25 类场景名 + 整套图风格锁定",
-    },
-]
+SOURCES = [SKILL]
 
 
 def _norm(text: str) -> str:
@@ -1018,13 +991,6 @@ def plan_stack(
     features = [str(item) for item in (features or []) if str(item).strip()]
     specs = dict(specs or {})
     product = product_name or category_hint or "the wholesale product"
-    values = {
-        "product": product,
-        "material": material or "the real material",
-        "usage": usage or "typical wholesale use",
-        "audience": audience or "B2B buyers",
-        "extra": (features[0] if features else ""),
-    }
     facts = {
         "product": product,
         "product_name": product,
@@ -1038,17 +1004,16 @@ def plan_stack(
     campaign = style_lock(family)
     slots: list[dict[str, Any]] = []
     for index, spec in enumerate(family.slots[:ICBU_MAX_IMAGES], start=1):
-        body = _fill(spec.prompt, values)
-        if spec.text_policy == "none":
-            text_rule = "No overlay text at all."
-        elif spec.text_policy == "short_en":
-            text_rule = "At most 6 short English words. No Chinese. No prices."
-        else:
-            text_rule = "Short English labels only. No Chinese. No prices. No fake certificates."
-        extra = MAIN_RULES if spec.id == "main" else ""
-        craft = CRAFT.get(family.id, CRAFT["general"])
-        prompt = " ".join(
-            part for part in (ICBU_BASE, extra, craft, campaign, lock, body, text_rule) if part
+        prompt = assemble_prompt(
+            spec.id,
+            product=product,
+            family_id=family.id,
+            material=material,
+            colors=colors,
+            features=features,
+            usage=usage,
+            note=note,
+            text_policy=spec.text_policy,
         )
         slots.append(
             {
@@ -1069,6 +1034,7 @@ def plan_stack(
         "style_lock": campaign,
         "identity_lock": lock,
         "slots": slots,
+        "skill": SKILL,
         "sources": SOURCES,
         "platform_note": "国际站图片银行最多 6 张。主图必须白底无字；外箱/OEM 是批发转化位，不要拿去堆氛围图。",
     }

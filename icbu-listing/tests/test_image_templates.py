@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.db import init_db  # noqa: E402
 from server.main import app  # noqa: E402
+from server.services.ecom_skill import assemble_prompt  # noqa: E402
 from server.services.image_templates import (  # noqa: E402
     ICBU_MAX_IMAGES,
     pick_family,
@@ -76,15 +77,23 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertEqual(plan["family"]["id"], "stationery")
         self.assertEqual(len(plan["slots"]), 6)
         main = plan["slots"][0]
+        self.assertEqual(plan["skill"]["repo"], "buluslan/gpt-image2-ecommerce")
         self.assertIn("No overlay text", main["prompt"])
-        self.assertIn("pure white", main["prompt"].lower())
-        self.assertIn("85", main["prompt"])
+        self.assertIn("white", main["prompt"].lower())
         self.assertIn("soft diffused studio lighting", main["prompt"].lower())
+        self.assertIn("product photography", main["prompt"].lower())
         for slot in plan["slots"]:
-            self.assertIn("PRODUCT IDENTITY LOCK", slot["prompt"])
             self.assertIn("basswood", slot["prompt"])
             self.assertIn("no fake CE/ISO/FDA marks", slot["prompt"])
             self.assertIn("No Amazon or Prime badges", slot["prompt"])
+            self.assertIn("colored pencil set", slot["prompt"])
+
+    def test_skill_hero_prompt_stays_short_and_white(self) -> None:
+        prompt = assemble_prompt("main", product="paint brush", family_id="tools", material="bristle")
+        self.assertLess(len(prompt), 900)
+        self.assertIn("soft diffused studio lighting", prompt)
+        self.assertIn("paint brush", prompt)
+        self.assertIn("bristle", prompt)
 
     def test_explicit_family_wins_over_keywords(self) -> None:
         plan = plan_stack(product_name="pencil", family_id="industrial")

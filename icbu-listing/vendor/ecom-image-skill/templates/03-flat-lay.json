@@ -1,0 +1,24 @@
+{
+  "id": "flat-lay",
+  "name": "平铺图",
+  "source": "buluslan/gpt-image2-ecommerce",
+  "prompt_template": {
+    "type": "flat lay photography, top-down view",
+    "subject": "{product_description} as hero at bottom center",
+    "props": "{prop_list}",
+    "background": "{background_material}",
+    "lighting": "soft natural window light from top-left at 45 degrees",
+    "quality": "8K, editorial photography, no text, no watermark"
+  },
+  "defaults": {
+    "props": "carefully curated complementary objects",
+    "background": "ivory linen texture"
+  },
+  "category_tips": {
+    "beauty": "skincare ritual flat lay, open product showing formula, botanical elements",
+    "food": "ingredients spread, fresh produce, kitchen tools",
+    "fashion": "clothing + accessories arranged aesthetically, fabric textures",
+    "home": "decor items, textures, materials spread showing lifestyle",
+    "electronics": "accessories and ports laid out, clean white"
+  }
+}

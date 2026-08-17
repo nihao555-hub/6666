@@ -64,6 +64,12 @@ def sheet_plan(
         "ai_attrs": extras,
         "preview": preview,
         "from_official_form": False,
+        "sheet_origin": {
+            "kind": "platform_short",
+            "from_official_form": False,
+            "columns_from": "平台短表：货号、单价、起订量、图片、品牌、品名、备注",
+            "official_attrs": "选了叶子类目后，官方属性出现在「AI 填」，不写进填写表",
+        },
     }
 
 
