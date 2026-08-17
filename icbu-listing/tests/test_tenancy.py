@@ -84,6 +84,17 @@ class TenancyTests(unittest.TestCase):
         # the raw token is never handed back to the browser
         self.assertNotIn("access_token", first.text)
 
+    def test_online_list_reads_products_at_the_result_root(self) -> None:
+        from server.routers.shops import listing_products
+
+        products, total = listing_products(
+            {"result": {"total_item": 1227, "products": [{"subject": "Brush", "product_id": 9}]}}
+        )
+        self.assertEqual(total, 1227)
+        self.assertEqual(products[0]["subject"], "Brush")
+        nested, _ = listing_products({"result": {"product_list": {"products": [{"subject": "Old"}]}}})
+        self.assertEqual(nested[0]["subject"], "Old")
+
     def test_oauth_start_uses_the_public_host_not_localhost(self) -> None:
         owner = signup("oauth-host@example.com")
         started = owner.get(

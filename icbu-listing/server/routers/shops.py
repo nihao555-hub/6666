@@ -91,6 +91,17 @@ def _oauth_error(reason: str, message: str) -> RedirectResponse:
     return RedirectResponse(f"/#/shops?{query}", status_code=302)
 
 
+def listing_products(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """product.list sometimes nests under product_list, sometimes not."""
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    nested = result.get("product_list") if isinstance(result.get("product_list"), dict) else {}
+    products = result.get("products")
+    if not isinstance(products, list):
+        products = nested.get("products") if isinstance(nested.get("products"), list) else []
+    total = result.get("total_item") or nested.get("total_item") or 0
+    return products, int(total or 0)
+
+
 def shop_view(shop: Shop) -> dict[str, Any]:
     return {
         "id": shop.id,
@@ -194,11 +205,13 @@ def bind_env_shop(
     db.commit()
 
     try:
-        listing = shop_api(shop).list_products(1, 1)
-        result = (listing.get("result") or {})
-        shop.account = str(
-            ((result.get("product_list") or {}).get("products") or [{}])[0].get("owner_member_display_name") or ""
-        ) or shop.account
+        products, total = listing_products(shop_api(shop).list_products(1, 1))
+        owner = str((products[0] if products else {}).get("owner_member_display_name") or "")
+        if owner:
+            shop.account = owner
+            if shop.name in {"", "测试店铺", "环境店铺"}:
+                shop.name = owner
+        shop.online_count = total
         db.commit()
     except (GopError, ShopNotConnected):
         pass
@@ -251,10 +264,9 @@ def online_products(
         db.commit()
         raise HTTPException(status_code=502, detail=f"拉取在线商品失败：{exc}") from exc
 
-    result = payload.get("result") or {}
-    listing = result.get("product_list") or {}
+    raw_products, total = listing_products(payload)
     products = []
-    for item in listing.get("products") or []:
+    for item in raw_products:
         main = item.get("main_image") or {}
         images = main.get("images") or []
         products.append(
@@ -267,7 +279,6 @@ def online_products(
                 "modified": item.get("gmt_modified") or item.get("gmt_create") or "",
             }
         )
-    total = result.get("total_item") or listing.get("total_item") or 0
     try:
         shop.online_count = int(total)
         db.commit()

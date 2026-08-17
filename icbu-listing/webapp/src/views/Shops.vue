@@ -19,16 +19,16 @@
     />
 
     <el-alert
-      v-if="hasDebugShop"
-      type="warning"
+      v-if="hasTokenShop && !hasOauthShop"
+      type="info"
       show-icon
       :closable="false"
-      title="下面这些不是你登录绑定的店"
-      description="那是调试接入，不能当成你自己的店。要点右上角「登录自己的店铺」，用你的国际站卖家账号在阿里官方页确认。"
+      title="当前用已接入的店铺做完整上品测试"
+      description="这家店对应环境里的授权。可以直接填默认、投料、审稿、发到官方草稿箱。"
       style="margin-bottom: 14px"
     />
 
-    <div class="connect-card" v-if="!hasOwnShop">
+    <div class="connect-card" v-if="!store.shops.length">
       <div class="connect-copy">
         <div class="hero-kicker">绑定自己的店</div>
         <h3>登录你的国际站店铺</h3>
@@ -53,22 +53,21 @@
       <img class="hero-art" src="/art/hero.png" alt="" />
     </div>
 
-    <el-table v-if="store.shops.length" :data="store.shops" v-loading="loading" :style="hasOwnShop ? '' : 'margin-top: 16px'">
+    <el-table v-if="store.shops.length" :data="store.shops" v-loading="loading">
       <el-table-column label="店铺" min-width="200">
         <template #default="{ row }">
           <div class="record">
             <span class="record-mark">{{ (row.name || "店").slice(0, 1) }}</span>
             <div>
               <div>{{ row.name }}</div>
-              <div class="muted">{{ row.bound_by === "debug" ? "调试接入，不是你登录的店" : (row.account || "已登录") }}</div>
+              <div class="muted">{{ row.account || (row.bound_by === "debug" ? "已接入，可上品测试" : "已登录") }}</div>
             </div>
           </div>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <span v-if="row.bound_by === 'debug'" class="status-pill yellow">调试店</span>
-          <span v-else-if="row.status === 'active' && row.connected" class="status-pill green">已登录</span>
+          <span v-if="row.status === 'active' && row.connected" class="status-pill green">{{ row.bound_by === "debug" ? "已接入" : "已登录" }}</span>
           <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新登录</span>
           <span v-else class="status-pill red">异常</span>
         </template>
@@ -182,8 +181,8 @@ const connectSteps = [
 
 const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
 const unsupported = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "unsupported"));
-const hasDebugShop = computed(() => store.shops.some((item) => item.bound_by === "debug"));
-const hasOwnShop = computed(() => store.shops.some((item) => item.bound_by === "oauth"));
+const hasTokenShop = computed(() => store.shops.some((item) => item.bound_by === "debug"));
+const hasOauthShop = computed(() => store.shops.some((item) => item.bound_by === "oauth"));
 const callbackUrl = `${window.location.origin}/api/v1/alibaba/oauth/callback`;
 
 function shown(shop, key) {
