@@ -94,11 +94,27 @@ def main() -> int:
         for item in plan["slots"]:
             started = time.time()
             print(f"   {item['index']}. {item['id']} {item['name']}", flush=True)
+            existing = next(folder.glob(f"{int(item['index']):02d}-{item['id']}.*"), None)
+            if existing and existing.stat().st_size > 1000:
+                print(f"      skip existing {existing.name}", flush=True)
+                if item["id"] == "main":
+                    identity = identity or scene["ref"]
+                slots_out.append(
+                    {
+                        "id": item["id"],
+                        "name": item["name"],
+                        "file": existing.name,
+                        "seconds": 0,
+                        "prompt": item["prompt"],
+                        "remote_url": "",
+                    }
+                )
+                continue
             last_error = None
             content = b""
             remote = ""
-            used_refs: list[str] = []
-            for candidate in refs:
+            attempts = refs + refs[:1]
+            for attempt, candidate in enumerate(attempts, start=1):
                 used_refs = [candidate]
                 if identity and identity not in used_refs:
                     used_refs.append(identity)
@@ -108,7 +124,8 @@ def main() -> int:
                     break
                 except Exception as exc:  # noqa: BLE001
                     last_error = exc
-                    print(f"      retry after {exc}", flush=True)
+                    print(f"      retry {attempt} after {exc}", flush=True)
+                    time.sleep(min(8 * attempt, 24))
             if last_error is not None:
                 raise last_error
             ext = "jpg" if remote.lower().endswith((".jpg", ".jpeg")) else "png"
