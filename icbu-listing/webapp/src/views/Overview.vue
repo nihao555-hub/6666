@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>概览</h2>
-        <p class="muted">只推一条路。绿项自动过，你只处理红黄项。</p>
+        <p class="muted">上品在投料，看状态和改每个品在商品，发布进度在队列。</p>
       </div>
       <el-button type="primary" @click="$router.push(data.situation?.action?.to || '/feed')">
         {{ data.situation?.action?.label || "去投料" }}
@@ -16,7 +16,7 @@
       show-icon
       :closable="false"
       title="还不能连国际站"
-      description="管理员还没有接好平台应用。先去店铺页看授权是否可用。"
+      description="管理员还没有接好平台应用。先去店铺页看能不能登录。"
       style="margin-bottom: 14px"
     />
     <el-alert
@@ -56,9 +56,27 @@
       <img class="hero-art" src="/art/hero.png" alt="" />
     </div>
 
+    <div class="map-grid">
+      <button class="map-card" @click="$router.push('/feed')">
+        <small>上品</small>
+        <b>投料</b>
+        <span class="muted">丢图或下短表。你只出图、价、起订量。</span>
+      </button>
+      <button class="map-card" @click="$router.push('/drafts')">
+        <small>看状态 · 改每个品</small>
+        <b>商品</b>
+        <span class="muted">点进去改标题、价格、起订量，保存立刻生效。</span>
+      </button>
+      <button class="map-card" @click="$router.push('/queue')">
+        <small>发布进度</small>
+        <b>队列</b>
+        <span class="muted">发到店里成功还是失败，失败改完重发。</span>
+      </button>
+    </div>
+
     <div class="stat-grid">
       <div class="stat">
-        <span class="muted">已授权店铺</span>
+        <span class="muted">已登录店铺</span>
         <b>{{ data.shops ?? 0 }}</b>
       </div>
       <div class="stat">
@@ -95,3 +113,43 @@ onMounted(async () => {
   }
 });
 </script>
+
+<style scoped>
+.map-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.map-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+}
+.map-card:hover {
+  background: var(--gray2);
+}
+.map-card small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.map-card b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+@media (max-width: 900px) {
+  .map-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

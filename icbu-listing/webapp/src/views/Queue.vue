@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>队列</h2>
-        <p class="muted">失败原因翻成人话，改完可以直接重发。关掉页面也不影响。</p>
+        <p class="muted">发到店里的进度。失败原因翻成人话，改完可以直接重发。</p>
       </div>
       <el-button @click="reload">刷新</el-button>
     </div>

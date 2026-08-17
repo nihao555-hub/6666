@@ -8,7 +8,7 @@
       <div class="shop-switcher">
         <el-select
           v-model="shopId"
-          placeholder="先授权店铺"
+          placeholder="先登录店铺"
           :no-data-text="'还没有店铺'"
           @change="onShopChange"
         >
@@ -44,7 +44,7 @@
             <path d="M7 3h7l5 5v13H7z" />
             <path d="M14 3v5h5" />
           </svg>
-          草稿箱
+          商品
         </router-link>
         <router-link class="nav-link" :class="{ 'is-active': on('/queue') }" to="/queue">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -65,7 +65,7 @@
     </aside>
 
     <div class="workspace">
-      <div v-if="store.shop && store.shop.status !== 'active'" class="auth-warn">当前店铺授权异常，先去店铺页重新授权。</div>
+      <div v-if="store.shop && store.shop.status !== 'active'" class="auth-warn">当前店铺登录已失效，先去店铺页重新登录。</div>
       <main class="workspace-main">
         <router-view :key="store.shopId" />
       </main>

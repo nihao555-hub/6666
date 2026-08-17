@@ -3,7 +3,7 @@
     <div class="auth-card">
       <Brand size="lg" />
       <h2>{{ mode === "login" ? "欢迎回来" : "用注册码开通" }}</h2>
-      <p class="muted">自己的店，自己的货。人只审红黄项。</p>
+      <p class="muted">先开工作台账号。店铺要在里面用你自己的卖家账号再登录一次。</p>
       <el-form label-position="top" @submit.prevent>
         <el-form-item label="工作邮箱">
           <el-input v-model="form.email" size="large" placeholder="you@company.com" />
@@ -21,7 +21,7 @@
           {{ mode === "login" ? "还没有账号？用注册码开通" : "已经有账号，去登录" }}
         </el-button>
       </el-form>
-      <p class="muted auth-note">跳转阿里官方页面授权，不收集店铺密码</p>
+      <p class="muted auth-note">店铺密码只在阿里官方页输入，这里不收集</p>
     </div>
   </div>
 </template>

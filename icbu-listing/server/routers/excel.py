@@ -54,6 +54,7 @@ def sheet_plan(
         shop = shop_for(db, user, shop_id)
         node = catalog.get_node(db, shop_api(shop), category_id)
     policy = excel_import.fill_policy(extras)
+    preview = excel_import.sheet_preview("simple")
     return {
         "category_id": category_id,
         "category_name": catalog.label(node) if node is not None else "",
@@ -61,6 +62,8 @@ def sheet_plan(
         "ai_fills": policy["ai_fills"],
         "redline": policy["redline"],
         "ai_attrs": extras,
+        "preview": preview,
+        "from_official_form": False,
     }
 
 

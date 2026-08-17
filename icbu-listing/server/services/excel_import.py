@@ -244,6 +244,46 @@ class ExcelRow:
         return {"brand": self.brand} if self.brand else {}
 
 
+EXAMPLE_ROW: dict[str, str] = {
+    "sku": f"{SAMPLE_MARK}SKU-1001",
+    "name": "油漆刷套装",
+    "title": "Paint Brush Set for Wall Painting",
+    "keywords": "paint brush, wall brush, decorating",
+    "price": "1.80",
+    "moq": "500",
+    "images": "SKU-1001_1.jpg;SKU-1001_2.jpg",
+    "brand": "",
+    "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+    "category_id": "",
+    "origin": "China",
+}
+
+
+def sheet_preview(style: str = "simple") -> dict[str, Any]:
+    """What the seller sees before they download: short headers + one example row.
+
+    This is not the official 40-column form. Category attributes come from
+    Alibaba schema.get and stay off the fill sheet.
+    """
+    spec = STYLES.get(style) or STYLES["simple"]
+    columns = [
+        {
+            "id": field_id,
+            "label": FIELDS[field_id],
+            "required": field_id in {"sku", "price", "moq", "images"},
+            "example": EXAMPLE_ROW.get(field_id, ""),
+        }
+        for field_id in spec["columns"]
+    ]
+    return {
+        "style": spec["id"],
+        "from_official_form": False,
+        "note": "不是阿里后台那张 40 列表。填写页只有你必须填的；标题和类目属性按这家店的官方发布规则由 AI 补。",
+        "columns": columns,
+        "example_skipped": True,
+    }
+
+
 def fill_policy(ai_attrs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     extras = ai_attrs or []
     ai_fills = [item for item in AI_FILLS_BASE if item["id"] != "catAttrs" or not extras]
@@ -593,17 +633,8 @@ def build_template(
     fill = PatternFill("solid", fgColor="171717" if spec.get("primary") else "1D4ED8")
     font = Font(color="FFFFFF", bold=True)
     example = {
-        "sku": f"{SAMPLE_MARK}SKU-1001",
-        "name": "油漆刷套装",
-        "title": "Paint Brush Set for Wall Painting",
-        "keywords": "paint brush, wall brush, decorating",
-        "price": "1.80",
-        "moq": "500",
-        "images": "SKU-1001_1.jpg;SKU-1001_2.jpg",
-        "brand": "",
-        "note": "这行是示例，导入时自动跳过。从下一行开始写你的货，一行一个商品。",
+        **EXAMPLE_ROW,
         "category_id": (listing_template or {}).get("category_id") or "",
-        "origin": "China",
     }
     header_hints = {
         "sku": "你自己的货号。一行一个商品，往下接着写就行，一张表可以写很多个。",

@@ -3,40 +3,57 @@
     <div class="page-head">
       <div>
         <h2>店铺</h2>
-        <p class="muted">跳转阿里官方页面授权。每个店填一次默认值，后面不用再问。</p>
+        <p class="muted">用你自己的国际站卖家账号登录，授权本平台代你发品、改品、传图。</p>
       </div>
-      <div>
-        <el-button v-if="showDevBind" text @click="bindEnv">本地接入</el-button>
-        <el-button type="primary" @click="authorize">授权新店铺</el-button>
-      </div>
+      <el-button v-if="store.shops.length" type="primary" @click="authorize">再登录一家店</el-button>
     </div>
 
     <el-alert
       v-if="oauthError"
       type="error"
       show-icon
-      title="店铺授权没有完成"
+      title="店铺没有登录成功"
       :description="oauthError"
       style="margin-bottom: 14px"
       @close="oauthError = ''"
     />
 
-    <el-table :data="store.shops" v-loading="loading">
+    <div class="connect-card" v-if="!store.shops.length">
+      <div class="connect-copy">
+        <div class="hero-kicker">第一步</div>
+        <h3>登录你的国际站店铺</h3>
+        <p class="muted">
+          会跳到阿里官方页。用你平时进卖家后台的账号确认即可。
+          不收集店铺密码，只拿到发品、改品、传图需要的权限。
+        </p>
+        <ul class="connect-caps">
+          <li>按你店里的类目规则成稿</li>
+          <li>把产品图传到这家店</li>
+          <li>发新品、改已有品</li>
+          <li>看店里现在在售的货</li>
+        </ul>
+        <FishboneSteps v-model="connectStep" :steps="connectSteps" :reached="2" />
+        <el-button type="primary" size="large" @click="authorize">登录并授权店铺</el-button>
+      </div>
+      <img class="hero-art" src="/art/hero.png" alt="" />
+    </div>
+
+    <el-table v-else :data="store.shops" v-loading="loading">
       <el-table-column label="店铺" min-width="200">
         <template #default="{ row }">
           <div class="record">
             <span class="record-mark">{{ (row.name || "店").slice(0, 1) }}</span>
             <div>
               <div>{{ row.name }}</div>
-              <div class="muted">{{ row.account || "已授权" }}</div>
+              <div class="muted">{{ row.account || "已登录" }}</div>
             </div>
           </div>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <span v-if="row.status === 'active' && row.connected" class="status-pill green">已授权</span>
-          <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新授权</span>
+          <span v-if="row.status === 'active' && row.connected" class="status-pill green">已登录</span>
+          <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新登录</span>
           <span v-else class="status-pill red">异常</span>
         </template>
       </el-table-column>
@@ -52,16 +69,14 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" align="right">
+      <el-table-column label="操作" width="260" align="right">
         <template #default="{ row }">
           <el-button text type="primary" @click="edit(row)">店铺默认</el-button>
           <el-button text type="primary" @click="use(row)">设为当前</el-button>
+          <el-button v-if="row.status !== 'active'" text type="primary" @click="authorize">重新登录</el-button>
           <el-button text type="danger" @click="unbind(row)">解绑</el-button>
         </template>
       </el-table-column>
-      <template #empty>
-        <div class="empty">还没有店铺。点右上角「授权新店铺」，跳转阿里官方页面确认即可。</div>
-      </template>
     </el-table>
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
@@ -81,7 +96,7 @@
         </el-form-item>
 
         <p v-if="optionSource.category_name" class="muted" style="margin: 0 0 12px">
-          选项来自官方发布规则（{{ optionSource.category_name }}），按官方选项选就行。
+          选项来自这家店的官方发布规则（{{ optionSource.category_name }}），按官方选项选就行。
         </p>
 
         <el-form-item v-for="field in pickable" :key="field.key" :label="field.label">
@@ -129,6 +144,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import FishboneSteps from "../components/FishboneSteps.vue";
 import { api } from "../api";
 import { store } from "../store";
 
@@ -137,11 +153,16 @@ const loading = ref(false);
 const saving = ref(false);
 const drawer = ref(false);
 const editing = ref(null);
-const showDevBind = ref(["localhost", "127.0.0.1"].includes(window.location.hostname));
 const oauthError = ref("");
 const optionsLoading = ref(false);
 const optionSource = ref({ category_name: "", fields: [] });
 const pickedLabels = ref({});
+const connectStep = ref(0);
+const connectSteps = [
+  { key: "go", label: "跳转阿里" },
+  { key: "login", label: "用你的账号登录" },
+  { key: "back", label: "回来填默认" },
+];
 
 const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
 const unsupported = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "unsupported"));
@@ -170,9 +191,6 @@ async function loadOptions(shopId) {
   optionsLoading.value = true;
   try {
     optionSource.value = await api.shopDefaultOptions(shopId);
-    // The form binds official values; seed the snapshot from what is saved.
-    // Multi-selects need an array here, but defaults stay a comma string so
-    // the publish pipeline keeps reading them the way it always has.
     for (const field of pickable.value) {
       editing.value.defaults[field.key] = field.multiple ? splitValues(field.value) : field.value;
       rememberLabel(field);
@@ -186,9 +204,7 @@ async function loadOptions(shopId) {
 }
 
 if (route.query.alibaba === "error") {
-  oauthError.value =
-    route.query.message ||
-    "阿里没有回传原因。最常见的是回调地址没在开放平台注册：控制台里填的必须和本服务的 /api/v1/alibaba/oauth/callback 完全一致。";
+  oauthError.value = route.query.message || "阿里没有确认成功。请再点一次「登录并授权店铺」。";
 }
 
 async function reload() {
@@ -206,7 +222,7 @@ onMounted(async () => {
   await reload();
   if (route.query.alibaba === "connected" && store.shops.length) {
     const newest = store.shops[store.shops.length - 1];
-    ElMessage.success("店铺已授权。先填一次默认值，之后每条商品不用再问。");
+    ElMessage.success("店铺已登录。先填一次默认值，之后每条商品不用再问。");
     edit(newest);
   }
 });
@@ -215,18 +231,6 @@ async function authorize() {
   try {
     const { url } = await api.oauthStart();
     window.location.href = url;
-  } catch (error) {
-    ElMessage.error(error.message);
-  }
-}
-
-async function bindEnv() {
-  try {
-    const shop = await api.bindEnvShop("环境店铺");
-    store.selectShop(shop.id);
-    await reload();
-    ElMessage.success("已接入。先填一次店铺默认，之后每条商品不用再问。");
-    edit(store.shops.find((item) => item.id === shop.id) || shop);
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -280,3 +284,38 @@ async function unbind(shop) {
   ElMessage.success("已解绑");
 }
 </script>
+
+<style scoped>
+.connect-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 232px;
+  gap: 20px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--accent-wash), var(--surface) 70%);
+  padding: 22px 24px;
+}
+.connect-copy h3 {
+  margin: 6px 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.connect-caps {
+  margin: 14px 0 18px;
+  padding-left: 18px;
+  color: var(--ink-2);
+}
+.connect-caps li + li {
+  margin-top: 4px;
+}
+@media (max-width: 900px) {
+  .connect-card {
+    grid-template-columns: 1fr;
+  }
+  .connect-card .hero-art {
+    display: none;
+  }
+}
+</style>

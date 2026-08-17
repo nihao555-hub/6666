@@ -48,7 +48,7 @@ watch(open, (value) => emit("update:modelValue", value));
 
 async function openNode(parent) {
   if (!store.shopId) {
-    ElMessage.warning("先授权一个店铺");
+    ElMessage.warning("先登录一个店铺");
     return;
   }
   try {

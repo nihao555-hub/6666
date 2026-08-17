@@ -110,7 +110,7 @@ def list_shops(db: Session = Depends(get_db), user: User = Depends(current_user)
 @router.get("/alibaba/oauth/start")
 def oauth_start(user: User = Depends(current_user)) -> dict[str, str]:
     if not settings.has_platform_app:
-        raise HTTPException(status_code=400, detail="平台还没有配置国际站应用的 AppKey / AppSecret")
+        raise HTTPException(status_code=400, detail="平台还没有接好国际站应用，暂时不能登录店铺")
     state = sign_state({"user_id": user.id})
     return {"url": authorize_url(state), "redirect_uri": settings.oauth_redirect_uri}
 

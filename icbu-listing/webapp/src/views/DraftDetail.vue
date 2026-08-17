@@ -2,17 +2,17 @@
   <div class="page" v-loading="loading">
     <div class="page-head">
       <div>
-        <h2>审稿 · {{ draft.sku || draft.title || "未命名" }}</h2>
+        <h2>改商品 · {{ draft.sku || draft.title || "未命名" }}</h2>
         <p class="muted">
-          只有红黄项需要你动手。预估质量
+          改完点保存，立刻写进这条商品。预估质量
           <b>{{ draft.quality?.score ?? "—" }}</b> / 5.0
-          <span v-if="draft.quality?.ready">，可以发。</span>
+          <span v-if="draft.quality?.ready">，可以发到店里。</span>
         </p>
       </div>
       <div>
-        <el-button @click="$router.push('/drafts')">返回草稿箱</el-button>
+        <el-button @click="$router.push('/drafts')">返回商品</el-button>
         <el-button type="primary" :loading="publishing" :disabled="hasRed" @click="publish">
-          {{ hasRed ? "先处理红项" : "发布" }}
+          {{ hasRed ? "先改红项" : draft.status === "published" ? "再发到店里" : "发到店里" }}
         </el-button>
       </div>
     </div>

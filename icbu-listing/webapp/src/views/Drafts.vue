@@ -2,10 +2,10 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>草稿箱</h2>
-        <p class="muted">只处理红项和黄项。绿的勾上直接进队列。</p>
+        <h2>商品</h2>
+        <p class="muted">所有品的状态都在这里。点进去就能改标题、价格、起订量，保存立刻生效。</p>
       </div>
-      <div>
+      <div v-if="tab === 'local'">
         <el-button :disabled="!selected.length" @click="publishSelected">
           批量发布（{{ selected.length }}）
         </el-button>
@@ -15,10 +15,14 @@
 
     <div class="toolbar">
       <div class="filter-pills">
+        <button class="filter-pill" :class="{ 'is-on': tab === 'local' }" @click="setTab('local')">本平台</button>
+        <button class="filter-pill" :class="{ 'is-on': tab === 'live' }" @click="setTab('live')">店里在售</button>
+      </div>
+      <div v-if="tab === 'local'" class="filter-pills" style="margin-left: 8px">
         <button class="filter-pill" :class="{ 'is-on': status === '' }" @click="setStatus('')">全部 {{ counts.all }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'red' }" @click="setStatus('red')">红 {{ counts.red }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'yellow' }" @click="setStatus('yellow')">黄 {{ counts.yellow }}</button>
-        <button class="filter-pill" :class="{ 'is-on': status === 'green' }" @click="setStatus('green')">绿 {{ counts.green }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'red' }" @click="setStatus('red')">待改 {{ counts.red }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'yellow' }" @click="setStatus('yellow')">可略过 {{ counts.yellow }}</button>
+        <button class="filter-pill" :class="{ 'is-on': status === 'green' }" @click="setStatus('green')">可发布 {{ counts.green }}</button>
         <button class="filter-pill" :class="{ 'is-on': status === 'failed' }" @click="setStatus('failed')">失败 {{ counts.failed }}</button>
         <button class="filter-pill" :class="{ 'is-on': status === 'published' }" @click="setStatus('published')">已发布 {{ counts.published }}</button>
       </div>
@@ -26,7 +30,7 @@
       <el-button text @click="reload">刷新</el-button>
     </div>
 
-    <el-table :data="rows" v-loading="loading" @selection-change="onSelect" row-key="id">
+    <el-table v-if="tab === 'local'" :data="rows" v-loading="loading" @selection-change="onSelect" row-key="id">
       <el-table-column type="selection" width="44" :selectable="isSelectable" />
       <el-table-column label="标题" min-width="280">
         <template #default="{ row }">
@@ -63,7 +67,7 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="待处理" min-width="260">
+      <el-table-column label="待处理" min-width="240">
         <template #default="{ row }">
           <span v-if="!row.issues?.length" class="muted">没有问题</span>
           <span v-for="issue in row.issues.slice(0, 3)" :key="issue.path" class="issue-line">
@@ -72,37 +76,75 @@
           <span v-if="row.issues?.length > 3" class="muted">还有 {{ row.issues.length - 3 }} 条</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150" align="right">
+      <el-table-column label="操作" width="130" align="right">
         <template #default="{ row }">
-          <el-button text type="primary" @click="$router.push(`/drafts/${row.id}`)">审稿</el-button>
+          <el-button text type="primary" @click="$router.push(`/drafts/${row.id}`)">改</el-button>
           <el-button text type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
       <template #empty>
         <div class="empty">
           <img class="empty-art" src="/art/empty-drafts.png" alt="" />
-          <b>还没有草稿</b>
+          <b>还没有商品</b>
           去「投料」丢图或传回表格即可。
         </div>
       </template>
     </el-table>
+
+    <el-table v-else :data="liveRows" v-loading="liveLoading">
+      <el-table-column label="图" width="70">
+        <template #default="{ row }">
+          <img v-if="row.image" :src="row.image" class="thumb" />
+        </template>
+      </el-table-column>
+      <el-table-column prop="subject" label="店里标题" min-width="320" show-overflow-tooltip />
+      <el-table-column prop="modified" label="更新时间" width="200" />
+      <el-table-column label="操作" width="160" align="right">
+        <template #default="{ row }">
+          <el-button text type="primary" :loading="busy === row.id" @click="pullLive(row)">拉回来改</el-button>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <div class="empty">
+          <img class="empty-art" src="/art/empty-queue.png" alt="" />
+          <b>店里还没有在售商品</b>
+          先去投料上品，发成功后会出现在这里。
+        </div>
+      </template>
+    </el-table>
+    <el-pagination
+      v-if="tab === 'live'"
+      style="margin-top: 14px; justify-content: flex-end"
+      layout="total, prev, pager, next"
+      :total="liveTotal"
+      :page-size="20"
+      :current-page="livePage"
+      @current-change="onLivePage"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { store } from "../store";
 
 const route = useRoute();
+const router = useRouter();
 const rows = ref([]);
 const all = ref([]);
 const loading = ref(false);
 const status = ref("");
 const selected = ref([]);
 const shopFilter = ref(route.query.shop === "all" ? "" : store.shopId || "");
+const tab = ref(route.query.tab === "live" ? "live" : "local");
+const liveRows = ref([]);
+const liveTotal = ref(0);
+const livePage = ref(1);
+const liveLoading = ref(false);
+const busy = ref("");
 
 const counts = computed(() => {
   const base = { all: all.value.length, red: 0, yellow: 0, green: 0, failed: 0, published: 0 };
@@ -112,13 +154,18 @@ const counts = computed(() => {
   return base;
 });
 
+function setTab(value) {
+  tab.value = value;
+  reload();
+}
+
 function setStatus(value) {
   status.value = value;
   reload();
 }
 
 function label(value) {
-  return { red: "待处理", yellow: "可略过", green: "就绪", publishing: "发布中", published: "已发布", failed: "失败" }[value] || value;
+  return { red: "待改", yellow: "可略过", green: "可发布", publishing: "发布中", published: "已发布", failed: "失败" }[value] || value;
 }
 
 function isSelectable(row) {
@@ -126,6 +173,10 @@ function isSelectable(row) {
 }
 
 async function reload() {
+  if (tab.value === "live") {
+    await loadLive();
+    return;
+  }
   loading.value = true;
   try {
     all.value = await api.drafts(shopFilter.value ? { shop_id: shopFilter.value } : {});
@@ -135,6 +186,32 @@ async function reload() {
   } finally {
     loading.value = false;
   }
+}
+
+async function loadLive() {
+  if (!store.shopId) {
+    liveRows.value = [];
+    return;
+  }
+  liveLoading.value = true;
+  try {
+    const data = await api.onlineProducts(store.shopId, {
+      page: livePage.value,
+      page_size: 20,
+      filter_type: "onSelling",
+    });
+    liveRows.value = data.products || [];
+    liveTotal.value = data.total || 0;
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    liveLoading.value = false;
+  }
+}
+
+function onLivePage(value) {
+  livePage.value = value;
+  loadLive();
 }
 
 onMounted(reload);
@@ -151,10 +228,31 @@ function selectReady() {
 async function publishSelected() {
   try {
     const result = await api.publishMany(selected.value.map((item) => item.id));
-    ElMessage.success(`已排队 ${result.queued} 条，去发布队列看结果`);
+    ElMessage.success(`已排队 ${result.queued} 条，去队列看进度`);
     setTimeout(reload, 1200);
   } catch (error) {
     ElMessage.error(error.message);
+  }
+}
+
+async function pullLive(row) {
+  if (!store.shopId || !row.category_id) {
+    ElMessage.warning("这条没有类目，不能拉回来");
+    return;
+  }
+  busy.value = row.id;
+  try {
+    const draft = await api.cloneOnline(store.shopId, {
+      product_id: row.id,
+      category_id: row.category_id,
+      differentiate: true,
+    });
+    ElMessage.success("已拉回。标题已换过，改完再发。");
+    router.push(`/drafts/${draft.id}`);
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    busy.value = "";
   }
 }
 

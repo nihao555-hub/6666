@@ -25,6 +25,7 @@ from server.services.excel_import import (  # noqa: E402
     match_uploads,
     parse_rows,
     preview,
+    sheet_preview,
     split_images,
 )
 
@@ -84,6 +85,14 @@ class ParseTests(unittest.TestCase):
 
 
 class TemplateTests(unittest.TestCase):
+    def test_sheet_preview_is_the_short_form_not_official_forty(self) -> None:
+        preview_data = sheet_preview("simple")
+        labels = [item["label"] for item in preview_data["columns"]]
+        self.assertEqual(labels, ["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        self.assertFalse(preview_data["from_official_form"])
+        self.assertNotIn("英文标题", labels)
+        self.assertNotIn("叶子类目 ID", labels)
+
     def test_generated_lingxing_template_round_trips(self) -> None:
         payload = build_template("lingxing")
         result = preview(payload, "lingxing")

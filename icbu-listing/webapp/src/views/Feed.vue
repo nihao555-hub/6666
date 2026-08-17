@@ -12,8 +12,8 @@
       type="warning"
       show-icon
       :closable="false"
-      title="先授权一个店铺"
-      description="授权之后才能按这家店的规则成稿、把图传到店铺图库。"
+      title="先登录一个店铺"
+      description="登录之后才能按这家店的规则成稿、把图传到店铺图库。"
       style="margin-bottom: 14px"
     />
 
@@ -193,9 +193,31 @@
       <div v-else-if="excelStep === 1" class="step-panel">
         <h3>下载填写表</h3>
         <p class="muted">
-          一行一个商品。只填货号、单价、起订量、图片，品牌选填。
-          标题、类目属性、物流不要写进表。
+          不是阿里后台那张 40 列表。填写页只有这几列。
+          标题和类目属性按这家店的官方发布规则由 AI 补，不要写进表。
         </p>
+        <div class="sheet-preview" v-if="previewColumns.length">
+          <table>
+            <thead>
+              <tr>
+                <th v-for="col in previewColumns" :key="col.id">
+                  {{ col.label }}<span v-if="col.required" class="need">必填</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="is-sample">
+                <td v-for="col in previewColumns" :key="col.id">{{ col.example || "—" }}</td>
+              </tr>
+              <tr>
+                <td v-for="col in previewColumns" :key="`${col.id}-empty`">
+                  <span class="muted">{{ col.id === "sku" ? "从这行开始写你的货" : "" }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="muted" style="margin-top: 8px">灰色那行是示例，导入时自动跳过。一行一个商品，往下接着写。</p>
+        </div>
         <div class="policy-grid" style="margin-top: 16px">
           <section class="policy-card">
             <small>你填</small>
@@ -417,7 +439,7 @@ const excel = reactive({
   mapping: {},
   batch: null,
 });
-const sheetPlan = ref({ user_fills: [], ai_fills: [], redline: [], ai_attrs: [], category_name: "" });
+const sheetPlan = ref({ user_fills: [], ai_fills: [], redline: [], ai_attrs: [], category_name: "", preview: null });
 const categoryBrowser = ref(false);
 const excelProgress = ref({ done: 0 });
 let timer = null;
@@ -430,6 +452,12 @@ const policy = computed(() => ({
   ai_fills: sheetPlan.value.ai_fills?.length ? sheetPlan.value.ai_fills : currentStyle.value?.policy?.ai_fills || [],
   redline: sheetPlan.value.redline?.length ? sheetPlan.value.redline : currentStyle.value?.policy?.redline || [],
 }));
+const previewColumns = computed(() => sheetPlan.value.preview?.columns || policy.value.user_fills.map((item) => ({
+  id: item.id,
+  label: item.label,
+  required: item.required,
+  example: "",
+})));
 const mappingRows = computed(() => (excel.preview?.headers || []).map((header) => ({ header })));
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
@@ -541,7 +569,7 @@ async function loadSheetPlan() {
 
 function openCategory() {
   if (!store.shopId) {
-    ElMessage.warning("先授权一个店铺");
+    ElMessage.warning("先登录一个店铺");
     return;
   }
   categoryBrowser.value = true;
@@ -823,6 +851,40 @@ async function poll() {
 }
 .policy-card li + li {
   margin-top: 4px;
+}
+.sheet-preview {
+  margin-top: 16px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.sheet-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.sheet-preview th,
+.sheet-preview td {
+  padding: 8px 10px;
+  border-right: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+.sheet-preview th {
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+.sheet-preview .need {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #ffcdce;
+}
+.sheet-preview tr.is-sample td {
+  color: var(--muted);
+  font-style: italic;
+  background: var(--gray3);
 }
 @media (max-width: 900px) {
   .path-grid,
