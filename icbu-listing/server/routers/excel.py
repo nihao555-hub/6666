@@ -171,7 +171,10 @@ async def import_excel(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"读不了这个表格：{exc}") from exc
     if not rows:
-        raise HTTPException(status_code=400, detail="表格里没有有效行")
+        raise HTTPException(
+            status_code=400,
+            detail="表格里只有示例行。示例行导入时会自动跳过，请把你的货写在它下面，一行一个商品。",
+        )
     if category_id:
         for row in rows:
             if not row.category_id:

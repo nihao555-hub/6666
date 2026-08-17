@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "backend"))
 
+from openpyxl import Workbook, load_workbook  # noqa: E402
+
 from schema import parse_schema  # noqa: E402
 from server.services.excel_import import (  # noqa: E402
     ExcelRow,
@@ -85,12 +87,12 @@ class TemplateTests(unittest.TestCase):
     def test_generated_lingxing_template_round_trips(self) -> None:
         payload = build_template("lingxing")
         result = preview(payload, "lingxing")
-        self.assertGreaterEqual(result["row_count"], 1)
         self.assertEqual(result["mapping"]["货号"], "sku")
         self.assertEqual(result["mapping"]["单价 USD"], "price")
-        rows = apply_preview(payload, result["mapping"], "lingxing")
-        self.assertEqual(rows[0].sku, "SKU-1001")
-        self.assertEqual(rows[0].price, "1.80")
+        # An untouched template holds nothing but the worked example.
+        self.assertEqual(result["row_count"], 0)
+        self.assertEqual(result["sample_skipped"], 1)
+        self.assertEqual(apply_preview(payload, result["mapping"], "lingxing"), [])
 
     def test_required_attribute_columns_differ_by_category(self) -> None:
         brushes = parse_schema(
@@ -176,12 +178,58 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(set(result["mapping"].values()), {"sku", "name", "price", "moq", "images", "note", "brand"})
         self.assertNotIn("英文标题", result["headers"])
         self.assertNotIn("叶子类目 ID", result["headers"])
-        rows = apply_preview(payload, result["mapping"], "simple")
-        self.assertEqual(rows[0].sku, "SKU-1001")
-        self.assertEqual(rows[0].price, "1.80")
-        self.assertEqual(rows[0].moq, "500")
-        self.assertEqual(rows[0].brand, "")
-        self.assertEqual(rows[0].extra_defaults(), {})
+
+    def test_one_sheet_carries_many_products(self) -> None:
+        payload = build_template("simple")
+        book = load_workbook(io.BytesIO(payload))
+        sheet = book["填写"]
+        for index in range(1, 4):
+            sheet.append([f"A-{index}", "2.30", "300", f"A-{index}_1.jpg", "", f"毛笔{index}", ""])
+        buffer = io.BytesIO()
+        book.save(buffer)
+
+        result = preview(buffer.getvalue(), "simple")
+        self.assertEqual(result["row_count"], 3)
+        self.assertEqual(result["ready_count"], 3)
+        rows = apply_preview(buffer.getvalue(), result["mapping"], "simple")
+        self.assertEqual([row.sku for row in rows], ["A-1", "A-2", "A-3"])
+
+    def test_worked_example_never_becomes_a_product(self) -> None:
+        """Sellers append below the sample as often as they overwrite it."""
+        payload = build_template("simple")
+        book = load_workbook(io.BytesIO(payload))
+        sheet = book["填写"]
+        sheet.append(["A-01", "2.30", "300", "A-01_1.jpg", "", "毛笔", ""])
+        buffer = io.BytesIO()
+        book.save(buffer)
+
+        result = preview(buffer.getvalue(), "simple")
+        self.assertEqual(result["row_count"], 1)
+        self.assertEqual(result["sample_skipped"], 1)
+        rows = apply_preview(buffer.getvalue(), result["mapping"], "simple")
+        self.assertEqual([row.sku for row in rows], ["A-01"])
+        self.assertTrue(any("示例" in warning for warning in result["warnings"]))
+
+    def test_rows_are_checked_before_any_ai_time_is_spent(self) -> None:
+        book = Workbook()
+        sheet = book.active
+        sheet.append(["货号", "单价 USD", "起订量", "图片"])
+        sheet.append(["A-01", "2.30", "300", "A-01_1.jpg"])
+        sheet.append(["A-02", "", "300", "A-02_1.jpg"])
+        sheet.append(["A-03", "1.00", "", ""])
+        sheet.append(["A-01", "1.00", "100", "dup.jpg"])
+        buffer = io.BytesIO()
+        book.save(buffer)
+
+        result = preview(buffer.getvalue(), "simple")
+        self.assertEqual(result["row_count"], 4)
+        self.assertEqual(result["blocked_count"], 2)
+        self.assertEqual(result["ready_count"], 2)
+        messages = {(item["line"], item["level"]) for item in result["row_issues"]}
+        self.assertIn((3, "red"), messages)  # no price
+        self.assertIn((4, "red"), messages)  # no MOQ
+        self.assertIn((4, "yellow"), messages)  # no image
+        self.assertIn((5, "yellow"), messages)  # duplicate SKU
 
     def test_brand_is_a_redline_default_not_an_ai_seed(self) -> None:
         row = ExcelRow(brand="Acme", price="1.80")

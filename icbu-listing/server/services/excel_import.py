@@ -28,6 +28,15 @@ from openpyxl.utils import get_column_letter
 # Official origin. Always a shop default, never a per-row column.
 SKIP_ATTR_IDS = {"p-1"}
 
+# Row 2 of every template we hand out is a worked example. Sellers overwrite
+# it about half the time and append below it the other half, so it has to be
+# recognisable on the way back in — otherwise the demo paint brush gets listed.
+SAMPLE_MARK = "示例"
+SAMPLE_PREFIXES = (SAMPLE_MARK, "范例", "sample", "example", "e.g.")
+
+# Rows past this still import, but they queue behind one AI pass each.
+BATCH_SOFT_LIMIT = 200
+
 FIELDS: dict[str, str] = {
     "sku": "货号",
     "name": "品名（中文）",
@@ -190,6 +199,7 @@ class ExcelRow:
     line: int = 0
     raw: dict[str, str] = field(default_factory=dict)
     attributes: dict[str, dict[str, Any]] = field(default_factory=dict)
+    is_sample: bool = False
 
     def seed_values(self) -> dict[str, Any]:
         values: dict[str, Any] = {}
@@ -300,6 +310,19 @@ def _match_option(raw: str, options: list[dict[str, str]]) -> str:
 
 def _norm(text: str) -> str:
     return re.sub(r"[\s_\-()/（）]+", "", (text or "").strip().lower())
+
+
+def looks_like_sample(sku: str, name: str = "") -> bool:
+    for text in (sku, name):
+        stripped = (text or "").strip().lower()
+        if any(stripped.startswith(prefix) for prefix in SAMPLE_PREFIXES):
+            return True
+    return False
+
+
+def drop_samples(rows: list[ExcelRow]) -> tuple[list[ExcelRow], int]:
+    kept = [row for row in rows if not row.is_sample]
+    return kept, len(rows) - len(kept)
 
 
 def guess_field(header: str, style: str = "detect") -> str:
@@ -419,6 +442,7 @@ def parse_rows(
                 line=offset,
                 raw=cells,
                 attributes=attributes,
+                is_sample=looks_like_sample(values["sku"], values["name"]),
             )
         )
     return parsed
@@ -436,7 +460,9 @@ def preview(
     headers = [item or f"列{index + 1}" for index, item in enumerate(rows[header_index])]
     guessed_style = style if style != "detect" else guess_style(headers)
     mapping = mapping_from_headers(headers, guessed_style if style == "detect" else style, extra_columns)
-    parsed = parse_rows(rows, mapping, header_index, extra_columns)
+    parsed, sample_skipped = drop_samples(parse_rows(rows, mapping, header_index, extra_columns))
+    issues = row_checks(parsed)
+    blocked = {item["line"] for item in issues if item["level"] == "red"}
     return {
         "style": style,
         "style_guess": guessed_style,
@@ -446,13 +472,43 @@ def preview(
         "fields": [{"id": key, "label": label} for key, label in FIELDS.items()],
         "rows_preview": [item.raw for item in parsed[:8]],
         "row_count": len(parsed),
+        "sample_skipped": sample_skipped,
+        "ready_count": len(parsed) - len(blocked),
+        "blocked_count": len(blocked),
+        "row_issues": issues,
         "mapped_count": len(mapping),
-        "warnings": _preview_warnings(parsed, mapping),
+        "warnings": _preview_warnings(parsed, mapping, sample_skipped),
     }
 
 
-def _preview_warnings(rows: list[ExcelRow], mapping: dict[str, str]) -> list[str]:
+def row_checks(rows: list[ExcelRow]) -> list[dict[str, Any]]:
+    """Per-row problems, found before a single AI call is spent on the batch."""
+    issues: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
+    for row in rows:
+        label = row.sku or row.name or f"第 {row.line} 行"
+        if not row.price:
+            issues.append({"line": row.line, "sku": label, "level": "red", "message": "缺单价。价格是红线，AI 不代填。"})
+        if not row.moq:
+            issues.append({"line": row.line, "sku": label, "level": "red", "message": "缺起订量。AI 不代填。"})
+        if not row.images:
+            issues.append(
+                {"line": row.line, "sku": label, "level": "yellow", "message": "表里没写图片。导入时把图拖进来，按货号命名即可。"}
+            )
+        key = _norm(row.sku)
+        if key and key in seen:
+            issues.append(
+                {"line": row.line, "sku": label, "level": "yellow", "message": f"货号和第 {seen[key]} 行重复，会当成两个商品。"}
+            )
+        elif key:
+            seen[key] = row.line
+    return issues
+
+
+def _preview_warnings(rows: list[ExcelRow], mapping: dict[str, str], sample_skipped: int = 0) -> list[str]:
     warnings: list[str] = []
+    if sample_skipped:
+        warnings.append(f"跳过 {sample_skipped} 行示例。模板第 2 行是样例，不会被当成你的货。")
     if "sku" not in mapping.values():
         warnings.append("没有对上货号列。没有货号时会用第 1 张图的文件名。")
     if "price" not in mapping.values():
@@ -462,6 +518,8 @@ def _preview_warnings(rows: list[ExcelRow], mapping: dict[str, str]) -> list[str
     empty_sku = sum(1 for item in rows if not item.sku)
     if empty_sku:
         warnings.append(f"{empty_sku} 行没有货号。")
+    if len(rows) > BATCH_SOFT_LIMIT:
+        warnings.append(f"{len(rows)} 行会排队成稿，一条一条过 AI，建议分批导。")
     return warnings
 
 
@@ -473,7 +531,8 @@ def apply_preview(
 ) -> list[ExcelRow]:
     rows = read_sheet(content)
     header_index = find_header_row(rows, style)
-    return parse_rows(rows, mapping, header_index, extra_columns)
+    kept, _ = drop_samples(parse_rows(rows, mapping, header_index, extra_columns))
+    return kept
 
 
 def split_images(refs: list[str]) -> tuple[list[str], list[str]]:
@@ -534,7 +593,7 @@ def build_template(
     fill = PatternFill("solid", fgColor="171717" if spec.get("primary") else "1D4ED8")
     font = Font(color="FFFFFF", bold=True)
     example = {
-        "sku": "SKU-1001",
+        "sku": f"{SAMPLE_MARK}SKU-1001",
         "name": "油漆刷套装",
         "title": "Paint Brush Set for Wall Painting",
         "keywords": "paint brush, wall brush, decorating",
@@ -542,12 +601,12 @@ def build_template(
         "moq": "500",
         "images": "SKU-1001_1.jpg;SKU-1001_2.jpg",
         "brand": "",
-        "note": "加厚款，可定制 logo",
+        "note": "这行是示例，导入时自动跳过。从下一行开始写你的货，一行一个商品。",
         "category_id": (listing_template or {}).get("category_id") or "",
         "origin": "China",
     }
     header_hints = {
-        "sku": "你自己的货号。",
+        "sku": "你自己的货号。一行一个商品，往下接着写就行，一张表可以写很多个。",
         "price": "红线。生意决策，AI 不准定价。",
         "moq": "红线。AI 不准编起订量。",
         "images": "红线。文件名或 URL，分号分隔。必须是实拍或你自己的图，不准生成图冒充。导入时也可把图一起拖进来。",
@@ -565,18 +624,25 @@ def build_template(
         cell.font = font
         cell.alignment = Alignment(wrap_text=True)
         cell.comment = Comment(header_hints.get(field_id) or f"系统字段：{field_id}", "Auto Shoper")
-        sheet.cell(2, index, example.get(field_id, ""))
+        sample = sheet.cell(2, index, example.get(field_id, ""))
+        sample.font = Font(color="9AA0A6", italic=True)
         sheet.column_dimensions[get_column_letter(index)].width = 28
     # Official required attributes stay off the fill sheet. Dumping Type /
     # Color / Hair Material here would recreate the official form.
     extras = extra_columns or []
     sheet.row_dimensions[1].height = 22
+    sheet.cell(1, 1).comment = Comment(
+        "一行 = 一个商品。一张表可以写很多行，一次批量上品。\n第 2 行是示例，导入时自动跳过，也可以直接覆盖。",
+        "Auto Shoper",
+    )
 
     help_sheet = book.create_sheet("说明")
     help_sheet["A1"] = "这不是官方表"
     help_sheet["A1"].font = Font(bold=True, size=14)
     help_sheet["A2"] = spec["summary"]
     help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来，交给 AI。红线字段不准给 AI。"
+    help_sheet["A4"] = "一行 = 一个商品。一张表可以写很多行，一次批量上品。第 2 行灰色是示例，导入时自动跳过。"
+    help_sheet["A4"].font = Font(bold=True)
 
     row = 5
     help_sheet.cell(row, 1, "你只填（填写页）")

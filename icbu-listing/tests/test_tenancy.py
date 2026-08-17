@@ -26,6 +26,21 @@ from server.db import init_db  # noqa: E402
 from server.main import app  # noqa: E402
 
 
+def _fill_sheet(template: bytes, rows: list[list[str]]) -> bytes:
+    """Append real goods under the worked example, the way a seller does."""
+    import io
+
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(template))
+    sheet = book["填写"]
+    for row in rows:
+        sheet.append(row)
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
 def signup(email: str) -> TestClient:
     client = TestClient(app)
     response = client.post(
@@ -242,19 +257,28 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(template.status_code, 200, template.text)
         self.assertIn("spreadsheet", template.headers.get("content-type", ""))
 
+        filled = _fill_sheet(template.content, [["A-01", "毛笔", "2.30", "300", "A-01_1.jpg"]])
         preview = pat.post(
             "/api/v1/excel/preview",
             data={"style": "lingxing"},
-            files={"file": ("goods.xlsx", template.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files={"file": ("goods.xlsx", filled, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
         self.assertEqual(preview.status_code, 200, preview.text)
-        self.assertGreaterEqual(preview.json()["row_count"], 1)
+        self.assertEqual(preview.json()["row_count"], 1)
+
+        untouched = pat.post(
+            "/api/v1/excel/import",
+            data={"style": "lingxing", "mapping": "{}", "create_drafts": "false"},
+            files={"file": ("goods.xlsx", template.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        self.assertEqual(untouched.status_code, 400)
+        self.assertIn("示例", untouched.json()["detail"])
 
         with unittest.mock.patch("server.routers.excel.threading.Thread"):
             imported = pat.post(
                 "/api/v1/excel/import",
                 data={"style": "lingxing", "mapping": "{}", "create_drafts": "false"},
-                files={"file": ("goods.xlsx", template.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                files={"file": ("goods.xlsx", filled, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             )
         self.assertEqual(imported.status_code, 200, imported.text)
         self.assertEqual(imported.json()["count"], preview.json()["row_count"])

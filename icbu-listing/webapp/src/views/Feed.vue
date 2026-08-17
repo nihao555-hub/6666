@@ -97,7 +97,8 @@
           </p>
           <div v-if="excel.style === 'simple'" class="simple-steps">
             <p class="excel-lead">
-              表在这页下载。填写页只收依据：货号、价、起订量、图，品牌选填。
+              表在这页下载。<b>一行一个商品，一张表写多少行就是多少个商品</b>，一次批量上品。
+              填写页只收依据：货号、价、起订量、图，品牌选填。
               这些齐了，AI 按图和店铺默认推断标题、属性、详描、交易和物流，目标上架 5.0。
               不是官方 40 列表，也不往表里加 Type / Color。
             </p>
@@ -167,7 +168,7 @@
                 批量成稿
               </el-button>
               <span v-if="excel.preview" class="muted" style="margin-left: 12px">
-                识别到 {{ excel.preview.row_count }} 行
+                识别到 {{ excel.preview.row_count }} 个商品，可直接成稿 {{ excel.preview.ready_count }} 个
               </span>
             </div>
           </div>
@@ -180,6 +181,19 @@
             :closable="false"
             style="margin: 12px 0 0"
           />
+          <div v-if="excel.preview?.row_issues?.length" class="row-issues">
+            <b>成稿前先看这几行</b>
+            <p class="muted">红的会成红灯草稿，黄的只是提醒。改完表再传一次即可。</p>
+            <ul>
+              <li v-for="(issue, index) in excel.preview.row_issues.slice(0, 12)" :key="index">
+                <span :class="['dot', issue.level]"></span>
+                第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
+              </li>
+            </ul>
+            <p v-if="excel.preview.row_issues.length > 12" class="muted">
+              还有 {{ excel.preview.row_issues.length - 12 }} 条同类问题。
+            </p>
+          </div>
           <el-table
             v-if="excel.preview?.rows_preview?.length"
             :data="excel.preview.rows_preview"
@@ -586,7 +600,7 @@ async function previewExcel() {
   try {
     excel.preview = await api.excelPreview(body);
     excel.mapping = { ...(excel.preview.mapping || {}) };
-    ElMessage.success(`探测到 ${excel.preview.row_count} 行`);
+    ElMessage.success(`探测到 ${excel.preview.row_count} 个商品`);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -759,6 +773,22 @@ async function poll() {
   margin: 0 0 16px;
   color: var(--ink-2);
   max-width: 720px;
+}
+.row-issues {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: var(--fill);
+}
+.row-issues ul {
+  margin: 8px 0 0;
+  padding-left: 4px;
+  list-style: none;
+  color: var(--ink-2);
+}
+.row-issues li + li {
+  margin-top: 4px;
 }
 .policy-grid {
   display: grid;
