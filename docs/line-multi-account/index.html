@@ -116,6 +116,7 @@
 
   <h2>3. 在 Console 里拿密钥、填 Webhook</h2>
   <p>官方：<a href="https://developers.line.biz/en/docs/messaging-api/building-bot/#settings-on-line-developers-console">Settings on LINE Developers Console</a></p>
+
   <div class="box">
     <b>拿 Channel secret</b>
     <ol>
@@ -124,6 +125,15 @@
       <li>复制 <b>Channel secret</b>。同页还有 Channel ID，可记下来对账。</li>
     </ol>
   </div>
+  <figure>
+    <img src="images/s3-open-channel.png" alt="点进 Messaging API channel">
+    <figcaption>官方原图：Provider 的 channel 列表。点进带 Messaging API 的卡片。</figcaption>
+  </figure>
+  <figure>
+    <img src="images/s3-secret.png" alt="复制 Channel secret">
+    <figcaption>官方原图：<a href="https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/">Get Channel Secret</a>。Basic settings 里复制这一行。同页还有 Channel ID。</figcaption>
+  </figure>
+
   <div class="box">
     <b>拿 Channel access token</b>
     <ol>
@@ -132,6 +142,11 @@
       <li>同一页有官方账号 QR code，扫码加好友方便自测。</li>
     </ol>
   </div>
+  <figure>
+    <img src="images/s3-token.png" alt="Issue Channel access token">
+    <figcaption>官方文档没有 token 这一行的截图。这一张用官方 Channel secret 同一套控件（Issue / 复制图标是官方原图像素），标签改成 Channel access token (long-lived)。点 Issue 后再复制。重新 Issue 会作废旧 token。</figcaption>
+  </figure>
+
   <div class="box">
     <b>填 Webhook（官方 6 步）</b>
     <ol>
@@ -142,16 +157,8 @@
     </ol>
   </div>
   <figure>
-    <img src="images/webhook-url-example-com.png" alt="Webhook settings">
-    <figcaption>官方图：Webhook URL、Verify、Use webhook。</figcaption>
-  </figure>
-  <figure>
-    <img src="images/webhook-url-verify-button.png" alt="Verify webhook URL">
-    <figcaption>官方图：Verify 按钮。<a href="https://developers.line.biz/en/docs/messaging-api/verify-webhook-url/">Verify the webhook URL</a></figcaption>
-  </figure>
-  <figure>
-    <img src="images/enable-webhook-redelivery-en.png" alt="Webhook settings full">
-    <figcaption>官方图：Webhook settings 整页（含 Use webhook / redelivery）。</figcaption>
+    <img src="images/s3-webhook.png" alt="填写 Webhook">
+    <figcaption>官方原图：<a href="https://developers.line.biz/en/docs/messaging-api/building-bot/#set-a-webhook-url">Set a webhook URL</a>。先 Edit 填地址，再 Verify，最后打开 Use webhook。</figcaption>
   </figure>
 
   <h2>5 个账号怎么做</h2>
