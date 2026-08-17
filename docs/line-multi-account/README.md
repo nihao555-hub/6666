@@ -1,13 +1,20 @@
-# LINE 官方账号操作说明
+# LINE 后台操作说明
 
-**图文版：** [index.html](index.html)
+图文版：[index.html](index.html)
 
-给运营用：在 LINE 后台建号、拿密钥、填 Webhook。截图都是 [LINE 官方文档](https://developers.line.biz/en/docs/messaging-api/getting-started/) 原图整张，只加了红框。
+按官方文档整理，截图均为官方原图：
 
-每个账号做三件事：
+- [Get started with the Messaging API](https://developers.line.biz/en/docs/messaging-api/getting-started/)
+- [Build a bot](https://developers.line.biz/en/docs/messaging-api/building-bot/)
+- [Channel access token](https://developers.line.biz/en/docs/basics/channel-access-token/)
 
-1. **Basic settings** 复制 Channel secret  
-2. **Messaging API** 页点 Issue，复制 Channel access token  
-3. 同一页填写 Webhook URL（`/webhook/acc1` … `/webhook/acc5`），打开 Use webhook，再 Verify  
+## 密钥在哪拿
 
-5 个号做 5 遍。Role 必须是 Administrator。5 个号选同一个 Provider。
+| 密钥 | 路径 |
+|---|---|
+| Channel secret | Developers Console → Provider → Messaging API channel → **Basic settings** → Channel secret |
+| Channel access token | 同一 channel → **Messaging API** → Channel access token (long-lived) → **Issue** |
+
+## 要改的设置
+
+同一 channel 的 **Messaging API** 标签：Webhook URL 点 Edit 填入 → Update → Verify → 打开 Use webhook。建议关掉 Greeting / Auto-reply。

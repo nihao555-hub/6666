@@ -19,7 +19,7 @@ Baby 44 · Beauty 59 · Car 50 · Cleaning 17 · Electronics 45 · Factory 162 �
 
 ## LINE 多账号托管教程
 
-要同时托管多个 LINE Official Account：图文版 [docs/line-multi-account/index.html](docs/line-multi-account/index.html)，配套服务 [line-hub/](line-hub/)。
+LINE 官方账号操作说明（建号 / 取密钥 / 填 Webhook）：[docs/line-multi-account/index.html](docs/line-multi-account/index.html)。
 
 ## 使用脚本
 ```bash
