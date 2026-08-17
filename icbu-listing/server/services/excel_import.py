@@ -62,6 +62,7 @@ FIELDS: dict[str, str] = {
     "images": "图片",
     "brand": "品牌",
     "note": "备注",
+    "spec": "规格",
     "category_id": "叶子类目 ID",
     "origin": "产地",
 }
@@ -99,6 +100,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
         "主图链接",
     ),
     "note": ("备注", "说明", "note", "描述", "中文描述", "补充说明"),
+    "spec": ("规格", "可见规格", "spec"),
     "brand": ("品牌", "brand", "商标", "品牌名"),
     "category_id": ("类目id", "类目", "category", "category_id", "cateid", "叶子类目", "分类id"),
     "origin": ("产地", "origin", "place of origin", "原产地"),
@@ -113,8 +115,42 @@ USER_FILLS: list[dict[str, Any]] = [
     {"id": "images", "label": "图片", "required": False, "hint": "选填。有图写链接或文件名；没图留空。导入时再选原图上架、补转化位或重画"},
     {"id": "brand", "label": "品牌", "required": False, "hint": "没有就留空，等于无品牌"},
     {"id": "name", "label": "品名（中文）", "required": False, "hint": "给自己看，也可当提示"},
-    {"id": "note", "label": "备注", "required": False, "hint": "色数、是否水溶、硬度若和别的货不一样，写这里。AI 当提示，不编 24 色 / HB"},
+    {"id": "note", "label": "备注", "required": False, "hint": "色数、是否水溶、硬度若和别的货不一样，写这里。选了类目后，这些会拆成单独列。AI 当提示，不编 24 色 / HB"},
 ]
+
+SPEC_LABELS = {
+    "color_count": "色数",
+    "piece_count": "支数",
+    "hardness": "硬度",
+    "finish": "是否水溶",
+    "size": "尺寸",
+    "material": "材质",
+    "port": "接口",
+    "capacity": "容量",
+    "color": "颜色",
+    "weight": "克重",
+    "voltage": "电压功率",
+    "pack_count": "箱规",
+    "age": "适用年龄",
+    "generic": "规格",
+}
+
+SPEC_ALIASES: dict[str, tuple[str, ...]] = {
+    "spec.color_count": ("色数", "颜色数", "colors", "color count"),
+    "spec.piece_count": ("支数", "件数", "套装件数", "pcs", "pieces"),
+    "spec.hardness": ("硬度", "铅芯硬度", "hardness"),
+    "spec.finish": ("是否水溶", "水溶", "finish"),
+    "spec.size": ("尺寸", "尺码", "规格尺寸", "size"),
+    "spec.material": ("材质", "面料", "毛材", "material"),
+    "spec.port": ("接口", "端口", "port"),
+    "spec.capacity": ("容量", "容量规格", "capacity"),
+    "spec.color": ("颜色", "色组", "colorway"),
+    "spec.weight": ("克重", "重量", "weight"),
+    "spec.voltage": ("电压", "功率", "电压功率", "voltage"),
+    "spec.pack_count": ("箱规", "装箱量", "pack"),
+    "spec.age": ("适用年龄", "年龄段", "age"),
+    "spec.generic": ("规格", "可见规格"),
+}
 
 # Official trade/logistics are shop resources, not model output.
 SHOP_FILLS: list[dict[str, Any]] = [
@@ -221,10 +257,29 @@ class ExcelRow:
     note: str = ""
     category_id: str = ""
     origin: str = ""
+    spec: str = ""
+    specs: dict[str, str] = field(default_factory=dict)
     line: int = 0
     raw: dict[str, str] = field(default_factory=dict)
     attributes: dict[str, dict[str, Any]] = field(default_factory=dict)
     is_sample: bool = False
+
+    def fact_text(self) -> str:
+        bits: list[str] = []
+        if self.note.strip():
+            bits.append(self.note.strip())
+        if self.spec.strip():
+            bits.append(self.spec.strip())
+        for key, value in self.specs.items():
+            if str(value).strip():
+                bits.append(f"{SPEC_LABELS.get(key, key)} {str(value).strip()}")
+        return "；".join(bits)
+
+    def image_specs(self) -> dict[str, str]:
+        out = {key: str(value).strip() for key, value in self.specs.items() if str(value).strip()}
+        if self.spec.strip() and "generic" not in out:
+            out["generic"] = self.spec.strip()
+        return out
 
     def seed_values(self) -> dict[str, Any]:
         values: dict[str, Any] = {}
@@ -284,28 +339,370 @@ EXAMPLE_ROW: dict[str, str] = {
 }
 
 
-def sheet_preview(style: str = "simple") -> dict[str, Any]:
+def _spec_col(field: str, hint: str, example: str = "") -> dict[str, Any]:
+    key = field if field.startswith("spec.") else f"spec.{field}"
+    short = key.split(".", 1)[1]
+    return {
+        "id": key,
+        "label": SPEC_LABELS.get(short, short),
+        "hint": hint,
+        "example": example,
+        "required": False,
+    }
+
+
+FAMILY_SHEETS: dict[str, dict[str, Any]] = {
+    "stationery": {
+        "title": "文具 / 彩铅填写表",
+        "filename": "文具彩铅上品表",
+        "filename_id": "stationery",
+        "guide": "这一类买手看色号、支数、能不能水溶。规格列只写你确定的数；出图和标题按这些来，不编没写的 24 色 / HB。",
+        "note_hint": "规格列已经分开写了就不用重复。其它和别的货不一样的事实写这里。",
+        "spec_columns": [
+            _spec_col("color_count", "如 12 / 24 / 36。没写就不画色数", "24"),
+            _spec_col("piece_count", "一盒几支。没写就不写支数", "24"),
+            _spec_col("hardness", "HB / 2B。没写就不编", "HB"),
+            _spec_col("finish", "水溶 / 不水溶。没写就不标", "水溶"),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-CP24",
+            "name": "水溶彩铅套装",
+            "price": "2.40",
+            "moq": "200",
+            "images": "CP24_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.color_count": "24",
+            "spec.piece_count": "24",
+            "spec.hardness": "HB",
+            "spec.finish": "水溶",
+        },
+    },
+    "tools": {
+        "title": "五金 / 工具填写表",
+        "filename": "五金工具上品表",
+        "filename_id": "tools",
+        "guide": "这一类买手看尺寸、材质、一套几件。只写看得见的规格，出图按主图样子和这些数来。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("size", "如 25cm / 2 inch。没写则尺寸图不加数字", "25cm"),
+            _spec_col("material", "如 猪鬃、铁皮箍。没写就不指定材质", "猪鬃"),
+            _spec_col("piece_count", "一套几件。没写就不写件数", "3"),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-BR25",
+            "name": "油漆刷套装",
+            "price": "1.80",
+            "moq": "500",
+            "images": "BR25_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.size": "25cm",
+            "spec.material": "猪鬃",
+            "spec.piece_count": "3",
+        },
+    },
+    "electronics": {
+        "title": "消费电子填写表",
+        "filename": "消费电子上品表",
+        "filename_id": "electronics",
+        "guide": "这一类买手看接口、容量、盒内配件。没写的接口和续航一律不编。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("port", "如 USB-C / 3.5mm。没写就不画接口名", "USB-C"),
+            _spec_col("capacity", "如 5000mAh。没写就不写容量", ""),
+            _spec_col("piece_count", "盒内几件。没写就不编配件", "1"),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-EB01",
+            "name": "无线蓝牙耳机",
+            "price": "6.80",
+            "moq": "200",
+            "images": "EB01_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.port": "USB-C",
+            "spec.piece_count": "1",
+        },
+    },
+    "apparel": {
+        "title": "服装 / 鞋包填写表",
+        "filename": "服装鞋包上品表",
+        "filename_id": "apparel",
+        "guide": "这一类买手看尺码、色组、面料。没给的尺码表和颜色不编。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("size", "如 S-XL / 36-40。没写则尺码图不加数字", "S-XL"),
+            _spec_col("color", "可订颜色，逗号分隔。没写就不编色", "黑,白"),
+            _spec_col("material", "如 纯棉 180gsm。没写就不指定面料", "纯棉"),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-TS01",
+            "name": "纯棉短袖T恤",
+            "price": "3.20",
+            "moq": "300",
+            "images": "TS01_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.size": "S-XL",
+            "spec.color": "黑,白",
+            "spec.material": "纯棉",
+        },
+    },
+    "beauty": {
+        "title": "美妆 / 个护填写表",
+        "filename": "美妆个护上品表",
+        "filename_id": "beauty",
+        "guide": "这一类买手看容量和质地。不编功效数字和认证。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("capacity", "如 50ml。没写就不写容量", "50ml"),
+            _spec_col("material", "质地，如 乳液 / 膏体。没写就不指定", "乳液"),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-CR50",
+            "name": "保湿面霜",
+            "price": "2.10",
+            "moq": "500",
+            "images": "CR50_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.capacity": "50ml",
+            "spec.material": "乳液",
+        },
+    },
+    "home": {
+        "title": "家居 / 厨具填写表",
+        "filename": "家居厨具上品表",
+        "filename_id": "home",
+        "guide": "这一类买手看尺寸、材质、是单件还是套装。没写的尺寸不加数字。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("size", "如 350ml / 80x80cm。没写则尺寸图不加数字", "350ml"),
+            _spec_col("material", "如 陶瓷、橡木。没写就不指定", "陶瓷"),
+            _spec_col("piece_count", "套装件数。没写就按单件", "1"),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-MG01",
+            "name": "陶瓷马克杯",
+            "price": "1.50",
+            "moq": "500",
+            "images": "MG01_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.size": "350ml",
+            "spec.material": "陶瓷",
+            "spec.piece_count": "1",
+        },
+    },
+    "toys": {
+        "title": "玩具 / 母婴填写表",
+        "filename": "玩具母婴上品表",
+        "filename_id": "toys",
+        "guide": "这一类买手看件数和适用年龄。不编安全认证。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("piece_count", "套装件数。没写就不编件数", "12"),
+            _spec_col("age", "如 3+。没写就不标年龄", ""),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-PZ12",
+            "name": "木制拼图",
+            "price": "2.80",
+            "moq": "200",
+            "images": "PZ12_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.piece_count": "12",
+        },
+    },
+    "jewelry": {
+        "title": "饰品 / 手表填写表",
+        "filename": "饰品手表上品表",
+        "filename_id": "jewelry",
+        "guide": "这一类买手看材质、尺寸、克重。没写的克重和成色不编。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("material", "如 925银、不锈钢。没写就不指定", "不锈钢"),
+            _spec_col("size", "如 16-18cm。没写则尺寸图不加数字", ""),
+            _spec_col("weight", "克重。没写就不写克数", ""),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-RG01",
+            "name": "不锈钢戒指",
+            "price": "0.80",
+            "moq": "200",
+            "images": "RG01_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.material": "不锈钢",
+        },
+    },
+    "industrial": {
+        "title": "机械 / 工业件填写表",
+        "filename": "机械工业上品表",
+        "filename_id": "industrial",
+        "guide": "这一类买手看电压、接口、已知型号。没写的参数和认证不编。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("voltage", "如 220V / 1.5kW。没写就不写电参数", ""),
+            _spec_col("port", "接口或法兰。没写就不画接口名", ""),
+            _spec_col("generic", "已知型号，只写铭牌上有的", ""),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-PM01",
+            "name": "小型水泵",
+            "price": "28.00",
+            "moq": "50",
+            "images": "PM01_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+        },
+    },
+    "food": {
+        "title": "食品 / 农产品填写表",
+        "filename": "食品农产品上品表",
+        "filename_id": "food",
+        "guide": "这一类买手看克重和箱规。不编有机 / FDA 标志。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("weight", "如 250g。没写就不写克重", "250g"),
+            _spec_col("pack_count", "如 20 bags / carton。没写则外箱不加数量", "20 bags / carton"),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-TEA01",
+            "name": "绿茶袋泡茶",
+            "price": "1.20",
+            "moq": "500",
+            "images": "TEA01_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+            "spec.weight": "250g",
+            "spec.pack_count": "20 bags / carton",
+        },
+    },
+    "sports": {
+        "title": "运动 / 户外填写表",
+        "filename": "运动户外上品表",
+        "filename_id": "sports",
+        "guide": "这一类买手看尺寸和材质。没写的尺码不加数字。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("size", "如 65cm。没写则尺寸图不加数字", ""),
+            _spec_col("material", "如 尼龙、EVA。没写就不指定", ""),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-YG01",
+            "name": "瑜伽垫",
+            "price": "3.60",
+            "moq": "200",
+            "images": "YG01_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+        },
+    },
+    "general": {
+        "title": "通用工业品填写表",
+        "filename": "通用上品表",
+        "filename_id": "general",
+        "guide": "认不出更细的品类时用这张。规格列只写看得见的事实，出图按主图和这些依据来。",
+        "note_hint": "规格列已经分开写了就不用重复。",
+        "spec_columns": [
+            _spec_col("generic", "只写看得见的规格，例如尺寸、件数。没写就不编", ""),
+        ],
+        "example": {
+            "sku": f"{SAMPLE_MARK}SKU-1001",
+            "name": "批发商品",
+            "price": "1.80",
+            "moq": "500",
+            "images": "SKU-1001_1.jpg",
+            "note": "这行是示例，导入时自动跳过。从下一行开始写你的货。",
+        },
+    },
+}
+
+
+def sheet_profile(category_name: str = "", product_hint: str = "") -> dict[str, Any]:
+    """Per-leaf fill sheet: same 7 core columns, plus family-specific spec columns."""
+    if not (category_name or product_hint).strip():
+        return {
+            "family_id": "",
+            "family_name": "",
+            "title": "短表批量上品",
+            "filename": "短表批量上品",
+            "filename_id": "generic",
+            "guide": "填写页只收依据。官方属性和交易物流不进这张表。选了叶子类目后，会按品类多出规格列。",
+            "spec_columns": [],
+            "example": dict(EXAMPLE_ROW),
+            "note_hint": USER_FILLS[-1]["hint"],
+        }
+    from .image_templates import pick_family
+
+    family = pick_family(category_name, product_hint)
+    preset = dict(FAMILY_SHEETS.get(family.id) or FAMILY_SHEETS["general"])
+    return {
+        "family_id": family.id,
+        "family_name": family.name,
+        "title": preset["title"],
+        "filename": preset["filename"],
+        "filename_id": preset["filename_id"],
+        "guide": preset["guide"],
+        "spec_columns": [dict(item) for item in preset["spec_columns"]],
+        "example": dict(preset.get("example") or EXAMPLE_ROW),
+        "note_hint": preset.get("note_hint") or USER_FILLS[-1]["hint"],
+    }
+
+
+def fill_headers(style: str, profile: dict[str, Any] | None = None) -> list[tuple[str, str, str]]:
+    """(field_id, label, hint) for the fill sheet, including category spec columns."""
+    spec = STYLES.get(style) or STYLES["simple"]
+    hints = {
+        "sku": "你自己的货号。一行一个商品，往下接着写就行，一张表可以写很多个。",
+        "price": "红线。生意决策，AI 不准定价。",
+        "moq": "红线。AI 不准编起订量。",
+        "images": "选填。有图写文件名或 URL，分号分隔。没图留空。导入时再选原图上架、留下补转化位、或当参考重画套图。",
+        "brand": "红线。有品牌就填；空着=无品牌。AI 不准编品牌名。",
+        "name": "选填。给自己看，也可当中文提示。",
+        "note": (profile or {}).get("note_hint")
+        or "选填。色数、是否水溶、硬度若和别的货不一样，写这里。AI 当提示，不编数字。",
+        "title": "有现成英文标题才填。短表不用填，交给 AI。",
+        "keywords": "有现成关键词才填。短表不用填，交给 AI。",
+        "category_id": "红线。短表在下载时整表选定，不要每行让 AI 猜。",
+        "origin": "红线。走店铺默认，不要填在短表里。",
+        "spec": "只写看得见的规格。没写就不编。",
+    }
+    spec_cols = list((profile or {}).get("spec_columns") or [])
+    core = [field_id for field_id in spec["columns"] if not spec_cols or field_id != "note"]
+    rows: list[tuple[str, str, str]] = []
+    for field_id in core:
+        rows.append((field_id, FIELDS[field_id], hints.get(field_id) or f"系统字段：{field_id}"))
+    for col in spec_cols:
+        rows.append((col["id"], col["label"], col.get("hint") or "只写你确定的规格，没写就不编"))
+    if spec_cols:
+        rows.append(("note", FIELDS["note"], hints["note"]))
+    return rows
+
+
+def sheet_preview(style: str = "simple", profile: dict[str, Any] | None = None) -> dict[str, Any]:
     """What the seller sees before they download: short headers + one example row.
 
     This is not the official 40-column form. Category attributes come from
-    Alibaba schema.get and stay off the fill sheet.
+    Alibaba schema.get and stay off the fill sheet. Spec columns are free text
+    for this family, not official option IDs.
     """
     spec = STYLES.get(style) or STYLES["simple"]
+    example = dict(EXAMPLE_ROW)
+    if profile and profile.get("example"):
+        example.update(profile["example"])
     columns = [
         {
             "id": field_id,
-            "label": FIELDS[field_id],
+            "label": label,
             "required": field_id in {"sku", "price", "moq"},
-            "example": EXAMPLE_ROW.get(field_id, ""),
+            "example": example.get(field_id, ""),
         }
-        for field_id in spec["columns"]
+        for field_id, label, _hint in fill_headers(style, profile)
     ]
+    note = "不是阿里后台那张 40 列表。货号、单价、起订量必填；图片选填。导入时再选原图上架、补转化位或重画套图。标题和类目属性按这家店的官方发布规则由 AI 补。"
+    if profile and profile.get("guide"):
+        note = f"{profile['guide']} {note}"
     return {
         "style": spec["id"],
         "from_official_form": False,
-        "note": "不是阿里后台那张 40 列表。货号、单价、起订量必填；图片选填。导入时再选原图上架、补转化位或重画套图。标题和类目属性按这家店的官方发布规则由 AI 补。",
+        "note": note,
         "columns": columns,
         "example_skipped": True,
+        "family_id": (profile or {}).get("family_id") or "",
+        "title": (profile or {}).get("title") or spec["label"],
     }
 
 
@@ -322,7 +719,10 @@ def _attr_label(name: str) -> str:
     return ATTR_LABELS_ZH.get((name or "").strip().lower(), name)
 
 
-def fill_policy(ai_attrs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def fill_policy(
+    ai_attrs: list[dict[str, Any]] | None = None,
+    profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     extras = ai_attrs or []
     ai_fills = [item for item in AI_FILLS_BASE if item["id"] != "catAttrs" or not extras]
     for extra in extras:
@@ -334,8 +734,24 @@ def fill_policy(ai_attrs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
                 "hint": "按官方选项选，不选 Other。选错但合法的只能人审拦住",
             }
         )
+    user_fills = [dict(item) for item in USER_FILLS]
+    if profile and profile.get("spec_columns"):
+        note = user_fills.pop() if user_fills and user_fills[-1]["id"] == "note" else None
+        for col in profile["spec_columns"]:
+            user_fills.append(
+                {
+                    "id": col["id"],
+                    "label": col["label"],
+                    "required": False,
+                    "hint": col.get("hint") or "只写你确定的规格，没写就不编",
+                }
+            )
+        if note is not None:
+            note = dict(note)
+            note["hint"] = profile.get("note_hint") or note.get("hint") or ""
+            user_fills.append(note)
     return {
-        "user_fills": [dict(item) for item in USER_FILLS],
+        "user_fills": user_fills,
         "shop_fills": [dict(item) for item in SHOP_FILLS],
         "ai_fills": ai_fills,
         "redline": [dict(item) for item in REDLINE],
@@ -417,6 +833,9 @@ def guess_field(header: str, style: str = "detect") -> str:
     for field_id, aliases in ALIASES.items():
         if needle in {_norm(alias) for alias in aliases}:
             return field_id
+    for field_id, aliases in SPEC_ALIASES.items():
+        if needle in {_norm(alias) for alias in aliases}:
+            return field_id
     return ""
 
 
@@ -494,10 +913,13 @@ def parse_rows(
         cells = {headers[index]: raw[index] if index < len(raw) else "" for index in range(len(headers))}
         values = {field_id: "" for field_id in FIELDS}
         attributes: dict[str, dict[str, Any]] = {}
+        specs: dict[str, str] = {}
         for header, field_id in mapping.items():
             cell = cells.get(header, "")
             if field_id in values:
                 values[field_id] = cell
+            elif field_id.startswith("spec.") and cell:
+                specs[field_id.split(".", 1)[1]] = cell
             elif field_id.startswith("attr.") and cell:
                 spec = extra_by_id.get(field_id)
                 if spec:
@@ -520,6 +942,8 @@ def parse_rows(
                 note=values["note"],
                 category_id=values["category_id"],
                 origin=values["origin"],
+                spec=values.get("spec") or "",
+                specs=specs,
                 line=offset,
                 raw=cells,
                 attributes=attributes,
@@ -753,40 +1177,32 @@ def build_template(
     listing_template: dict[str, Any] | None = None,
     official_required: list[dict[str, str]] | None = None,
     extra_columns: list[dict[str, Any]] | None = None,
+    category_name: str = "",
 ) -> bytes:
     spec = STYLES.get(style) or STYLES["simple"]
+    profile = sheet_profile(category_name or (listing_template or {}).get("name") or "") if style == "simple" else None
+    if profile and not profile.get("family_id"):
+        profile = None
     book = Workbook()
     sheet = book.active
     sheet.title = "填写"
-    headers = list(spec["columns"])
     fill = PatternFill("solid", fgColor="171717" if spec.get("primary") else "1D4ED8")
     font = Font(color="FFFFFF", bold=True)
     example = {
         **EXAMPLE_ROW,
         "category_id": (listing_template or {}).get("category_id") or "",
+        **((profile or {}).get("example") or {}),
     }
-    header_hints = {
-        "sku": "你自己的货号。一行一个商品，往下接着写就行，一张表可以写很多个。",
-        "price": "红线。生意决策，AI 不准定价。",
-        "moq": "红线。AI 不准编起订量。",
-        "images": "选填。有图写文件名或 URL，分号分隔。没图留空。导入时再选原图上架、留下补转化位、或当参考重画套图。",
-        "brand": "红线。有品牌就填；空着=无品牌。AI 不准编品牌名。",
-        "name": "选填。给自己看，也可当中文提示。",
-        "note": "选填。色数、是否水溶、硬度若和别的货不一样，写这里。AI 当提示，不编数字。",
-        "title": "有现成英文标题才填。短表不用填，交给 AI。",
-        "keywords": "有现成关键词才填。短表不用填，交给 AI。",
-        "category_id": "红线。短表在下载时整表选定，不要每行让 AI 猜。",
-        "origin": "红线。走店铺默认，不要填在短表里。",
-    }
-    for index, field_id in enumerate(headers, start=1):
-        cell = sheet.cell(1, index, FIELDS[field_id])
+    headers = fill_headers(style, profile)
+    for index, (field_id, label, hint) in enumerate(headers, start=1):
+        cell = sheet.cell(1, index, label)
         cell.fill = fill
         cell.font = font
         cell.alignment = Alignment(wrap_text=True)
-        cell.comment = Comment(header_hints.get(field_id) or f"系统字段：{field_id}", "Auto Shoper")
+        cell.comment = Comment(hint or f"系统字段：{field_id}", "Auto Shoper")
         sample = sheet.cell(2, index, example.get(field_id, ""))
         sample.font = Font(color="9AA0A6", italic=True)
-        sheet.column_dimensions[get_column_letter(index)].width = 28
+        sheet.column_dimensions[get_column_letter(index)].width = 22 if field_id.startswith("spec.") else 28
     # Official required attributes stay off the fill sheet. Dumping Type /
     # Color / Hair Material here would recreate the official form.
     extras = extra_columns or []
@@ -797,9 +1213,9 @@ def build_template(
     )
 
     help_sheet = book.create_sheet("说明")
-    help_sheet["A1"] = "这不是官方表"
+    help_sheet["A1"] = (profile or {}).get("title") or "这不是官方表"
     help_sheet["A1"].font = Font(bold=True, size=14)
-    help_sheet["A2"] = spec["summary"]
+    help_sheet["A2"] = (profile or {}).get("guide") or spec["summary"]
     help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来。交易物流走店铺默认，不是 AI 编的。红线字段不准给 AI。AI 会选错，成稿后要人核对。"
     help_sheet["A4"] = "一行 = 一个商品。图片选填：有图写链接或文件名，没图留空。导入时再选原图上架、补转化位或重画。第 2 行灰色是示例，导入时自动跳过。"
     help_sheet["A4"].font = Font(bold=True)
@@ -808,10 +1224,9 @@ def build_template(
     help_sheet.cell(row, 1, "你只填（填写页）")
     help_sheet.cell(row, 1).font = Font(bold=True)
     row += 1
-    hints_by_id = {item["id"]: item.get("hint") or "" for item in USER_FILLS}
-    for field_id in headers:
-        help_sheet.cell(row, 1, FIELDS[field_id])
-        help_sheet.cell(row, 2, hints_by_id.get(field_id) or header_hints.get(field_id) or "")
+    for field_id, label, hint in headers:
+        help_sheet.cell(row, 1, label)
+        help_sheet.cell(row, 2, hint)
         row += 1
     row += 1
     help_sheet.cell(row, 1, "店里套（店铺默认，不进填写页）")
@@ -868,9 +1283,10 @@ def build_template(
     help_sheet.cell(row, 1, "表头别名（智能探测会认）")
     help_sheet.cell(row, 1).font = Font(bold=True)
     row += 1
-    for field_id in headers:
-        help_sheet.cell(row, 1, FIELDS[field_id])
-        help_sheet.cell(row, 2, " / ".join(ALIASES[field_id][:8]))
+    for field_id, label, _hint in headers:
+        aliases = ALIASES.get(field_id) or SPEC_ALIASES.get(field_id) or ()
+        help_sheet.cell(row, 1, label)
+        help_sheet.cell(row, 2, " / ".join(aliases[:8]))
         row += 1
     help_sheet.column_dimensions["A"].width = 28
     help_sheet.column_dimensions["B"].width = 80

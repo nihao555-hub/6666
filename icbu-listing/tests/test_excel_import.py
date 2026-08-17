@@ -28,6 +28,7 @@ from server.services.excel_import import (  # noqa: E402
     preview,
     resolve_row_files,
     sheet_preview,
+    sheet_profile,
     split_images,
 )
 
@@ -319,6 +320,48 @@ class TemplateTests(unittest.TestCase):
         result = preview(payload, "alibaba")
         self.assertEqual(set(result["mapping"].values()), {"sku", "price", "moq", "images", "note"})
         self.assertNotIn("英文标题", result["headers"])
+
+    def test_category_sheet_adds_family_spec_columns(self) -> None:
+        pencils = sheet_profile("Office & School Supplies / Colored Pencils")
+        brushes = sheet_profile("Tools & Hardware / Paint Brushes")
+        self.assertEqual(pencils["family_id"], "stationery")
+        self.assertEqual(brushes["family_id"], "tools")
+        pencil_labels = [item["label"] for item in pencils["spec_columns"]]
+        brush_labels = [item["label"] for item in brushes["spec_columns"]]
+        self.assertIn("色数", pencil_labels)
+        self.assertNotIn("色数", brush_labels)
+        self.assertIn("尺寸", brush_labels)
+        pencil_preview = sheet_preview("simple", pencils)
+        brush_preview = sheet_preview("simple", brushes)
+        self.assertIn("色数", [item["label"] for item in pencil_preview["columns"]])
+        self.assertIn("尺寸", [item["label"] for item in brush_preview["columns"]])
+        self.assertNotEqual(
+            [item["label"] for item in pencil_preview["columns"]],
+            [item["label"] for item in brush_preview["columns"]],
+        )
+        payload = build_template("simple", {"name": "Colored Pencils", "category_id": "1"}, category_name="Colored Pencils")
+        book = load_workbook(io.BytesIO(payload))
+        headers = [cell.value for cell in next(book["填写"].iter_rows(min_row=1, max_row=1))]
+        self.assertIn("色数", headers)
+        self.assertNotIn("Lead Color", headers)
+        help_text = " ".join(str(cell or "") for row in book["说明"].iter_rows(values_only=True) for cell in row)
+        self.assertIn("文具", help_text)
+        result = preview(payload, "simple")
+        self.assertEqual(result["mapping"].get("色数"), "spec.color_count")
+
+    def test_spec_columns_parse_into_seller_facts(self) -> None:
+        book = Workbook()
+        sheet = book.active
+        sheet.append(["货号", "单价 USD", "起订量", "图片", "色数", "硬度", "备注"])
+        sheet.append(["CP-24", "2.40", "200", "a.jpg", "24", "HB", "水溶"])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        result = preview(buffer.getvalue(), "simple")
+        rows = apply_preview(buffer.getvalue(), result["mapping"], "simple")
+        self.assertEqual(rows[0].specs["color_count"], "24")
+        self.assertEqual(rows[0].specs["hardness"], "HB")
+        self.assertIn("色数 24", rows[0].fact_text())
+        self.assertIn("HB", rows[0].fact_text())
 
     def test_dianxiaomi_template_stamps_the_listing_category(self) -> None:
         payload = build_template("dianxiaomi", {"name": "油漆刷", "category_id": "21111112"})

@@ -30,6 +30,7 @@ app.include_router(excel.router)
 app.include_router(listings.router)
 app.include_router(overview.router)
 app.include_router(image_templates.router)
+app.include_router(image_templates.public_router)
 app.include_router(feed_sessions.router)
 
 
@@ -45,6 +46,8 @@ def health() -> dict[str, object]:
         "platform_ready": settings.has_platform_app,
         "ai_enabled": settings.ai_enabled,
         "image_enabled": settings.image_enabled,
+        "text_model": settings.text_model,
+        "image_model": settings.image_model,
     }
 
 

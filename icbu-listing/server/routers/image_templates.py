@@ -5,16 +5,17 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..deps import current_user
 from ..models import User
-from ..services import image_jobs, image_templates as stacks
+from ..services import image_jobs, image_templates as stacks, public_refs
 from ..services.grsai_images import api_key
 
 router = APIRouter(prefix="/api/v1/image-templates", tags=["image-templates"])
+public_router = APIRouter(prefix="/api/v1/public-refs", tags=["public-refs"])
 
 
 class PlanIn(BaseModel):
@@ -55,6 +56,33 @@ def _plan(payload: PlanIn) -> dict[str, Any]:
         note=payload.note,
         reference_urls=payload.reference_urls,
     )
+
+
+@router.post("/reference")
+async def upload_reference(
+    request: Request,
+    file: UploadFile = File(...),
+    _: User = Depends(current_user),
+) -> dict[str, str]:
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="图片是空的")
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片太大")
+    ref_id = public_refs.store(data, file.filename or "photo.jpg")
+    base = public_refs.request_base(request)
+    if not base:
+        raise HTTPException(status_code=400, detail="没法给参考图一个外网地址，出图模型读不到")
+    return {"id": ref_id, "url": public_refs.public_url(base, ref_id)}
+
+
+@public_router.get("/{ref_id}")
+def get_reference(ref_id: str) -> FileResponse:
+    path = public_refs.path_of(ref_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="参考图不存在")
+    media = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg"}.get(path.suffix, "image/jpeg")
+    return FileResponse(path, media_type=media)
 
 
 @router.get("")

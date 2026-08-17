@@ -163,8 +163,8 @@
           type="warning"
           :closable="false"
           show-icon
-          title="没写的数一律不画"
-          description="尺寸、装箱量、颜色、认证、配件只按你填的来。空着的项不会编 200mm、24 支/箱、CE 这类数字或标志。商品上已经印好的字会保留。"
+          title="可以猜，但必须有依据"
+          description="套图按你写的规格和上传的主图样子来。没写的尺寸、装箱量、色数、认证一律不编。有主图时务必上传，模型按这张货长，不另设计一款。"
           style="margin: 12px 0"
         />
         <el-form label-width="88px" style="max-width: 720px; margin-top: 12px">
@@ -209,10 +209,23 @@
           <el-form-item label="补充">
             <el-input v-model="aiForm.note" type="textarea" :rows="2" placeholder="只写你确定的事实。中文也行。不要写没核实的认证或数字。" />
           </el-form-item>
-          <el-form-item label="参考图">
+          <el-form-item label="主图">
             <div>
-              <el-input v-model="aiForm.referenceUrl" placeholder="可选。贴一张产品图网址，套图会按这张货长" />
-              <p class="muted" style="margin: 6px 0 0">有产品图时务必贴上。比只写品名稳得多。</p>
+              <el-upload
+                :auto-upload="false"
+                :limit="1"
+                accept="image/*"
+                :on-change="onReferenceFile"
+                :on-remove="() => (aiForm.referenceFile = null)"
+              >
+                <el-button>上传商品主图</el-button>
+              </el-upload>
+              <el-input
+                v-model="aiForm.referenceUrl"
+                placeholder="或者贴一张产品图网址"
+                style="margin-top: 8px"
+              />
+              <p class="muted" style="margin: 6px 0 0">有实拍务必给一张。套图按这张货的样子和下面的规格来，不另设计。</p>
             </div>
           </el-form-item>
         </el-form>
@@ -320,10 +333,10 @@
       </div>
 
       <div v-else-if="excelStep === 1" class="step-panel">
-        <h3>下载填写表</h3>
+        <h3>下载「{{ sheetPlan.sheet?.title || "填写表" }}」</h3>
         <p class="muted">
-          这张表的列是平台定的短表（货号、单价、起订量、图片、品牌、品名、备注），不是阿里后台下载的 40 列。
-          货号、单价、起订量必填；图片选填，有几张写几张，没图留空。上面选的官方类目只用来让 AI 按该叶子的发布规则补标题和属性。
+          {{ sheetPlan.sheet?.guide || "选了叶子类目后，这张表会按品类多出规格列，不是每家店同一张空表。" }}
+          货号、单价、起订量必填；图片选填。官方 40 列和类目选项不抄进填写页，由 AI 补，人要核对。
         </p>
         <div class="sheet-preview" v-if="previewColumns.length">
           <table>
@@ -639,6 +652,7 @@ const aiForm = reactive({
   colors: "",
   note: "",
   referenceUrl: "",
+  referenceFile: null,
   planning: false,
   categoryId: "",
   categoryName: "",
@@ -666,7 +680,7 @@ const excel = reactive({
   photoPolicy: "complete",
   emptyPolicy: "draw",
 });
-const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null });
+const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null, sheet: null });
 const categoryBrowser = ref(false);
 const excelProgress = ref({ done: 0 });
 let timer = null;
@@ -867,6 +881,7 @@ function applySession(session) {
     categoryId: "",
     categoryName: "",
     ...(payload.aiForm || {}),
+    referenceFile: null,
     planning: false,
   });
   if (payload.excel) {
@@ -1030,6 +1045,10 @@ watch(
   },
 );
 
+function onReferenceFile(file) {
+  aiForm.referenceFile = file?.raw || null;
+}
+
 async function startGenerate() {
   if (!aiForm.productName && !aiForm.note && !aiForm.familyId) {
     ElMessage.warning("先写品名，或选一个类目");
@@ -1037,6 +1056,14 @@ async function startGenerate() {
   }
   aiForm.planning = true;
   try {
+    const refs = [];
+    if (aiForm.referenceFile) {
+      const body = new FormData();
+      body.append("file", aiForm.referenceFile);
+      const stored = await api.uploadReference(body);
+      if (stored?.url) refs.push(stored.url);
+    }
+    if (aiForm.referenceUrl.trim()) refs.push(aiForm.referenceUrl.trim());
     imageJob.value = await api.generateImages({
       family_id: aiForm.familyId,
       product_name: aiForm.productName,
@@ -1049,7 +1076,7 @@ async function startGenerate() {
       },
       category_id: aiForm.categoryId,
       category_hint: aiForm.categoryName,
-      reference_urls: aiForm.referenceUrl.trim() ? [aiForm.referenceUrl.trim()] : [],
+      reference_urls: refs,
     });
     if (imageJob.value?.family?.id) aiForm.familyId = imageJob.value.family.id;
     await persistSession();

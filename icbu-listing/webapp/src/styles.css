@@ -116,21 +116,31 @@ a {
   width: 22px;
   height: 22px;
   border-radius: 6px;
+  object-fit: cover;
   background: var(--ink);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  display: grid;
-  place-items: center;
-  letter-spacing: -0.04em;
   flex: none;
+  display: block;
 }
 
 .brand.lg .brand-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius);
-  font-size: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.brand.xl .brand-mark {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+}
+
+.brand.light .brand-copy strong,
+.brand.light .brand-copy small {
+  color: #fff;
+}
+
+.brand.light .brand-copy small {
+  opacity: 0.78;
 }
 
 .brand-copy {
@@ -798,9 +808,19 @@ a {
 .el-button--primary {
   --el-button-bg-color: var(--accent);
   --el-button-border-color: var(--accent);
+  --el-button-text-color: #ffffff;
   --el-button-hover-bg-color: var(--accent-hover);
   --el-button-hover-border-color: var(--accent-hover);
-  --el-button-hover-text-color: #fff;
+  --el-button-hover-text-color: #ffffff;
+  color: #ffffff;
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
+}
+
+.el-button--primary:hover,
+.el-button--primary:focus,
+.el-button--primary:active {
+  color: #ffffff;
 }
 
 .el-input__wrapper,

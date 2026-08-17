@@ -67,7 +67,9 @@ class Settings:
 
     # ai
     ai_enabled: bool
+    text_model: str
     cors_origin_regex: str
+    public_base_url: str
 
     # image generation (Grsai gpt-image-2)
     grsai_api_key: str
@@ -155,7 +157,9 @@ def load_settings() -> Settings:
         oauth_error_url=os.environ.get("ALIBABA_OAUTH_ERROR_URL", "/#/shops?alibaba=error"),
         dev_access_token=os.environ.get("ALIBABA_ACCESS_TOKEN", ""),
         ai_enabled=bool(os.environ.get("OPENAI_API_KEY")),
+        text_model=os.environ.get("TEXT_MODEL", "gpt-4o-mini"),
         cors_origin_regex=os.environ.get("CORS_ALLOW_ORIGIN_REGEX", ""),
+        public_base_url=os.environ.get("PUBLIC_BASE_URL", "").strip(),
         grsai_api_key=os.environ.get("GRSAI_API_KEY") or os.environ.get("IMAGE_API_KEY") or "",
         grsai_base_url=_grsai_base_url(),
         image_model=os.environ.get("IMAGE_MODEL", "gpt-image-2"),

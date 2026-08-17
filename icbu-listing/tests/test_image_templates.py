@@ -22,7 +22,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.db import init_db  # noqa: E402
 from server.main import app  # noqa: E402
-from server.services.ecom_skill import assemble_prompt, english_brief  # noqa: E402
+from server.services.ecom_skill import assemble_prompt, english_brief, parse_seller_facts  # noqa: E402
+from server.services.public_refs import path_of, store  # noqa: E402
 from server.services.image_templates import (  # noqa: E402
     ICBU_MAX_IMAGES,
     pick_family,
@@ -86,7 +87,7 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertIn("soft diffused studio lighting", main["prompt"].lower())
         self.assertIn("upper left", main["prompt"].lower())
         self.assertIn("commercial photograph", main["prompt"].lower())
-        self.assertLess(len(main["prompt"]), 900)
+        self.assertLess(len(main["prompt"]), 1400)
         for slot in plan["slots"]:
             self.assertIn("basswood", slot["prompt"])
             self.assertIn("lighting:", slot["prompt"].lower())
@@ -97,7 +98,7 @@ class ImageTemplateTests(unittest.TestCase):
 
     def test_skill_hero_prompt_stays_short_and_white(self) -> None:
         prompt = assemble_prompt("main", product="paint brush", family_id="tools", material="bristle")
-        self.assertLess(len(prompt), 900)
+        self.assertLess(len(prompt), 1400)
         self.assertIn("soft diffused studio lighting", prompt.lower())
         self.assertIn("paint brush", prompt)
         self.assertIn("bristle", prompt)
@@ -125,7 +126,7 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertIn("do not print any numbers", scale["prompt"].lower())
         self.assertNotIn("200mm", scale["prompt"])
         self.assertIn("no pack count", pack["prompt"].lower())
-        self.assertIn("do not invent numbers", pack["prompt"].lower())
+        self.assertIn("guess only from the reference photo and seller specs", pack["prompt"].lower())
         given = plan_stack(
             product_name="paint brush",
             material="hog bristle",
@@ -137,9 +138,32 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertIn("100 pcs / carton", pack_given["prompt"])
         self.assertIn("hog bristle", given["slots"][0]["prompt"])
 
+    def test_seller_facts_and_reference_lock_the_prompt(self) -> None:
+        facts = parse_seller_facts("水溶彩铅", "24色 HB 水溶")
+        self.assertEqual(facts["color_count"], "24 colors")
+        self.assertEqual(facts["hardness"], "HB")
+        self.assertEqual(facts["finish"], "water-soluble")
+        plan = plan_stack(
+            product_name="水溶彩铅",
+            note="24色 水溶",
+            reference_urls=["https://img.example.com/main.jpg"],
+        )
+        main = plan["slots"][0]["prompt"].lower()
+        self.assertIn("24 colors", main)
+        self.assertIn("match the reference photo", main)
+        self.assertIn("guess only from the reference photo and seller specs", main)
+        self.assertEqual(plan["reference_urls"], ["https://img.example.com/main.jpg"])
+
     def test_explicit_family_wins_over_keywords(self) -> None:
         plan = plan_stack(product_name="pencil", family_id="industrial")
         self.assertEqual(plan["family"]["id"], "industrial")
+
+    def test_public_ref_round_trip(self) -> None:
+        ref_id = store(b"fake-jpeg-bytes", "main.jpg")
+        path = path_of(ref_id)
+        self.assertIsNotNone(path)
+        self.assertEqual(path.read_bytes(), b"fake-jpeg-bytes")
+        self.assertIsNone(path_of("../secret"))
 
     def test_catalog_and_plan_need_login(self) -> None:
         anon = TestClient(app)

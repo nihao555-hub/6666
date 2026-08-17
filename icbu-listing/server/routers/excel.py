@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import threading
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -17,7 +18,7 @@ from ai import AiClient, ImageInput  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, excel_import, excel_images, feed_sessions, pipeline, products as catalogue, templates
+from ..services import catalog, distribution, excel_import, excel_images, feed_sessions, pipeline, products as catalogue, public_refs, templates
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
@@ -53,11 +54,13 @@ def sheet_plan(
     if shop_id and category_id:
         shop = shop_for(db, user, shop_id)
         node = catalog.get_node(db, shop_api(shop), category_id)
-    policy = excel_import.fill_policy(extras)
-    preview = excel_import.sheet_preview("simple")
+    category_name = catalog.label(node) if node is not None else ""
+    profile = excel_import.sheet_profile(category_name)
+    policy = excel_import.fill_policy(extras, profile if category_name else None)
+    preview = excel_import.sheet_preview("simple", profile if category_name else None)
     return {
         "category_id": category_id,
-        "category_name": catalog.label(node) if node is not None else "",
+        "category_name": category_name,
         "user_fills": policy["user_fills"],
         "shop_fills": policy["shop_fills"],
         "ai_fills": policy["ai_fills"],
@@ -65,12 +68,13 @@ def sheet_plan(
         "guarantee": policy["guarantee"],
         "ai_attrs": extras,
         "preview": preview,
+        "sheet": profile,
         "from_official_form": False,
         "sheet_origin": {
             "kind": "platform_short",
             "from_official_form": False,
-            "columns_from": "平台短表：货号、单价、起订量、图片、品牌、品名、备注",
-            "official_attrs": "选了叶子类目后，官方属性出现在「AI 填」，不写进填写表",
+            "columns_from": profile.get("title") or "平台短表：货号、单价、起订量、图片、品牌、品名、备注",
+            "official_attrs": "选了叶子类目后，官方属性出现在「AI 填」，不写进填写表。规格列按品类定制，不是官方选项 ID。",
         },
     }
 
@@ -107,16 +111,26 @@ def download_template(
                 for item in parse_schema(xml)
                 if item.required and item.type != "label"
             ]
+    category_name = ""
     if style == "simple" and category_id and shop_id:
-        listing = listing or {"name": category_id, "category_id": category_id}
+        shop = shop_for(db, user, shop_id)
+        node = catalog.get_node(db, shop_api(shop), category_id)
+        category_name = catalog.label(node) if node is not None else ""
+        listing = listing or {"name": category_name or category_id, "category_id": category_id}
         # Official attrs go onto 说明 for AI, never onto the fill sheet.
         ai_attrs = _attr_columns(db, user, shop_id, category_id)
-    payload = excel_import.build_template(style, listing, official_required, ai_attrs)
-    filename = f"auto-shoper-{style}-{category_id or 'generic'}.xlsx"
+    payload = excel_import.build_template(
+        style, listing, official_required, ai_attrs, category_name=category_name
+    )
+    profile = excel_import.sheet_profile(category_name) if category_name else None
+    ascii_name = f"auto-shoper-{(profile or {}).get('filename_id') or style}-{category_id or 'generic'}.xlsx"
+    utf_name = f"{(profile or {}).get('filename') or ascii_name}.xlsx" if profile and profile.get("filename") else ascii_name
     return Response(
         content=payload,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(utf_name)}"
+        },
     )
 
 
@@ -142,6 +156,7 @@ async def preview_excel(
 
 @router.post("/import")
 async def import_excel(
+    request: Request,
     style: str = Form("detect"),
     shop_id: str = Form(""),
     mapping: str = Form("{}"),
@@ -223,6 +238,8 @@ async def import_excel(
             "brand": row.brand,
             "category_id": row.category_id,
             "origin": row.origin,
+            "spec": row.spec,
+            "specs": row.specs,
             "line": row.line,
             "attributes": row.attributes,
         }
@@ -240,6 +257,7 @@ async def import_excel(
             listing_id,
             style,
             excel_import.normalize_image_mode(image_mode),
+            public_refs.request_base(request),
         ),
         daemon=True,
     )
@@ -271,6 +289,7 @@ def _run_import(
     listing_template_id: str,
     style: str,
     image_mode: str = "keep_draw",
+    public_base: str = "",
 ) -> None:
     del style  # reserved so a later importer can branch on the chosen style
     db = SessionLocal()
@@ -294,11 +313,15 @@ def _run_import(
                 brand=raw.get("brand") or "",
                 category_id=raw.get("category_id") or "",
                 origin=raw.get("origin") or "",
+                spec=raw.get("spec") or "",
+                specs=dict(raw.get("specs") or {}),
                 line=int(raw.get("line") or 0),
                 attributes=dict(raw.get("attributes") or {}),
             )
             try:
-                _import_one(db, user, shop, row, uploads, ai, create_drafts, listing, batch_id, image_mode)
+                _import_one(
+                    db, user, shop, row, uploads, ai, create_drafts, listing, batch_id, image_mode, public_base
+                )
             except Exception as exc:
                 if shop is not None and create_drafts:
                     distribution.failed_draft(db, user.id, shop.id, None, batch_id, f"第 {row.line} 行：{exc}")
@@ -317,8 +340,14 @@ def _import_one(
     listing: Template | None,
     batch_id: str,
     image_mode: str = "keep_draw",
+    public_base: str = "",
 ) -> None:
     forced = row.category_id or (listing.category_id if listing is not None else "")
+    category_hint = ""
+    if shop is not None and forced:
+        node = catalog.get_node(db, shop_api(shop), forced)
+        category_hint = catalog.label(node) if node is not None else ""
+    fact_note = row.fact_text() or row.note
     try:
         files, source = excel_images.prepare_row_images(
             row,
@@ -327,6 +356,8 @@ def _import_one(
             user_id=user.id,
             category_id=forced,
             fetch_url=_fetch_image,
+            category_hint=category_hint,
+            public_base=public_base,
         )
     except excel_images.ExcelImageError as exc:
         if shop is not None and create_drafts:
@@ -363,13 +394,13 @@ def _import_one(
         return
 
     sku = row.sku or (files[0][0].rsplit(".", 1)[0][:60] if files else f"row-{row.line}")
-    note = row.note
+    note = fact_note
     if source == "generated":
-        extra = "平台按品名画了套图，不是实拍。买家要实拍时再补。"
-        note = "\n".join(part for part in (row.note.strip(), extra) if part)
+        extra = "平台按品名和规格画了套图，不是实拍。买家要实拍时再补。"
+        note = "\n".join(part for part in (fact_note.strip(), extra) if part)
     elif source == "completed":
         extra = "原图留下了，缺的转化位是平台补的，不是实拍。"
-        note = "\n".join(part for part in (row.note.strip(), extra) if part)
+        note = "\n".join(part for part in (fact_note.strip(), extra) if part)
     product = Product(
         user_id=user.id,
         sku=sku,

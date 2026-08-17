@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .ecom_skill import SKILL, assemble_prompt, clean_reference_urls, english_brief
+from .ecom_skill import SKILL, assemble_prompt, clean_reference_urls, english_brief, parse_seller_facts
 
 ICBU_MAX_IMAGES = 6
 
@@ -995,6 +995,9 @@ def plan_stack(
     refs = clean_reference_urls(reference_urls)
     product = product_name or category_hint or "the wholesale product"
     brief = english_brief(product, note)
+    parsed = parse_seller_facts(product_name, note, *[str(value) for value in specs.values()])
+    for key, value in parsed.items():
+        specs.setdefault(key, value)
     facts = {
         "product": brief,
         "product_name": product,
@@ -1020,6 +1023,7 @@ def plan_stack(
             text_policy=spec.text_policy,
             product_brief=brief,
             specs=specs,
+            has_reference=bool(refs),
         )
         slots.append(
             {

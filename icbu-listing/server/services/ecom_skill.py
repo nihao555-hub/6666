@@ -295,6 +295,43 @@ def _marketplace_line(text_policy: str) -> str:
     )
 
 
+FACT_PATTERNS = (
+    ("color_count", re.compile(r"(\d+)\s*色")),
+    ("piece_count", re.compile(r"(\d+)\s*支")),
+    ("size", re.compile(r"(\d+(?:\.\d+)?)\s*(mm|cm|inch|寸)", re.I)),
+)
+
+
+def parse_seller_facts(*texts: str) -> dict[str, str]:
+    """Pull visible facts the seller typed. Guessing is allowed only from these."""
+    blob = " ".join(str(item or "") for item in texts if item)
+    facts: dict[str, str] = {}
+    if not blob:
+        return facts
+    match = FACT_PATTERNS[0][1].search(blob)
+    if match:
+        facts["color_count"] = f"{match.group(1)} colors"
+    match = FACT_PATTERNS[1][1].search(blob)
+    if match:
+        facts["piece_count"] = f"{match.group(1)} pcs"
+    match = FACT_PATTERNS[2][1].search(blob)
+    if match:
+        facts["size"] = f"{match.group(1)}{match.group(2)}"
+    match = re.search(r"(\d+)\s*colors?\b", blob, re.I)
+    if match and "color_count" not in facts:
+        facts["color_count"] = f"{match.group(1)} colors"
+    match = re.search(r"(\d+)\s*(?:pcs|pieces)\b", blob, re.I)
+    if match and "piece_count" not in facts:
+        facts["piece_count"] = f"{match.group(1)} pcs"
+    if "水溶" in blob or "watercolor" in blob.lower():
+        facts["finish"] = "water-soluble"
+    for grade in ("2H", "2B", "HB", "4B", "6B", "H", "B"):
+        if re.search(rf"(?<![A-Za-z0-9]){grade}(?![A-Za-z0-9])", blob, re.I) or grade in blob:
+            facts["hardness"] = grade
+            break
+    return facts
+
+
 def assemble_prompt(
     slot_id: str,
     *,
@@ -308,13 +345,15 @@ def assemble_prompt(
     text_policy: str = "none",
     product_brief: str = "",
     specs: Mapping[str, Any] | None = None,
+    has_reference: bool = False,
 ) -> str:
     filename = SLOT_FILE.get(slot_id) or SLOT_FILE["main"]
     template = load_template(filename)
     brief = (product_brief or english_brief(product, note)).strip() or "wholesale product"
     facts = dict(specs or {})
+    facts.update({key: value for key, value in parse_seller_facts(note, product).items() if key not in facts})
     size = str(facts.get("size") or facts.get("dimension") or "").strip()
-    pack_count = str(facts.get("pack_count") or facts.get("carton") or "").strip()
+    pack_count = str(facts.get("pack_count") or facts.get("carton") or facts.get("piece_count") or "").strip()
     if material:
         material_en = english_brief(material) if looks_non_latin(material) else material
         material_line = f"The surface is {material_en}."
@@ -348,12 +387,17 @@ def assemble_prompt(
     note_en = english_note(note)
     if note_en:
         sentences.append(f"Seller fact: {note_en}.")
+    given = [f"{key}={value}" for key, value in facts.items() if value]
+    if given:
+        sentences.append("Use only these seller specs: " + ", ".join(given[:8]) + ".")
+    if has_reference:
+        sentences.append("Match the reference photo: same silhouette, color, labels, and surface. Do not redesign the SKU.")
     feature_bits = [str(item) for item in (features or []) if str(item).strip()]
     if feature_bits and text_policy != "none":
         sentences.append("Only these facts: " + ", ".join(feature_bits[:4]) + ".")
     sentences.append(_marketplace_line(text_policy))
     sentences.append(
-        "Use only seller-given facts. If a size, pack count, color, accessory, brand, or certificate was not given, omit it. Do not invent numbers."
+        "Guess only from the reference photo and seller specs. If a size, pack count, color, accessory, brand, or certificate was not given, omit it."
     )
     return " ".join(" ".join(part.split()) for part in sentences if part and part.strip())
 
