@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.db import init_db  # noqa: E402
 from server.main import app  # noqa: E402
-from server.services.ecom_skill import assemble_prompt  # noqa: E402
+from server.services.ecom_skill import assemble_prompt, english_brief  # noqa: E402
 from server.services.image_templates import (  # noqa: E402
     ICBU_MAX_IMAGES,
     pick_family,
@@ -78,22 +78,41 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertEqual(len(plan["slots"]), 6)
         main = plan["slots"][0]
         self.assertEqual(plan["skill"]["repo"], "buluslan/gpt-image2-ecommerce")
-        self.assertIn("No overlay text", main["prompt"])
+        self.assertEqual(plan["product_brief"], "colored pencil set")
+        self.assertIn("no overlay text", main["prompt"].lower())
         self.assertIn("white", main["prompt"].lower())
         self.assertIn("soft diffused studio lighting", main["prompt"].lower())
-        self.assertIn("product photography", main["prompt"].lower())
+        self.assertIn("upper left", main["prompt"].lower())
+        self.assertIn("commercial photograph", main["prompt"].lower())
+        self.assertLess(len(main["prompt"]), 700)
         for slot in plan["slots"]:
             self.assertIn("basswood", slot["prompt"])
-            self.assertIn("no fake CE/ISO/FDA marks", slot["prompt"])
-            self.assertIn("No Amazon or Prime badges", slot["prompt"])
+            self.assertIn("lighting:", slot["prompt"].lower())
+            self.assertIn("alibaba.com", slot["prompt"].lower())
             self.assertIn("colored pencil set", slot["prompt"])
+            self.assertNotIn("No Amazon or Prime badges", slot["prompt"])
+        self.assertTrue(any("fake" in item["prompt"].lower() for item in plan["slots"]))
 
     def test_skill_hero_prompt_stays_short_and_white(self) -> None:
         prompt = assemble_prompt("main", product="paint brush", family_id="tools", material="bristle")
-        self.assertLess(len(prompt), 900)
-        self.assertIn("soft diffused studio lighting", prompt)
+        self.assertLess(len(prompt), 700)
+        self.assertIn("soft diffused studio lighting", prompt.lower())
         self.assertIn("paint brush", prompt)
         self.assertIn("bristle", prompt)
+        self.assertIn("upper left", prompt)
+
+    def test_non_english_names_become_english_in_the_prompt(self) -> None:
+        self.assertEqual(english_brief("油漆刷"), "wall paint brush")
+        self.assertEqual(english_brief("سماعات أذن لاسلكية"), "wireless earbuds")
+        self.assertEqual(english_brief("Taza de cerámica"), "ceramic mug")
+        plan = plan_stack(product_name="油漆刷", note="猪鬃刷毛，铁皮箍")
+        self.assertEqual(plan["family"]["id"], "tools")
+        self.assertEqual(plan["product_name"], "油漆刷")
+        self.assertEqual(plan["product_brief"], "wall paint brush")
+        for slot in plan["slots"]:
+            self.assertIn("wall paint brush", slot["prompt"])
+            self.assertNotIn("油漆刷", slot["prompt"])
+            self.assertNotIn("猪鬃", slot["prompt"])
 
     def test_explicit_family_wins_over_keywords(self) -> None:
         plan = plan_stack(product_name="pencil", family_id="industrial")

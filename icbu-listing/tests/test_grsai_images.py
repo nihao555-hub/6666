@@ -131,20 +131,29 @@ class ImageGenerateApiTests(unittest.TestCase):
         self.assertEqual(calls[0][1], ())
         self.assertEqual(calls[1][1], ("https://cdn.example/1.png",))
 
-        polled = owner.get(f"/api/v1/image-templates/jobs/{job['id']}")
-        self.assertEqual(polled.status_code, 200)
-        self.assertEqual(polled.json()["status"], "succeeded")
+    def test_seller_reference_photo_is_sent_from_the_first_slot(self) -> None:
+        owner = signup("img-ref@example.com")
+        calls: list[tuple[str, ...]] = []
 
-        filename = job["slots"][0]["url"].rsplit("/", 1)[-1]
-        image = owner.get(f"/api/v1/image-templates/jobs/{job['id']}/files/{filename}")
-        self.assertEqual(image.status_code, 200)
-        self.assertEqual(image.content, PNG)
+        def fake_generate(prompt: str, *, urls=None, aspect_ratio="1:1"):
+            calls.append(tuple(urls or []))
+            return PNG, f"https://cdn.example/{len(calls)}.png"
 
-        self.assertEqual(other.get(f"/api/v1/image-templates/jobs/{job['id']}").status_code, 404)
-        self.assertEqual(
-            other.get(f"/api/v1/image-templates/jobs/{job['id']}/files/{filename}").status_code,
-            404,
-        )
+        with (
+            patch("server.services.grsai_images.generate_one", side_effect=fake_generate),
+            patch("server.routers.image_templates.threading.Thread", ImmediateThread),
+        ):
+            started = owner.post(
+                "/api/v1/image-templates/generate",
+                json={
+                    "product_name": "油漆刷",
+                    "reference_urls": ["https://cdn.example/brush.jpg", "not-a-url"],
+                },
+            )
+        self.assertEqual(started.status_code, 200, started.text)
+        self.assertEqual(started.json()["product_brief"], "wall paint brush")
+        self.assertEqual(calls[0], ("https://cdn.example/brush.jpg",))
+        self.assertEqual(calls[1], ("https://cdn.example/brush.jpg", "https://cdn.example/1.png"))
 
     def test_feed_from_generated_waits_until_done_and_marks_yellow(self) -> None:
         client = signup("img-feed@example.com")

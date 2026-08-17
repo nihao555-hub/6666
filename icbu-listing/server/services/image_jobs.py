@@ -89,9 +89,11 @@ def create_job(user_id: str, plan: dict[str, Any]) -> dict[str, Any]:
         "total": len(slots),
         "error": "",
         "product_name": plan.get("product_name") or family.get("name") or "",
+        "product_brief": plan.get("product_brief") or "",
         "category_id": plan.get("category_id") or "",
         "category_name": plan.get("category_hint") or "",
         "family": family,
+        "reference_urls": list(plan.get("reference_urls") or []),
         "slots": slots,
     }
     with _LOCK:
@@ -123,9 +125,11 @@ def public_view(job: dict[str, Any]) -> dict[str, Any]:
         "total": job.get("total") or len(slots),
         "error": job.get("error") or "",
         "product_name": job.get("product_name") or "",
+        "product_brief": job.get("product_brief") or "",
         "category_id": job.get("category_id") or "",
         "category_name": job.get("category_name") or "",
         "family": job.get("family") or {},
+        "reference_urls": list(job.get("reference_urls") or []),
         "slots": slots,
     }
 
@@ -156,7 +160,8 @@ def run_job(job_id: str) -> None:
     if job is None:
         return
     _update(job_id, status="running", progress="开始出图", error="")
-    reference: list[str] = []
+    seller_refs = [item for item in (job.get("reference_urls") or []) if item]
+    identity = ""
     slots = list(job.get("slots") or [])
     try:
         for index, slot in enumerate(slots):
@@ -164,9 +169,12 @@ def run_job(job_id: str) -> None:
             _update(job_id, progress=f"正在画第 {index + 1}/{len(slots)} 张：{name}")
             slots[index] = {**slot, "status": "running"}
             _update(job_id, slots=list(slots))
+            urls = list(seller_refs)
+            if identity and identity not in urls:
+                urls.append(identity)
             content, remote_url = grsai_images.generate_one(
                 str(slot.get("prompt") or ""),
-                urls=reference,
+                urls=urls,
             )
             ext = "png"
             if remote_url.lower().endswith(".jpg") or remote_url.lower().endswith(".jpeg"):
@@ -180,8 +188,8 @@ def run_job(job_id: str) -> None:
                 "filename": filename,
                 "remote_url": remote_url,
             }
-            if remote_url and not reference:
-                reference = [remote_url]
+            if remote_url and not identity:
+                identity = remote_url
             _update(job_id, slots=list(slots), done=index + 1)
         _update(job_id, status="succeeded", progress="6 张套图已画好", error="")
     except GrsaiError as exc:

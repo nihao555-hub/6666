@@ -132,7 +132,7 @@
 
       <div v-if="aiStep === 0" class="step-panel">
         <h3>写出品名</h3>
-        <p class="muted">没有实拍时，平台按国际站 6 个坑位画套图：白底主图、尺寸、细节、场景、外箱、OEM。生成图不是实拍。</p>
+        <p class="muted">没有实拍时，平台按国际站 6 个坑位画套图：白底主图、尺寸、细节、场景、外箱、OEM。生成图不是实拍。国际站按英文出图，商品上已有的印刷会保留，不会再叠中文或其他语言。</p>
         <el-form label-width="88px" style="max-width: 720px; margin-top: 12px">
           <el-form-item label="类目">
             <div>
@@ -158,10 +158,16 @@
             </div>
           </el-form-item>
           <el-form-item label="品名">
-            <el-input v-model="aiForm.productName" placeholder="例如 油漆刷 / colored pencil set" />
+            <el-input v-model="aiForm.productName" placeholder="例如 油漆刷 / colored pencil set / taza de cerámica" />
           </el-form-item>
           <el-form-item label="补充">
-            <el-input v-model="aiForm.note" type="textarea" :rows="2" placeholder="材质、色号、一盒几支、能否印 logo" />
+            <el-input v-model="aiForm.note" type="textarea" :rows="2" placeholder="材质、色号、一盒几支、能否印 logo。中文也行，出图会译成英文。" />
+          </el-form-item>
+          <el-form-item label="参考图">
+            <div>
+              <el-input v-model="aiForm.referenceUrl" placeholder="可选。贴一张产品图网址，套图会按这张货长" />
+              <p class="muted" style="margin: 6px 0 0">有产品图时务必贴上。比只写品名稳得多。</p>
+            </div>
           </el-form-item>
         </el-form>
         <div class="step-actions">
@@ -172,7 +178,11 @@
       <div v-else-if="aiStep === 1" class="step-panel">
         <h3>{{ imageJob?.status === "succeeded" ? "套图已画好" : "正在出图" }}</h3>
         <p class="muted">
-          套用「{{ imageJob?.family?.name || "类目模板" }}」。{{ imageJob?.progress || "排队出图" }}
+          套用「{{ imageJob?.family?.name || "类目模板" }}」。
+          <span v-if="imageJob?.product_brief && imageJob.product_brief !== imageJob.product_name">
+            出图按「{{ imageJob.product_brief }}」。
+          </span>
+          {{ imageJob?.progress || "排队出图" }}
           这 6 张是平台生成图，不是实拍。
         </p>
         <el-progress :percentage="imagePercent" :stroke-width="10" style="margin: 14px 0" />
@@ -497,6 +507,7 @@ const aiForm = reactive({
   familyId: "",
   productName: "",
   note: "",
+  referenceUrl: "",
   planning: false,
   categoryId: "",
   categoryName: "",
@@ -606,6 +617,7 @@ async function startGenerate() {
       note: aiForm.note,
       category_id: aiForm.categoryId,
       category_hint: aiForm.categoryName,
+      reference_urls: aiForm.referenceUrl.trim() ? [aiForm.referenceUrl.trim()] : [],
     });
     if (imageJob.value?.family?.id) aiForm.familyId = imageJob.value.family.id;
     advanceAi(1);

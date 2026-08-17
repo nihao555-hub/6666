@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .ecom_skill import SKILL, assemble_prompt
+from .ecom_skill import SKILL, assemble_prompt, clean_reference_urls, english_brief
 
 ICBU_MAX_IMAGES = 6
 
@@ -985,14 +985,17 @@ def plan_stack(
     features: Sequence[str] | None = None,
     specs: Mapping[str, Any] | None = None,
     note: str = "",
+    reference_urls: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     family = pick_family(product_name, category_hint, usage, note, family_id=family_id)
     colors = [str(item) for item in (colors or []) if str(item).strip()]
     features = [str(item) for item in (features or []) if str(item).strip()]
     specs = dict(specs or {})
+    refs = clean_reference_urls(reference_urls)
     product = product_name or category_hint or "the wholesale product"
+    brief = english_brief(product, note)
     facts = {
-        "product": product,
+        "product": brief,
         "product_name": product,
         "material": material,
         "colors": colors,
@@ -1014,6 +1017,7 @@ def plan_stack(
             usage=usage,
             note=note,
             text_policy=spec.text_policy,
+            product_brief=brief,
         )
         slots.append(
             {
@@ -1031,12 +1035,14 @@ def plan_stack(
     return {
         "family": family.as_dict(),
         "product_name": product,
+        "product_brief": brief,
+        "reference_urls": refs,
         "style_lock": campaign,
         "identity_lock": lock,
         "slots": slots,
         "skill": SKILL,
         "sources": SOURCES,
-        "platform_note": "国际站图片银行最多 6 张。主图必须白底无字；外箱/OEM 是批发转化位，不要拿去堆氛围图。",
+        "platform_note": "国际站图片银行最多 6 张。主图必须白底无字；外箱/OEM 是批发转化位，不要拿去堆氛围图。出图按英文，商品上原有印刷会保留。",
     }
 
 

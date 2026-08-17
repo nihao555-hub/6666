@@ -29,6 +29,7 @@ class PlanIn(BaseModel):
     features: list[str] = []
     specs: dict[str, Any] = {}
     note: str = ""
+    reference_urls: list[str] = []
 
 
 def _plan(payload: PlanIn) -> dict[str, Any]:
@@ -45,6 +46,7 @@ def _plan(payload: PlanIn) -> dict[str, Any]:
         features=payload.features,
         specs=payload.specs,
         note=payload.note,
+        reference_urls=payload.reference_urls,
     )
 
 
