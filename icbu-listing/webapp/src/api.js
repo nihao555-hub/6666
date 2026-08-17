@@ -43,6 +43,9 @@ export const api = {
 
   imageTemplates: () => http.get("/image-templates"),
   planImages: (body) => http.post("/image-templates/plan", body),
+  generateImages: (body) => http.post("/image-templates/generate", body),
+  imageJob: (id) => http.get(`/image-templates/jobs/${id}`),
+  feedFromGenerated: (body) => http.post("/listings/feed-from-generated", body),
 
   feed: (form) => http.post("/listings/feed", form),
   feedBatch: (form) => http.post("/listings/batch", form),

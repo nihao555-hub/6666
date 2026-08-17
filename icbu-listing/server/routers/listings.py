@@ -26,6 +26,7 @@ from ..services import (
     publisher,
     sources,
 )
+from ..services import image_jobs
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1", tags=["listings"])
@@ -45,6 +46,16 @@ class DraftPatch(BaseModel):
 
 class PublishBatchIn(BaseModel):
     draft_ids: list[str]
+
+
+class GeneratedFeedIn(BaseModel):
+    shop_id: str
+    job_id: str
+    sku: str = ""
+    price: str = ""
+    moq: str = ""
+    note: str = ""
+    category_id: str = ""
 
 
 def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dict[str, Any]:
@@ -250,6 +261,59 @@ async def feed(
         )
     except ShopNotConnected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return draft_view(draft, detailed=True)
+
+
+@router.post("/listings/feed-from-generated")
+def feed_from_generated(
+    payload: GeneratedFeedIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    shop = shop_for(db, user, payload.shop_id)
+    job = image_jobs.get_job(payload.job_id, user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="这批图不存在")
+    if job.get("status") != "succeeded":
+        raise HTTPException(status_code=400, detail="图片还没画完")
+    uploads = image_jobs.uploads_for(job)
+    if not uploads:
+        raise HTTPException(status_code=400, detail="这批图还不能用")
+
+    product_name = str(job.get("product_name") or "").strip()
+    sku = (payload.sku or "").strip() or re.sub(r"[^A-Za-z0-9]+", "-", product_name).strip("-")[:40] or "GEN"
+    extra = "平台按类目生成了 6 张套图，不是实拍。买家要实拍时再补。"
+    note = "\n".join(part for part in (payload.note.strip(), extra) if part)
+
+    try:
+        draft = _generate(
+            db,
+            user,
+            shop,
+            uploads=uploads[:MAX_IMAGES],
+            sku=sku,
+            price=payload.price,
+            moq=payload.moq,
+            note=note,
+            category_id=payload.category_id,
+        )
+    except ShopNotConnected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    issues = _json(draft.issues_json, [])
+    issues.append(
+        {
+            "field_id": "scImages",
+            "field_name": "商品图片",
+            "level": "yellow",
+            "message": "这 6 张是平台生成图，不是实拍。买家问实拍时要自己补。",
+            "path": "scImages",
+        }
+    )
+    draft.issues_json = json.dumps(issues, ensure_ascii=False)
+    if draft.status == "green":
+        draft.status = "yellow"
+    db.commit()
     return draft_view(draft, detailed=True)
 
 

@@ -3,6 +3,7 @@
 We do not ship other people's photos. GitHub has the *recipes* that converting
 listings actually use — slot order, one job per frame, category visual DNA —
 and we encode those recipes here for ICBU (max 6 photobank images).
+When the seller has no photos, Grsai gpt-image-2 renders these slots.
 
 Sources we distilled (layouts and slot jobs only):
 

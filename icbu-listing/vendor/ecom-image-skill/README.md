@@ -8,4 +8,4 @@
 - https://github.com/gpt-img-2/gpt-image-2-ecommerce-skill
   `prompt-patterns.md`（产品身份锁）
 
-本平台只用提示词，不代生图。类目套图逻辑在 `server/services/image_templates.py`。
+类目套图逻辑在 `server/services/image_templates.py`。没图时由平台用 Grsai `gpt-image-2` 按这 6 个坑位出图。

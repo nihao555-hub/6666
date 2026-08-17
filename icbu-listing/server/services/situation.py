@@ -114,7 +114,7 @@ def _primary(snap: Snapshot) -> dict[str, Any]:
 def _alternatives(snap: Snapshot, current: str) -> list[dict[str, str]]:
     options = [
         {"id": "photos", "label": "只有实拍图", "to": "/feed", "hint": "工厂最常见。按文件名前缀批量归货。"},
-        {"id": "ai_images", "label": "没实拍：先出套图提示词", "to": "/feed?tab=ai", "hint": "按类目复制 6 条提示词，自己生图后再投料。"},
+        {"id": "ai_images", "label": "没实拍：平台生成套图", "to": "/feed?tab=ai", "hint": "写出品名，平台按类目画 6 张国际站套图，再填价格成稿。"},
         {"id": "excel", "label": "下载表格批量上品", "to": "/feed?tab=excel", "hint": "表在投料页下。只填货号、价、起订量、图；标题和属性交给 AI。价/图/品牌/类目是红线。"},
         {"id": "clone", "label": "店里已有同类目在售", "to": "/drafts?tab=live", "hint": "从在售拉回来改，保留类目和属性。"},
         {"id": "catalogue", "label": "货已在商品库", "to": "/products", "hint": "勾商品 × 勾店铺，一键铺多店。"},

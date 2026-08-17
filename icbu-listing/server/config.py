@@ -69,9 +69,20 @@ class Settings:
     ai_enabled: bool
     cors_origin_regex: str
 
+    # image generation (Grsai gpt-image-2)
+    grsai_api_key: str
+    grsai_base_url: str
+    image_model: str
+    image_timeout_seconds: float
+    generated_dir: Path
+
     @property
     def has_platform_app(self) -> bool:
         return bool(self.app_key and self.app_secret)
+
+    @property
+    def image_enabled(self) -> bool:
+        return bool(self.grsai_api_key)
 
 
 def _database_url() -> str:
@@ -91,6 +102,32 @@ def _upload_dir() -> Path:
         path = ROOT / path
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _generated_dir() -> Path:
+    explicit = os.environ.get("GENERATED_DIR")
+    if explicit:
+        path = Path(explicit)
+    else:
+        path = _upload_dir().parent / "generated-images"
+    if not path.is_absolute():
+        path = ROOT / path
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _grsai_base_url() -> str:
+    raw = (os.environ.get("GRSAI_BASE_URL") or os.environ.get("IMAGE_BASE_URL") or "").strip()
+    if not raw:
+        chat = (os.environ.get("OPENAI_BASE_URL") or "").strip()
+        if "grsai" in chat:
+            raw = chat
+        else:
+            raw = "https://api.grsai.com"
+    raw = raw.rstrip("/")
+    if raw.endswith("/v1"):
+        raw = raw[:-3]
+    return raw
 
 
 def load_settings() -> Settings:
@@ -119,6 +156,11 @@ def load_settings() -> Settings:
         dev_access_token=os.environ.get("ALIBABA_ACCESS_TOKEN", ""),
         ai_enabled=bool(os.environ.get("OPENAI_API_KEY")),
         cors_origin_regex=os.environ.get("CORS_ALLOW_ORIGIN_REGEX", ""),
+        grsai_api_key=os.environ.get("GRSAI_API_KEY") or os.environ.get("IMAGE_API_KEY") or "",
+        grsai_base_url=_grsai_base_url(),
+        image_model=os.environ.get("IMAGE_MODEL", "gpt-image-2"),
+        image_timeout_seconds=float(os.environ.get("IMAGE_TIMEOUT_SECONDS", "180")),
+        generated_dir=_generated_dir(),
     )
 
 

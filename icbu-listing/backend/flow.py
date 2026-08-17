@@ -74,9 +74,9 @@ FLOW: tuple[FlowStep, ...] = (
         id="drop_assets",
         title="投料",
         actor="user",
-        user_input="拖入 1～6 张图；建议再填货号、FOB/售价、MOQ。没图可先拿套图提示词去自己的模型生图",
+        user_input="拖入 1～6 张图；建议再填货号、FOB/售价、MOQ。没图时写出品名，由平台生成 6 张套图",
         apis=(),
-        notes="这是用户每条商品真正要做的事。平台只出提示词，不代生图。没有图就无法识别，也发不了品。",
+        notes="这是用户每条商品真正要做的事。没图时平台按类目生成套图，并标黄提醒不是实拍。",
     ),
     FlowStep(
         id="understand",

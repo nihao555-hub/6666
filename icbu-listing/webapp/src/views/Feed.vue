@@ -25,8 +25,8 @@
       </button>
       <button class="path-card" :class="{ 'is-active': tab === 'ai' }" @click="choose('ai')">
         <small>没图时</small>
-        <b>先出套图提示词</b>
-        <p class="muted">复制 6 条，自己生图后再投。</p>
+        <b>平台生成套图</b>
+        <p class="muted">写出品名，画 6 张再填价格。</p>
       </button>
       <button class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="choose('excel')">
         <small>批量上品</small>
@@ -126,13 +126,13 @@
       </div>
     </template>
 
-    <!-- 套图提示词 -->
+    <!-- 没图：平台生成套图 -->
     <template v-else-if="tab === 'ai'">
       <FishboneSteps v-model="aiStep" :steps="aiSteps" :reached="aiReached" />
 
       <div v-if="aiStep === 0" class="step-panel">
         <h3>写出品名</h3>
-        <p class="muted">只出提示词，不代生图。按类目出国际站 6 张位：白底主图、尺寸、细节、场景、外箱、OEM。</p>
+        <p class="muted">没有实拍时，平台按国际站 6 个坑位画套图：白底主图、尺寸、细节、场景、外箱、OEM。生成图不是实拍。</p>
         <el-form label-width="88px" style="max-width: 640px; margin-top: 12px">
           <el-form-item label="类目">
             <el-select v-model="aiForm.familyId" placeholder="不选则按品名自动匹配" clearable style="width: 320px">
@@ -147,27 +147,82 @@
           </el-form-item>
         </el-form>
         <div class="step-actions">
-          <el-button type="primary" :loading="aiForm.planning" @click="planThenAdvance">出 6 条提示词</el-button>
+          <el-button type="primary" :loading="aiForm.planning" @click="startGenerate">生成套图</el-button>
         </div>
       </div>
 
-      <div v-else class="step-panel">
-        <h3>复制提示词去生图</h3>
-        <p class="muted">套用「{{ plan?.family?.name }}」。出图后再回到「有实拍图」投进来。</p>
-        <el-button style="margin: 10px 0" @click="copyAll">复制全部提示词</el-button>
+      <div v-else-if="aiStep === 1" class="step-panel">
+        <h3>{{ imageJob?.status === "succeeded" ? "套图已画好" : "正在出图" }}</h3>
+        <p class="muted">
+          套用「{{ imageJob?.family?.name || "类目模板" }}」。{{ imageJob?.progress || "排队出图" }}
+          这 6 张是平台生成图，不是实拍。
+        </p>
+        <el-progress :percentage="imagePercent" :stroke-width="10" style="margin: 14px 0" />
         <div class="slot-grid">
-          <div v-for="slot in plan?.slots || []" :key="slot.id" class="slot-card">
+          <div v-for="slot in imageJob?.slots || []" :key="slot.id" class="slot-card">
+            <div class="slot-photo">
+              <img v-if="slot.url" :src="slot.url" :alt="slot.name" />
+              <span v-else class="muted">{{ slot.status === "running" ? "正在画" : "排队" }}</span>
+            </div>
             <div class="slot-head">
               <b>{{ slot.index }}. {{ slot.name }}</b>
             </div>
             <p class="muted">买手看这张：{{ slot.buyer_job }}</p>
-            <pre class="prompt-body">{{ slot.prompt }}</pre>
-            <el-button size="small" @click="copyOne(slot)">复制这条</el-button>
+          </div>
+        </div>
+        <el-alert
+          v-if="imageJob?.status === 'failed'"
+          type="error"
+          :title="imageJob.error || '出图失败，请再试一次'"
+          :closable="false"
+          style="margin-bottom: 12px"
+        />
+        <div class="step-actions">
+          <el-button @click="aiStep = 0">上一步</el-button>
+          <el-button v-if="imageJob?.status === 'failed'" @click="startGenerate">再画一次</el-button>
+          <el-button type="primary" :disabled="imageJob?.status !== 'succeeded'" @click="advanceAi(2)">
+            下一步，填价格
+          </el-button>
+        </div>
+      </div>
+
+      <div v-else-if="aiStep === 2" class="step-panel">
+        <h3>填价格和起订量</h3>
+        <p class="muted">这两项是红线，AI 不会代填。</p>
+        <div class="prop-form" style="margin-top: 8px">
+          <div class="prop-row">
+            <label>货号</label>
+            <el-input v-model="form.sku" placeholder="留空则用品名" />
+          </div>
+          <div class="prop-row">
+            <label>单价</label>
+            <el-input v-model="form.price" placeholder="12.50">
+              <template #append>USD</template>
+            </el-input>
+          </div>
+          <div class="prop-row">
+            <label>起订量</label>
+            <el-input v-model="form.moq" placeholder="100" />
+          </div>
+          <div class="prop-row">
+            <label>补充</label>
+            <el-input v-model="form.note" type="textarea" :rows="2" placeholder="可选。中文也行" />
           </div>
         </div>
         <div class="step-actions">
-          <el-button @click="aiStep = 0">上一步</el-button>
-          <el-button type="primary" @click="choose('single')">出图了，去投料</el-button>
+          <el-button @click="aiStep = 1">上一步</el-button>
+          <el-button type="primary" :disabled="!form.price || !form.moq" @click="advanceAi(3)">下一步，生成草稿</el-button>
+        </div>
+      </div>
+
+      <div v-else class="step-panel">
+        <h3>生成草稿</h3>
+        <p class="muted">用刚画好的 6 张图成稿。大约 20～40 秒。草稿里会标黄：这不是实拍。</p>
+        <div class="step-actions">
+          <el-button @click="aiStep = 2">上一步</el-button>
+          <el-button type="primary" :loading="loading" :disabled="!store.shopId || imageJob?.status !== 'succeeded'" @click="submitGenerated">
+            生成草稿
+          </el-button>
         </div>
       </div>
     </template>
@@ -406,7 +461,9 @@ const photoSteps = [
 ];
 const aiSteps = [
   { key: "name", label: "写出品名" },
-  { key: "copy", label: "复制提示词" },
+  { key: "draw", label: "生成套图" },
+  { key: "price", label: "填价格" },
+  { key: "draft", label: "生成草稿" },
 ];
 const excelSteps = [
   { key: "cat", label: "选类目" },
@@ -417,7 +474,7 @@ const excelSteps = [
 ];
 
 const templates = ref({ families: [], sources: [] });
-const plan = ref(null);
+const imageJob = ref(null);
 const aiForm = reactive({ familyId: "", productName: "", note: "", planning: false });
 const loading = ref(false);
 const files = ref([]);
@@ -444,6 +501,7 @@ const categoryBrowser = ref(false);
 const excelProgress = ref({ done: 0 });
 let timer = null;
 let excelTimer = null;
+let imageTimer = null;
 
 const currentStyle = computed(() => styles.value.find((item) => item.id === excel.style));
 const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple"));
@@ -468,6 +526,10 @@ const percent = computed(() => {
   return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
 });
 const hasPhotos = computed(() => (photoMode.value === "single" ? files.value.length : batchFiles.value.length));
+const imagePercent = computed(() => {
+  const total = imageJob.value?.total || 6;
+  return Math.min(100, Math.round(((imageJob.value?.done || 0) / total) * 100));
+});
 
 function choose(next) {
   tab.value = next;
@@ -483,6 +545,11 @@ function advanceExcel(index) {
   excelStep.value = index;
 }
 
+function advanceAi(index) {
+  aiReached.value = Math.max(aiReached.value, index);
+  aiStep.value = index;
+}
+
 onMounted(async () => {
   try {
     styles.value = await api.excelStyles();
@@ -496,28 +563,23 @@ onMounted(async () => {
   }
 });
 
-async function planThenAdvance() {
-  await planStack();
-  if (plan.value) {
-    aiReached.value = 1;
-    aiStep.value = 1;
-  }
-}
-
-async function planStack() {
+async function startGenerate() {
   if (!aiForm.productName && !aiForm.note && !aiForm.familyId) {
     ElMessage.warning("先写品名，或选一个类目");
     return;
   }
   aiForm.planning = true;
   try {
-    plan.value = await api.planImages({
+    imageJob.value = await api.generateImages({
       family_id: aiForm.familyId,
       product_name: aiForm.productName,
       note: aiForm.note,
     });
-    aiForm.familyId = plan.value.family.id;
-    ElMessage.success(`已套「${plan.value.family.name}」`);
+    if (imageJob.value?.family?.id) aiForm.familyId = imageJob.value.family.id;
+    advanceAi(1);
+    clearInterval(imageTimer);
+    imageTimer = setInterval(pollImageJob, 2000);
+    await pollImageJob();
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -525,22 +587,46 @@ async function planStack() {
   }
 }
 
-async function copyText(text, ok) {
+async function pollImageJob() {
+  if (!imageJob.value?.id) return;
   try {
-    await navigator.clipboard.writeText(text);
-    ElMessage.success(ok);
-  } catch {
-    ElMessage.error("复制失败，请手动选中");
+    imageJob.value = await api.imageJob(imageJob.value.id);
+    if (imageJob.value.status === "succeeded") {
+      clearInterval(imageTimer);
+      aiReached.value = Math.max(aiReached.value, 2);
+      ElMessage.success("6 张套图已画好");
+    } else if (imageJob.value.status === "failed") {
+      clearInterval(imageTimer);
+      ElMessage.error(imageJob.value.error || "出图失败，请再试一次");
+    }
+  } catch (error) {
+    clearInterval(imageTimer);
+    ElMessage.error(error.message);
   }
 }
 
-function copyOne(slot) {
-  copyText(slot.prompt, `已复制「${slot.name}」`);
-}
-
-function copyAll() {
-  const text = (plan.value?.slots || []).map((slot) => `# ${slot.index}. ${slot.name}\n${slot.prompt}`).join("\n\n");
-  copyText(text, "6 条提示词已复制");
+async function submitGenerated() {
+  if (!imageJob.value?.id) {
+    ElMessage.warning("先生成套图");
+    return;
+  }
+  loading.value = true;
+  try {
+    const draft = await api.feedFromGenerated({
+      shop_id: store.shopId,
+      job_id: imageJob.value.id,
+      sku: form.sku,
+      price: form.price,
+      moq: form.moq,
+      note: form.note,
+    });
+    ElMessage.success(`草稿已生成：${draft.category_name || "待定类目"}`);
+    router.push(`/drafts/${draft.id}`);
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    loading.value = false;
+  }
 }
 
 function onStyleChange() {
@@ -658,6 +744,7 @@ async function pollExcel() {
 onUnmounted(() => {
   clearInterval(timer);
   clearInterval(excelTimer);
+  clearInterval(imageTimer);
 });
 
 async function submitOne() {
@@ -773,19 +860,21 @@ async function poll() {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin: 8px 0 4px;
 }
-.prompt-body {
-  white-space: pre-wrap;
-  font-size: 11px;
-  line-height: 1.45;
-  max-height: 160px;
-  overflow: auto;
-  margin: 8px 0;
-  color: var(--ink-2);
-  background: var(--gray3);
-  padding: 8px;
+.slot-photo {
+  aspect-ratio: 1;
   border-radius: var(--radius-sm);
+  background: var(--gray3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.slot-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .erp-more {
   margin-top: 22px;
