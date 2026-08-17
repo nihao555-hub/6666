@@ -50,6 +50,12 @@ export const api = {
   feed: (form) => http.post("/listings/feed", form),
   feedBatch: (form) => http.post("/listings/batch", form),
   batchProgress: (batchId) => http.get(`/batches/${batchId}`),
+  feedSessions: (shopId) => http.get("/feed-sessions", { params: { shop_id: shopId || "" } }),
+  createFeedSession: (body) => http.post("/feed-sessions", body),
+  feedSession: (id) => http.get(`/feed-sessions/${id}`),
+  saveFeedSession: (id, body) => http.patch(`/feed-sessions/${id}`, body),
+  uploadFeedSessionFiles: (id, form) => http.post(`/feed-sessions/${id}/files`, form),
+  dropFeedSession: (id) => http.delete(`/feed-sessions/${id}`),
 
   excelStyles: () => http.get("/excel/styles"),
   excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),

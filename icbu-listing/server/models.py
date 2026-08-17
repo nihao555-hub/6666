@@ -234,6 +234,26 @@ class SchemaCache(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class FeedSession(Base):
+    """One in-progress listing path. Closing the tab must not lose it."""
+
+    __tablename__ = "feed_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    shop_id: Mapped[str] = mapped_column(String(32), default="", index=True)
+    path: Mapped[str] = mapped_column(String(16), default="photo")  # photo | ai | excel
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open | done | dropped
+    title: Mapped[str] = mapped_column(String(240), default="")
+    step: Mapped[int] = mapped_column(Integer, default=0)
+    reached: Mapped[int] = mapped_column(Integer, default=0)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (Index("ix_feed_sessions_user_status", "user_id", "status"),)
+
+
 class CategoryMemory(Base):
     """What the shop chose last time for a similar product."""
 

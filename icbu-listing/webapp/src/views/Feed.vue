@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>投料</h2>
-        <p class="muted">先看手里有没有图、一次要上几个。三条路最后都是：你出图、单价、起订量；标题和属性由系统补，没写的数不会编。</p>
+        <p class="muted">先选一条路上品。做到一半关掉也能回来接着做，多条可以同时记着。</p>
       </div>
     </div>
 
@@ -17,24 +17,49 @@
       style="margin-bottom: 14px"
     />
 
-    <div class="path-grid">
-      <button class="path-card" :class="{ 'is-active': tab === 'single' }" @click="choose('single')">
-        <small>默认走这条</small>
-        <b>有实拍</b>
-        <p class="muted">手机或工厂已经拍好了。上传图，再填单价和起订量。</p>
-      </button>
-      <button class="path-card" :class="{ 'is-active': tab === 'ai' }" @click="choose('ai')">
-        <small>一张实拍都没有</small>
-        <b>平台画图</b>
-        <p class="muted">只写品名（最好再贴一张参考图），平台画 6 张后再填价。生成图会标黄，不是实拍。</p>
-      </button>
-      <button class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="choose('excel')">
-        <small>一次很多、每个价不一样</small>
-        <b>填表批量</b>
-        <p class="muted">下载短表，一行一个商品。不是阿里后台那张 40 列表。</p>
-      </button>
-    </div>
-    <p class="path-pick muted">{{ pathHint }}</p>
+    <template v-if="!sessionId">
+      <div class="chooser">
+        <h3>先选一种上品方式</h3>
+        <p class="muted">三条路最后都是：你出图、单价、起订量；没写的数系统不会编。</p>
+        <div class="path-grid">
+          <button class="path-card" @click="startPath('photo')">
+            <small>默认走这条</small>
+            <b>有实拍</b>
+            <p class="muted">手机或工厂已经拍好了。上传图，再填单价和起订量。</p>
+          </button>
+          <button class="path-card" @click="startPath('ai')">
+            <small>一张实拍都没有</small>
+            <b>平台画图</b>
+            <p class="muted">只写品名（最好再贴一张参考图），平台画 6 张后再填价。生成图会标黄，不是实拍。</p>
+          </button>
+          <button class="path-card" @click="startPath('excel')">
+            <small>一次很多、每个价不一样</small>
+            <b>填表批量</b>
+            <p class="muted">下载短表，一行一个商品。不是阿里后台那张 40 列表。</p>
+          </button>
+        </div>
+      </div>
+      <div v-if="openSessions.length" class="resume-box">
+        <h3>做到一半的</h3>
+        <p class="muted">关掉页面或中途退出都还在。点一条接着做，可以同时记多条。</p>
+        <div class="resume-list">
+          <div v-for="item in openSessions" :key="item.id" class="resume-row">
+            <button class="resume-card" @click="resumeSession(item.id)">
+              <b>{{ item.title }}</b>
+              <span class="muted">{{ item.path_label }} · 停在「{{ item.step_label }}」</span>
+            </button>
+            <el-button text @click="dropSession(item.id)">不要了</el-button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
+      <div class="flow-bar">
+        <el-button @click="backToChooser">回选路</el-button>
+        <span class="muted">{{ currentTitle }} · 做到一半会自动记下，关掉也能回来</span>
+        <el-button text @click="dropCurrent">不要这条了</el-button>
+      </div>
 
     <!-- 有实拍 -->
     <template v-if="tab === 'single'">
@@ -478,13 +503,14 @@
         </el-table>
       </details>
     </template>
+    </template>
 
     <CategoryPicker v-model="categoryBrowser" @pick="pickCategory" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import CategoryPicker from "../components/CategoryPicker.vue";
@@ -494,8 +520,12 @@ import { store } from "../store";
 
 const router = useRouter();
 const route = useRoute();
-const tab = ref(route.query.tab === "excel" ? "excel" : route.query.tab === "ai" ? "ai" : "single");
-const photoMode = ref(route.query.tab === "batch" ? "batch" : "single");
+const sessionId = ref("");
+const openSessions = ref([]);
+const currentTitle = ref("");
+const restoring = ref(false);
+const tab = ref("single");
+const photoMode = ref("single");
 const photoStep = ref(0);
 const photoReached = ref(0);
 const aiStep = ref(0);
@@ -588,37 +618,235 @@ const percent = computed(() => {
   return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
 });
 const hasPhotos = computed(() => (photoMode.value === "single" ? files.value.length : batchFiles.value.length));
-const pathHint = computed(() => {
-  if (tab.value === "ai") {
-    return "没实拍才走这里。你写的材质、尺寸、装箱量会原样用；空着的项不会编。";
-  }
-  if (tab.value === "excel") {
-    return "几十上百个货、每个价不一样，用短表。一行一个商品，写多少就是多少。";
-  }
-  return "有实拍就走这条。单条直接传图；同一批很多货号，按文件名归组。";
-});
 const imagePercent = computed(() => {
   const total = imageJob.value?.total || 6;
   return Math.min(100, Math.round(((imageJob.value?.done || 0) / total) * 100));
 });
 
-function choose(next) {
-  tab.value = next;
+function pathToTab(path) {
+  if (path === "ai") return "ai";
+  if (path === "excel") return "excel";
+  return "single";
+}
+
+function sessionPayload() {
+  return {
+    photoMode: photoMode.value,
+    form: { ...form },
+    aiForm: {
+      familyId: aiForm.familyId,
+      productName: aiForm.productName,
+      material: aiForm.material,
+      size: aiForm.size,
+      packCount: aiForm.packCount,
+      colors: aiForm.colors,
+      note: aiForm.note,
+      referenceUrl: aiForm.referenceUrl,
+      categoryId: aiForm.categoryId,
+      categoryName: aiForm.categoryName,
+    },
+    excel: {
+      style: excel.style,
+      listingTemplateId: excel.listingTemplateId,
+      categoryId: excel.categoryId,
+      mapping: excel.mapping,
+      preview: excel.preview,
+      batch: excel.batch,
+    },
+    categoryName: sheetPlan.value.category_name || "",
+    rowCount: excel.preview?.row_count || excel.batch?.count || batch.value?.count || 0,
+    imageJobId: imageJob.value?.id || "",
+    batchId: batch.value?.batch_id || excel.batch?.batch_id || "",
+  };
+}
+
+function currentStep() {
+  if (tab.value === "ai") return aiStep.value;
+  if (tab.value === "excel") return excelStep.value;
+  return photoStep.value;
+}
+
+function currentReached() {
+  if (tab.value === "ai") return aiReached.value;
+  if (tab.value === "excel") return excelReached.value;
+  return photoReached.value;
+}
+
+async function loadOpenSessions() {
+  if (!store.user) return;
+  try {
+    const data = await api.feedSessions(store.shopId);
+    openSessions.value = data.sessions || [];
+  } catch {
+    openSessions.value = [];
+  }
+}
+
+async function persistSession() {
+  if (!sessionId.value || restoring.value) return;
+  try {
+    const saved = await api.saveFeedSession(sessionId.value, {
+      shop_id: store.shopId || "",
+      step: currentStep(),
+      reached: currentReached(),
+      payload: sessionPayload(),
+    });
+    currentTitle.value = saved.title || currentTitle.value;
+  } catch {
+    /* keep typing even if save is slow */
+  }
+}
+
+async function syncKind(kind, list) {
+  if (!sessionId.value || restoring.value) return;
+  const raws = (list || []).filter((item) => item.raw);
+  const keep = (list || []).filter((item) => !item.raw && item.name).map((item) => item.name);
+  if (!raws.length && !list?.length) {
+    const body = new FormData();
+    body.append("kind", kind);
+    body.append("keep", "");
+    await api.uploadFeedSessionFiles(sessionId.value, body);
+    return;
+  }
+  if (!raws.length) return;
+  const body = new FormData();
+  body.append("kind", kind);
+  body.append("keep", keep.join(","));
+  raws.forEach((item) => body.append("files", item.raw));
+  await api.uploadFeedSessionFiles(sessionId.value, body);
+}
+
+function filesFromSession(session, kind) {
+  return (session.files || [])
+    .filter((item) => item.kind === kind)
+    .map((item) => ({ name: item.name, url: item.url, status: "success" }));
+}
+
+function applySession(session) {
+  restoring.value = true;
+  sessionId.value = session.id;
+  currentTitle.value = session.title || session.path_label;
+  tab.value = pathToTab(session.path);
+  const payload = session.payload || {};
+  photoMode.value = payload.photoMode || "single";
+  Object.assign(form, { sku: "", price: "", moq: "", note: "", ...(payload.form || {}) });
+  Object.assign(aiForm, {
+    familyId: "",
+    productName: "",
+    material: "",
+    size: "",
+    packCount: "",
+    colors: "",
+    note: "",
+    referenceUrl: "",
+    categoryId: "",
+    categoryName: "",
+    ...(payload.aiForm || {}),
+    planning: false,
+  });
+  if (payload.excel) {
+    excel.style = payload.excel.style || excel.style;
+    excel.listingTemplateId = payload.excel.listingTemplateId || "";
+    excel.categoryId = payload.excel.categoryId || "";
+    excel.mapping = payload.excel.mapping || {};
+    excel.preview = payload.excel.preview || null;
+    excel.batch = payload.excel.batch || null;
+  }
+  files.value = filesFromSession(session, "photos");
+  batchFiles.value = filesFromSession(session, "batch");
+  excelFile.value = filesFromSession(session, "excel");
+  excelImages.value = filesFromSession(session, "excel_images");
+  imageJob.value = payload.imageJobId ? { id: payload.imageJobId, status: "queued", slots: [] } : null;
+  batch.value = payload.batchId && tab.value === "single" ? { batch_id: payload.batchId, count: payload.rowCount || 0 } : null;
+  if (tab.value === "ai") {
+    aiStep.value = session.step || 0;
+    aiReached.value = session.reached || 0;
+  } else if (tab.value === "excel") {
+    excelStep.value = session.step || 0;
+    excelReached.value = session.reached || 0;
+  } else {
+    photoStep.value = session.step || 0;
+    photoReached.value = session.reached || 0;
+  }
+  restoring.value = false;
+}
+
+async function startPath(path) {
+  try {
+    const created = await api.createFeedSession({ path, shop_id: store.shopId || "" });
+    applySession(created);
+    router.replace({ query: { session: created.id } });
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+async function resumeSession(id) {
+  try {
+    const session = await api.feedSession(id);
+    applySession(session);
+    router.replace({ query: { session: id } });
+    if (imageJob.value?.id) {
+      clearInterval(imageTimer);
+      imageTimer = setInterval(pollImageJob, 2000);
+      await pollImageJob();
+    }
+    if (batch.value?.batch_id) {
+      clearInterval(timer);
+      timer = setInterval(poll, 3000);
+      await poll();
+    }
+    if (excel.batch?.batch_id) {
+      clearInterval(excelTimer);
+      excelTimer = setInterval(pollExcel, 3000);
+      await pollExcel();
+    }
+    if (excel.categoryId) await loadSheetPlan();
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+async function dropSession(id) {
+  try {
+    await api.dropFeedSession(id);
+    if (sessionId.value === id) {
+      sessionId.value = "";
+      router.replace({ query: {} });
+    }
+    await loadOpenSessions();
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+async function dropCurrent() {
+  if (sessionId.value) await dropSession(sessionId.value);
+}
+
+async function backToChooser() {
+  await persistSession();
+  sessionId.value = "";
+  router.replace({ query: {} });
+  await loadOpenSessions();
 }
 
 function advancePhoto(index) {
   photoReached.value = Math.max(photoReached.value, index);
   photoStep.value = index;
+  persistSession();
 }
 
 function advanceExcel(index) {
   excelReached.value = Math.max(excelReached.value, index);
   excelStep.value = index;
+  persistSession();
 }
 
 function advanceAi(index) {
   aiReached.value = Math.max(aiReached.value, index);
   aiStep.value = index;
+  persistSession();
 }
 
 onMounted(async () => {
@@ -636,7 +864,38 @@ onMounted(async () => {
   } catch (error) {
     ElMessage.error(error.message);
   }
+  await loadOpenSessions();
+  if (route.query.session) {
+    await resumeSession(String(route.query.session));
+  }
 });
+
+let saveTimer = null;
+watch([() => form.sku, () => form.price, () => form.moq, () => form.note], () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(persistSession, 500);
+});
+watch(
+  () => [
+    aiForm.productName,
+    aiForm.material,
+    aiForm.size,
+    aiForm.packCount,
+    aiForm.colors,
+    aiForm.note,
+    aiForm.referenceUrl,
+    aiForm.categoryId,
+    aiForm.familyId,
+  ],
+  () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistSession, 500);
+  },
+);
+watch(files, () => syncKind("photos", files.value), { deep: true });
+watch(batchFiles, () => syncKind("batch", batchFiles.value), { deep: true });
+watch(excelFile, () => syncKind("excel", excelFile.value), { deep: true });
+watch(excelImages, () => syncKind("excel_images", excelImages.value), { deep: true });
 
 async function startGenerate() {
   if (!aiForm.productName && !aiForm.note && !aiForm.familyId) {
@@ -660,6 +919,7 @@ async function startGenerate() {
       reference_urls: aiForm.referenceUrl.trim() ? [aiForm.referenceUrl.trim()] : [],
     });
     if (imageJob.value?.family?.id) aiForm.familyId = imageJob.value.family.id;
+    await persistSession();
     advanceAi(1);
     clearInterval(imageTimer);
     imageTimer = setInterval(pollImageJob, 2000);
@@ -704,8 +964,10 @@ async function submitGenerated() {
       moq: form.moq,
       note: form.note,
       category_id: aiForm.categoryId || imageJob.value.category_id || "",
+      session_id: sessionId.value,
     });
     ElMessage.success(`草稿已生成：${draft.category_name || "待定类目"}`);
+    sessionId.value = "";
     router.push(`/drafts/${draft.id}`);
   } catch (error) {
     ElMessage.error(error.message);
@@ -727,8 +989,8 @@ async function onExcelPicked() {
 
 async function importSimple() {
   excel.createDrafts = true;
-  if (!excel.preview) await previewExcel();
-  if (excel.preview) await importExcel();
+  if (!excel.preview && excelFile.value[0]?.raw) await previewExcel();
+  if (excel.preview || sessionId.value) await importExcel();
 }
 
 async function loadSheetPlan() {
@@ -809,6 +1071,7 @@ async function previewExcel() {
   try {
     excel.preview = await api.excelPreview(body);
     excel.mapping = { ...(excel.preview.mapping || {}) };
+    await persistSession();
     ElMessage.success(`识别到 ${excel.preview.row_count} 个商品`);
   } catch (error) {
     ElMessage.error(error.message);
@@ -818,7 +1081,7 @@ async function previewExcel() {
 }
 
 async function importExcel() {
-  if (!excelFile.value[0]?.raw) return;
+  if (!excelFile.value[0]?.raw && !sessionId.value) return;
   const body = new FormData();
   body.append("style", excel.style);
   body.append("shop_id", store.shopId || "");
@@ -826,12 +1089,14 @@ async function importExcel() {
   body.append("create_drafts", excel.createDrafts ? "true" : "false");
   body.append("listing_template_id", excel.listingTemplateId);
   body.append("category_id", excel.categoryId);
-  body.append("file", excelFile.value[0].raw);
+  body.append("session_id", sessionId.value);
+  if (excelFile.value[0]?.raw) body.append("file", excelFile.value[0].raw);
   excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
   excel.loading = true;
   try {
     excel.batch = await api.excelImport(body);
     excelProgress.value = { done: 0 };
+    sessionId.value = "";
     clearInterval(excelTimer);
     excelTimer = setInterval(pollExcel, 3000);
     ElMessage.success(`已接收 ${excel.batch.count} 个商品，后台在成稿`);
@@ -869,11 +1134,13 @@ async function submitOne() {
   body.append("price", form.price);
   body.append("moq", form.moq);
   body.append("note", form.note);
+  body.append("session_id", sessionId.value);
   files.value.forEach((item) => item.raw && body.append("files", item.raw));
   loading.value = true;
   try {
     const draft = await api.feed(body);
     ElMessage.success(`草稿已生成：${draft.category_name || "待定类目"}`);
+    sessionId.value = "";
     router.push(`/drafts/${draft.id}`);
   } catch (error) {
     ElMessage.error(error.message);
@@ -891,11 +1158,13 @@ async function submitBatch() {
   body.append("shop_id", store.shopId);
   body.append("price", form.price);
   body.append("moq", form.moq);
+  body.append("session_id", sessionId.value);
   batchFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
   loading.value = true;
   try {
     batch.value = await api.feedBatch(body);
     progress.value = { done: 0 };
+    sessionId.value = "";
     clearInterval(timer);
     timer = setInterval(poll, 3000);
     ElMessage.success(`已拆成 ${batch.value.count} 个商品，正在后台成稿`);
@@ -955,8 +1224,51 @@ async function poll() {
   font-weight: 600;
   margin-bottom: 2px;
 }
-.path-pick {
-  margin: -8px 0 18px;
+.chooser h3,
+.resume-box h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.chooser {
+  margin-bottom: 22px;
+}
+.resume-box {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--surface);
+}
+.resume-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.resume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.resume-card {
+  flex: 1;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--gray3);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+}
+.resume-card b {
+  display: block;
+  margin-bottom: 2px;
+}
+.flow-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 .slot-grid {
   display: grid;

@@ -17,7 +17,7 @@ from ai import AiClient, ImageInput  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, excel_import, pipeline, products as catalogue, templates
+from ..services import catalog, distribution, excel_import, feed_sessions, pipeline, products as catalogue, templates
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
@@ -145,7 +145,8 @@ async def import_excel(
     create_drafts: bool = Form(False),
     listing_template_id: str = Form(""),
     category_id: str = Form(""),
-    file: UploadFile = File(...),
+    session_id: str = Form(""),
+    file: UploadFile | None = File(None),
     images: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -165,7 +166,13 @@ async def import_excel(
             raise HTTPException(status_code=404, detail="刊登模板不存在")
         listing_id = row.id
 
-    content = await file.read()
+    content = await file.read() if file is not None else b""
+    session = feed_sessions.get_owned(db, user.id, session_id) if session_id else None
+    if not content and session is not None:
+        stored = feed_sessions.file_bytes(session, "excel")
+        content = stored[0][1] if stored else b""
+    if not content:
+        raise HTTPException(status_code=400, detail="先选一个表格")
     try:
         mapping_payload = json.loads(mapping or "{}")
     except json.JSONDecodeError as exc:
@@ -194,6 +201,9 @@ async def import_excel(
         raw = await item.read()
         if raw:
             uploads[(item.filename or "image.jpg").rsplit("/", 1)[-1].lower()] = raw
+    if not uploads and session is not None:
+        for name, raw in feed_sessions.file_bytes(session, "excel_images"):
+            uploads[name.rsplit("/", 1)[-1].lower()] = raw
 
     batch_id = new_id()
     payload = [
@@ -220,6 +230,14 @@ async def import_excel(
         daemon=True,
     )
     thread.start()
+    if session is not None:
+        feed_sessions.save(
+            db,
+            session,
+            status="done",
+            shop_id=shop.id if shop else session.shop_id,
+            payload={"batchId": batch_id, "rowCount": len(rows)},
+        )
     return {"batch_id": batch_id, "count": len(rows), "style": style, "create_drafts": wants_drafts}
 
 

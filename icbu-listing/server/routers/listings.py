@@ -26,7 +26,7 @@ from ..services import (
     publisher,
     sources,
 )
-from ..services import image_jobs
+from ..services import feed_sessions, image_jobs
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1", tags=["listings"])
@@ -56,6 +56,7 @@ class GeneratedFeedIn(BaseModel):
     moq: str = ""
     note: str = ""
     category_id: str = ""
+    session_id: str = ""
 
 
 def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dict[str, Any]:
@@ -237,6 +238,7 @@ async def feed(
     moq: str = Form(""),
     note: str = Form(""),
     category_id: str = Form(""),
+    session_id: str = Form(""),
     files: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -244,6 +246,9 @@ async def feed(
     shop = shop_for(db, user, shop_id)
     uploads = [(item.filename or "image.jpg", await item.read()) for item in files[:MAX_IMAGES]]
     uploads = [(name, content) for name, content in uploads if content]
+    session = feed_sessions.get_owned(db, user.id, session_id) if session_id else None
+    if not uploads and session is not None:
+        uploads = feed_sessions.file_bytes(session, "photos")[:MAX_IMAGES]
     if not uploads:
         raise HTTPException(status_code=400, detail="至少要传一张图")
 
@@ -261,6 +266,8 @@ async def feed(
         )
     except ShopNotConnected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if session is not None:
+        feed_sessions.save(db, session, status="done", shop_id=shop.id)
     return draft_view(draft, detailed=True)
 
 
@@ -285,6 +292,7 @@ def feed_from_generated(
     category_id = (payload.category_id or job.get("category_id") or "").strip()
     extra = "平台按类目生成了 6 张套图，不是实拍。买家要实拍时再补。"
     note = "\n".join(part for part in (payload.note.strip(), extra) if part)
+    session = feed_sessions.get_owned(db, user.id, payload.session_id) if payload.session_id else None
 
     try:
         draft = _generate(
@@ -315,6 +323,8 @@ def feed_from_generated(
     if draft.status == "green":
         draft.status = "yellow"
     db.commit()
+    if session is not None:
+        feed_sessions.save(db, session, status="done", shop_id=shop.id)
     return draft_view(draft, detailed=True)
 
 
@@ -324,6 +334,7 @@ async def feed_batch(
     price: str = Form(""),
     moq: str = Form(""),
     note: str = Form(""),
+    session_id: str = Form(""),
     files: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -343,6 +354,10 @@ async def feed_batch(
         grouped.setdefault(_sku_from_filename(item.filename or "image.jpg"), []).append(
             (item.filename or "image.jpg", content)
         )
+    session = feed_sessions.get_owned(db, user.id, session_id) if session_id else None
+    if not grouped and session is not None:
+        for name, content in feed_sessions.file_bytes(session, "batch"):
+            grouped.setdefault(_sku_from_filename(name), []).append((name, content))
     if not grouped:
         raise HTTPException(status_code=400, detail="没有可用的图片")
 
@@ -355,6 +370,14 @@ async def feed_batch(
         daemon=True,
     )
     thread.start()
+    if session is not None:
+        feed_sessions.save(
+            db,
+            session,
+            status="done",
+            shop_id=shop.id,
+            payload={"batchId": batch_id, "rowCount": len(payload)},
+        )
     return {"batch_id": batch_id, "count": len(payload), "skus": list(payload)}
 
 
