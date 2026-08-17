@@ -1019,6 +1019,7 @@ def plan_stack(
             note=note,
             text_policy=spec.text_policy,
             product_brief=brief,
+            specs=specs,
         )
         slots.append(
             {

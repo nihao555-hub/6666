@@ -60,7 +60,7 @@
       <button class="map-card" @click="$router.push('/feed')">
         <small>上品</small>
         <b>投料</b>
-        <span class="muted">有图就丢图，没图平台生成套图。再填价和起订量。</span>
+        <span class="muted">有实拍走上传，没图才让平台画，一次很多就填表。价和起订量都是你填。</span>
       </button>
       <button class="map-card" @click="$router.push('/drafts')">
         <small>看状态 · 改每个品</small>

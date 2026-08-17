@@ -69,19 +69,19 @@ FAMILY_TIP_KEY = {
     "food": "food",
 }
 
-FAMILY_MATERIAL = {
-    "stationery": "Show the real paper tooth, wood grain, or pigment texture; matte barrels, no fake gloss.",
-    "tools": "Show the real working-end texture: natural or synthetic bristles, brushed-metal ferrule, matte wood or plastic handle.",
-    "electronics": "Show the real housing: matte plastic or soft-touch finish, brushed metal contacts, frosted or glossy glass only where the product has it.",
-    "apparel": "Show the real fabric weave, drape, and stitching; matte or slight sheen only if the cloth has it.",
-    "beauty": "Show the real pack finish — frosted glass, matte plastic, or brushed metal — and the true cream or liquid texture if it is open.",
-    "home": "Show the real surface: glazed or matte ceramic, wood grain, brushed metal, or woven textile.",
-    "toys": "Show the real plastic, plush, or printed surface; no invented sparkle.",
-    "jewelry": "Show the real metal finish — polished, brushed, or matte — and true stone cut.",
-    "industrial": "Show honest painted or machined metal, cast texture, and real ports; no cutaways of unseen internals.",
-    "food": "Show the real pack finish and true food texture; no fake steam.",
-    "sports": "Show the real fabric, rubber, or metal grip texture.",
-    "general": "Show the real surface texture clearly — matte, brushed metal, frosted glass, or fabric weave as it appears on the product.",
+FAMILY_LOOK = {
+    "stationery": "Show the real surface from the product or reference. Do not invent a wood, pigment, or barrel finish.",
+    "tools": "Show the real working end from the product or reference. Do not invent bristles, metal, or extra parts.",
+    "electronics": "Show the real housing from the product or reference. Do not invent ports, screens, or accessories.",
+    "apparel": "Show the real fabric from the product or reference. Do not invent prints or extra garments.",
+    "beauty": "Show the real pack from the product or reference. Do not invent a formula, glow, or open texture.",
+    "home": "Show the real surface from the product or reference. Do not invent glaze, wood, or extra pieces.",
+    "toys": "Show the real surface from the product or reference. Do not invent sparkle or extra parts.",
+    "jewelry": "Show the real metal or stone from the product or reference. Do not invent a cut or hallmark.",
+    "industrial": "Show the real machine from the product or reference. Do not invent internals, model numbers, or ports.",
+    "food": "Show the real pack from the product or reference. Do not invent steam, seals, or nutrition marks.",
+    "sports": "Show the real gear from the product or reference. Do not invent a size or extra accessory.",
+    "general": "Show the real surface from the product or reference. Do not invent a material, finish, or extra part.",
 }
 
 # Seller names we see often. Image prompts stay English even when the seller types Chinese.
@@ -236,22 +236,44 @@ def _lighting(slot_id: str, template: Mapping[str, Any], values: Mapping[str, st
     return "Soft directional light from the upper left, gentle fill from the right."
 
 
-def _scene(slot_id: str, brief: str, usage: str, template: Mapping[str, Any], values: Mapping[str, str]) -> str:
+def _scene(
+    slot_id: str,
+    brief: str,
+    usage: str,
+    template: Mapping[str, Any],
+    values: Mapping[str, str],
+    *,
+    size: str = "",
+    pack_count: str = "",
+) -> str:
     if slot_id == "main":
         return f"Centered front view of the {brief} on a clean white background, product filling most of the frame."
     if slot_id in {"range", "colors", "set", "parts", "sizes", "explode"}:
-        return f"Top-down flat lay of the real {brief} range or included pieces only, even spacing on a clean surface."
+        return f"Top-down flat lay of the real {brief} only, even spacing. Do not add pieces, colors, or accessories that were not given."
     if slot_id in {"scale", "size", "dimension"}:
-        return f"The {brief} next to a simple scale cue on white. Print a size only if it was given."
+        if size:
+            return f"The {brief} on white. The only allowed size mark is: {size}. No other numbers."
+        return (
+            f"The {brief} next to a plain ruler or hand on white for scale. "
+            "Do not print any numbers, mm, cm, inch, or made-up length."
+        )
     if slot_id in {"detail", "ports", "fabric", "texture", "craft", "material", "contents"}:
-        return f"Close photograph of the real working end or surface of the {brief}, texture sharp, nothing invented."
+        return f"Close photograph of the real working end or surface of the {brief}. Do not invent internals, extra ports, or a finish that was not given."
     if slot_id in {"use", "wear", "room", "play", "action", "serve"}:
-        place = usage or _fill((template.get("defaults") or {}).get("setting"), values) or "a believable workplace"
-        return f"The same {brief} in {place}, product still easy to recognize."
+        place = usage or "a believable workplace"
+        return f"The same {brief} in {place}, product still easy to recognize. Do not add tools or accessories that were not given."
     if slot_id == "pack":
-        return f"Export carton and inner box of the {brief} on a clean warehouse floor. Honest factory packing, not a luxury gift set."
+        if pack_count:
+            return (
+                f"Export carton and inner box of the {brief} on a clean warehouse floor. "
+                f"The only allowed pack line is: {pack_count}."
+            )
+        return (
+            f"Export carton and inner box of the {brief} on a clean warehouse floor. "
+            "No pack count, barcode, or size on the box unless it was given."
+        )
     if slot_id in {"custom", "spec", "facts"}:
-        return f"The {brief} centered with at most a few short English facts that were given. No charts."
+        return f"The {brief} centered. Label only facts that were given. No charts, no invented numbers."
     subject = _fill((template.get("prompt_template") or {}).get("subject"), values)
     return subject or f"A clear commercial photograph of the {brief}."
 
@@ -285,28 +307,31 @@ def assemble_prompt(
     note: str = "",
     text_policy: str = "none",
     product_brief: str = "",
+    specs: Mapping[str, Any] | None = None,
 ) -> str:
     filename = SLOT_FILE.get(slot_id) or SLOT_FILE["main"]
     template = load_template(filename)
     brief = (product_brief or english_brief(product, note)).strip() or "wholesale product"
-    material_line = ""
+    facts = dict(specs or {})
+    size = str(facts.get("size") or facts.get("dimension") or "").strip()
+    pack_count = str(facts.get("pack_count") or facts.get("carton") or "").strip()
     if material:
         material_en = english_brief(material) if looks_non_latin(material) else material
         material_line = f"The surface is {material_en}."
     else:
-        material_line = FAMILY_MATERIAL.get(family_id) or FAMILY_MATERIAL["general"]
+        material_line = FAMILY_LOOK.get(family_id) or FAMILY_LOOK["general"]
     values = {
         "product_description": brief,
         "product": brief,
-        "material_description": material or "the real material",
+        "material_description": material or "the real material from the reference",
         "scene_description": usage or "typical wholesale use",
-        "texture_description": material or "true surface finish",
+        "texture_description": material or "true surface finish from the reference",
         "focus_area": material or "texture and material quality",
-        "size_annotations": "only real measurements if known, otherwise omit numbers",
+        "size_annotations": size or "omit all numbers",
         "feature_list": ", ".join(str(item) for item in (features or [])[:4]) or "only verified selling points",
     }
     lighting = _lighting(slot_id, template, values)
-    scene = _scene(slot_id, brief, usage, template, values)
+    scene = _scene(slot_id, brief, usage, template, values, size=size, pack_count=pack_count)
     tip_key = FAMILY_TIP_KEY.get(family_id, "")
     tip = _fill((template.get("category_tips") or {}).get(tip_key), values)
 
@@ -319,7 +344,7 @@ def assemble_prompt(
         sentences.append(tip.rstrip(".") + ".")
     color_bits = [str(item) for item in (colors or []) if str(item).strip()]
     if color_bits:
-        sentences.append("Keep the real colors: " + ", ".join(color_bits[:4]) + ".")
+        sentences.append("Keep only these colors: " + ", ".join(color_bits[:4]) + ".")
     note_en = english_note(note)
     if note_en:
         sentences.append(f"Seller fact: {note_en}.")
@@ -327,6 +352,9 @@ def assemble_prompt(
     if feature_bits and text_policy != "none":
         sentences.append("Only these facts: " + ", ".join(feature_bits[:4]) + ".")
     sentences.append(_marketplace_line(text_policy))
+    sentences.append(
+        "Use only seller-given facts. If a size, pack count, color, accessory, brand, or certificate was not given, omit it. Do not invent numbers."
+    )
     return " ".join(" ".join(part.split()) for part in sentences if part and part.strip())
 
 

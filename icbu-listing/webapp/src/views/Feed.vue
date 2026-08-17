@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>投料</h2>
-        <p class="muted">你只出图、价格、起订量。其余由系统和 AI 补齐。</p>
+        <p class="muted">先看手里有没有图、一次要上几个。三条路最后都是：你出图、单价、起订量；标题和属性由系统补，没写的数不会编。</p>
       </div>
     </div>
 
@@ -19,21 +19,22 @@
 
     <div class="path-grid">
       <button class="path-card" :class="{ 'is-active': tab === 'single' }" @click="choose('single')">
-        <small>最常见</small>
-        <b>有实拍图</b>
-        <p class="muted">单条或按货号批量。</p>
+        <small>默认走这条</small>
+        <b>有实拍</b>
+        <p class="muted">手机或工厂已经拍好了。上传图，再填单价和起订量。</p>
       </button>
       <button class="path-card" :class="{ 'is-active': tab === 'ai' }" @click="choose('ai')">
-        <small>没图时</small>
-        <b>平台生成套图</b>
-        <p class="muted">写出品名，画 6 张再填价格。</p>
+        <small>一张实拍都没有</small>
+        <b>平台画图</b>
+        <p class="muted">只写品名（最好再贴一张参考图），平台画 6 张后再填价。生成图会标黄，不是实拍。</p>
       </button>
       <button class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="choose('excel')">
-        <small>批量上品</small>
-        <b>下载表格，填完传回</b>
-        <p class="muted">一行一个商品，一张表写多少就是多少。</p>
+        <small>一次很多、每个价不一样</small>
+        <b>填表批量</b>
+        <p class="muted">下载短表，一行一个商品。不是阿里后台那张 40 列表。</p>
       </button>
     </div>
+    <p class="path-pick muted">{{ pathHint }}</p>
 
     <!-- 有实拍 -->
     <template v-if="tab === 'single'">
@@ -131,8 +132,16 @@
       <FishboneSteps v-model="aiStep" :steps="aiSteps" :reached="aiReached" />
 
       <div v-if="aiStep === 0" class="step-panel">
-        <h3>写出品名</h3>
-        <p class="muted">没有实拍时，平台按国际站 6 个坑位画套图：白底主图、尺寸、细节、场景、外箱、OEM。生成图不是实拍。国际站按英文出图，商品上已有的印刷会保留，不会再叠中文或其他语言。</p>
+        <h3>写出品名和已知事实</h3>
+        <p class="muted">没有实拍时才走这里。平台按国际站画 6 张：白底主图、尺寸、细节、场景、外箱、OEM。生成图不是实拍，草稿会标黄。</p>
+        <el-alert
+          type="warning"
+          :closable="false"
+          show-icon
+          title="没写的数一律不画"
+          description="尺寸、装箱量、颜色、认证、配件只按你填的来。空着的项不会编 200mm、24 支/箱、CE 这类数字或标志。商品上已经印好的字会保留。"
+          style="margin: 12px 0"
+        />
         <el-form label-width="88px" style="max-width: 720px; margin-top: 12px">
           <el-form-item label="类目">
             <div>
@@ -160,8 +169,20 @@
           <el-form-item label="品名">
             <el-input v-model="aiForm.productName" placeholder="例如 油漆刷 / colored pencil set / taza de cerámica" />
           </el-form-item>
+          <el-form-item label="材质">
+            <el-input v-model="aiForm.material" placeholder="可选。例如 猪鬃、拉丝铁皮箍、哑光木柄。没写就不指定材质。" />
+          </el-form-item>
+          <el-form-item label="尺寸">
+            <el-input v-model="aiForm.size" placeholder="可选。例如 25cm。没写则尺寸图不加任何数字。" />
+          </el-form-item>
+          <el-form-item label="装箱量">
+            <el-input v-model="aiForm.packCount" placeholder="可选。例如 100 pcs / carton。没写则外箱不加数量。" />
+          </el-form-item>
+          <el-form-item label="颜色">
+            <el-input v-model="aiForm.colors" placeholder="可选。多个用逗号隔开。没写就不编色号。" />
+          </el-form-item>
           <el-form-item label="补充">
-            <el-input v-model="aiForm.note" type="textarea" :rows="2" placeholder="材质、色号、一盒几支、能否印 logo。中文也行，出图会译成英文。" />
+            <el-input v-model="aiForm.note" type="textarea" :rows="2" placeholder="只写你确定的事实。中文也行。不要写没核实的认证或数字。" />
           </el-form-item>
           <el-form-item label="参考图">
             <div>
@@ -261,7 +282,7 @@
 
       <div v-if="excelStep === 0" class="step-panel">
         <h3>这批货是哪一类</h3>
-        <p class="muted">整表共用一个类目。选错后面属性全废，所以这一步要人点一下，不能交给 AI。</p>
+        <p class="muted">一次上很多、每个价不一样时用这张短表。整表共用一个类目。选错后面属性全废，所以这一步要人点一下，不能交给 AI。</p>
         <div style="margin-top: 16px">
           <el-button @click="openCategory">{{ sheetPlan.category_name || "选择类目" }}</el-button>
           <p v-if="sheetPlan.ai_attrs?.length" class="muted" style="margin-top: 10px">
@@ -506,6 +527,10 @@ const imageJob = ref(null);
 const aiForm = reactive({
   familyId: "",
   productName: "",
+  material: "",
+  size: "",
+  packCount: "",
+  colors: "",
   note: "",
   referenceUrl: "",
   planning: false,
@@ -563,6 +588,15 @@ const percent = computed(() => {
   return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
 });
 const hasPhotos = computed(() => (photoMode.value === "single" ? files.value.length : batchFiles.value.length));
+const pathHint = computed(() => {
+  if (tab.value === "ai") {
+    return "没实拍才走这里。你写的材质、尺寸、装箱量会原样用；空着的项不会编。";
+  }
+  if (tab.value === "excel") {
+    return "几十上百个货、每个价不一样，用短表。一行一个商品，写多少就是多少。";
+  }
+  return "有实拍就走这条。单条直接传图；同一批很多货号，按文件名归组。";
+});
 const imagePercent = computed(() => {
   const total = imageJob.value?.total || 6;
   return Math.min(100, Math.round(((imageJob.value?.done || 0) / total) * 100));
@@ -614,7 +648,13 @@ async function startGenerate() {
     imageJob.value = await api.generateImages({
       family_id: aiForm.familyId,
       product_name: aiForm.productName,
+      material: aiForm.material,
       note: aiForm.note,
+      colors: aiForm.colors.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
+      specs: {
+        size: aiForm.size.trim(),
+        pack_count: aiForm.packCount.trim(),
+      },
       category_id: aiForm.categoryId,
       category_hint: aiForm.categoryName,
       reference_urls: aiForm.referenceUrl.trim() ? [aiForm.referenceUrl.trim()] : [],
@@ -914,6 +954,9 @@ async function poll() {
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 2px;
+}
+.path-pick {
+  margin: -8px 0 18px;
 }
 .slot-grid {
   display: grid;

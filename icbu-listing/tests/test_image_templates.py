@@ -86,7 +86,7 @@ class ImageTemplateTests(unittest.TestCase):
         self.assertIn("soft diffused studio lighting", main["prompt"].lower())
         self.assertIn("upper left", main["prompt"].lower())
         self.assertIn("commercial photograph", main["prompt"].lower())
-        self.assertLess(len(main["prompt"]), 700)
+        self.assertLess(len(main["prompt"]), 900)
         for slot in plan["slots"]:
             self.assertIn("basswood", slot["prompt"])
             self.assertIn("lighting:", slot["prompt"].lower())
@@ -97,7 +97,7 @@ class ImageTemplateTests(unittest.TestCase):
 
     def test_skill_hero_prompt_stays_short_and_white(self) -> None:
         prompt = assemble_prompt("main", product="paint brush", family_id="tools", material="bristle")
-        self.assertLess(len(prompt), 700)
+        self.assertLess(len(prompt), 900)
         self.assertIn("soft diffused studio lighting", prompt.lower())
         self.assertIn("paint brush", prompt)
         self.assertIn("bristle", prompt)
@@ -117,6 +117,25 @@ class ImageTemplateTests(unittest.TestCase):
             self.assertIn("wall paint brush", slot["prompt"])
             self.assertNotIn("油漆刷", slot["prompt"])
             self.assertNotIn("猪鬃", slot["prompt"])
+
+    def test_prompts_do_not_invent_size_or_pack_count(self) -> None:
+        bare = plan_stack(product_name="paint brush")
+        scale = next(item for item in bare["slots"] if item["id"] in {"scale", "size", "dimension"})
+        pack = next(item for item in bare["slots"] if item["id"] == "pack")
+        self.assertIn("do not print any numbers", scale["prompt"].lower())
+        self.assertNotIn("200mm", scale["prompt"])
+        self.assertIn("no pack count", pack["prompt"].lower())
+        self.assertIn("do not invent numbers", pack["prompt"].lower())
+        given = plan_stack(
+            product_name="paint brush",
+            material="hog bristle",
+            specs={"size": "25cm", "pack_count": "100 pcs / carton"},
+        )
+        scale_given = next(item for item in given["slots"] if item["id"] in {"scale", "size", "dimension"})
+        pack_given = next(item for item in given["slots"] if item["id"] == "pack")
+        self.assertIn("25cm", scale_given["prompt"])
+        self.assertIn("100 pcs / carton", pack_given["prompt"])
+        self.assertIn("hog bristle", given["slots"][0]["prompt"])
 
     def test_explicit_family_wins_over_keywords(self) -> None:
         plan = plan_stack(product_name="pencil", family_id="industrial")

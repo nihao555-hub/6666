@@ -30,11 +30,18 @@ class PlanIn(BaseModel):
     specs: dict[str, Any] = {}
     note: str = ""
     reference_urls: list[str] = []
+    size: str = ""
+    pack_count: str = ""
 
 
 def _plan(payload: PlanIn) -> dict[str, Any]:
     if not (payload.product_name or payload.category_hint or payload.note or payload.family_id):
         raise HTTPException(status_code=400, detail="先写品名、类目或选一个类目模板")
+    specs = dict(payload.specs or {})
+    if payload.size.strip():
+        specs["size"] = payload.size.strip()
+    if payload.pack_count.strip():
+        specs["pack_count"] = payload.pack_count.strip()
     return stacks.plan_stack(
         family_id=payload.family_id,
         product_name=payload.product_name,
@@ -44,7 +51,7 @@ def _plan(payload: PlanIn) -> dict[str, Any]:
         usage=payload.usage,
         audience=payload.audience,
         features=payload.features,
-        specs=payload.specs,
+        specs=specs,
         note=payload.note,
         reference_urls=payload.reference_urls,
     )
