@@ -19,7 +19,6 @@
         </template>
       </el-table-column>
       <el-table-column prop="subject" label="标题" min-width="320" show-overflow-tooltip />
-      <el-table-column prop="category_id" label="类目 ID" width="130" />
       <el-table-column prop="modified" label="更新时间" width="200" />
       <el-table-column label="用这条少填" width="280" align="right">
         <template #default="{ row }">
@@ -83,7 +82,7 @@ function onPage(value) {
 
 async function cloneRow(row) {
   if (!store.shopId || !row.category_id) {
-    ElMessage.warning("这条没有类目 ID，不能复制");
+    ElMessage.warning("这条没有类目，不能复制");
     return;
   }
   busy.value = row.id;

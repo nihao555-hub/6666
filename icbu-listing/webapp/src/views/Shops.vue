@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>店铺</h2>
-        <p class="muted">官方 OAuth 授权，只保存加密 token。每个店填一次默认值，后面不用再问。</p>
+        <p class="muted">跳转阿里官方页面授权。每个店填一次默认值，后面不用再问。</p>
       </div>
       <div>
         <el-button v-if="showDevBind" text @click="bindEnv">本地接入</el-button>
@@ -28,7 +28,7 @@
             <span class="record-mark">{{ (row.name || "店").slice(0, 1) }}</span>
             <div>
               <div>{{ row.name }}</div>
-              <div class="muted">{{ row.account || row.seller_id || "官方 OAuth" }}</div>
+              <div class="muted">{{ row.account || "已授权" }}</div>
             </div>
           </div>
         </template>
@@ -66,7 +66,7 @@
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
       <p class="muted" style="margin-bottom: 16px">
-        这些是后面成稿的依据，也是 5.0 分里交易/物流桶要用的。AI 不猜。填一次，每条商品自动套。
+        这些是后面成稿的依据。交易和物流信息 AI 不猜。填一次，每条商品自动套。
       </p>
       <el-form v-if="editing" v-loading="optionsLoading" label-width="110px">
         <el-form-item label="店铺名">
@@ -81,7 +81,7 @@
         </el-form-item>
 
         <p v-if="optionSource.category_name" class="muted" style="margin: 0 0 12px">
-          选项来自官方发布规则（{{ optionSource.category_name }}），不用自己记 ID。
+          选项来自官方发布规则（{{ optionSource.category_name }}），按官方选项选就行。
         </p>
 
         <el-form-item v-for="field in pickable" :key="field.key" :label="field.label">
@@ -110,7 +110,7 @@
         </el-form-item>
         <el-form-item label="发货期">
           <el-input v-model="editing.defaults.ladderPeriod" placeholder="15" />
-          <div class="muted" style="margin-top: 6px">天数。交易信息分要用，AI 不准编交期。</div>
+          <div class="muted" style="margin-top: 6px">天数。交期必须是你定的，AI 不准编。</div>
         </el-form-item>
         <el-form-item label="品牌">
           <el-input v-model="editing.defaults.brand" placeholder="没有就留空" />
@@ -137,7 +137,7 @@ const loading = ref(false);
 const saving = ref(false);
 const drawer = ref(false);
 const editing = ref(null);
-const showDevBind = ref(true);
+const showDevBind = ref(["localhost", "127.0.0.1"].includes(window.location.hostname));
 const oauthError = ref("");
 const optionsLoading = ref(false);
 const optionSource = ref({ category_name: "", fields: [] });

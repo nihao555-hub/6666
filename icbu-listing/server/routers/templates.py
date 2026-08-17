@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db, shop_for
-from ..models import Draft, Template, User
-from ..services import sources, templates as service
+from ..models import CategoryNode, Draft, Template, User
+from ..services import catalog, sources, templates as service
 from ..services.pipeline import status_of
 
 router = APIRouter(prefix="/api/v1", tags=["templates"])
@@ -47,10 +47,12 @@ def create_template(
     shop_for(db, user, payload.shop_id)
     if not payload.category_id:
         raise HTTPException(status_code=400, detail="模板必须绑一个叶子类目")
+    node = db.get(CategoryNode, payload.category_id)
+    category_label = catalog.label(node) if node is not None else ""
     row = Template(
         user_id=user.id,
         shop_id=payload.shop_id,
-        name=payload.name or f"类目 {payload.category_id}",
+        name=payload.name or category_label or "未命名模板",
         category_id=payload.category_id,
         values_json=json.dumps(payload.values, ensure_ascii=False),
     )

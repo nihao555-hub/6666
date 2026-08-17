@@ -29,9 +29,6 @@
         <template #default="{ row }">{{ row.shop_name || "—" }}</template>
       </el-table-column>
       <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip />
-      <el-table-column label="商品 ID" width="160">
-        <template #default="{ row }">{{ row.product_id || "—" }}</template>
-      </el-table-column>
       <el-table-column label="失败原因" min-width="280">
         <template #default="{ row }">
           <span v-if="!row.error" class="muted">—</span>
@@ -45,7 +42,11 @@
         </template>
       </el-table-column>
       <template #empty>
-        <div class="empty">还没有发布记录。</div>
+        <div class="empty">
+          <img class="empty-art" src="/art/empty-queue.png" alt="" />
+          <b>还没有发布记录</b>
+          草稿箱里绿的勾上，就会出现在这里。
+        </div>
       </template>
     </el-table>
   </div>

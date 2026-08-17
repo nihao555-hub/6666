@@ -79,7 +79,11 @@
         </template>
       </el-table-column>
       <template #empty>
-        <div class="empty">还没有草稿。去「投料」丢图即可。</div>
+        <div class="empty">
+          <img class="empty-art" src="/art/empty-drafts.png" alt="" />
+          <b>还没有草稿</b>
+          去「投料」丢图或传回表格即可。
+        </div>
       </template>
     </el-table>
   </div>

@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>投料</h2>
-        <p class="muted">你填的是依据。齐了之后 AI 推断其余字段，目标上架信息质量分 5.0。</p>
+        <p class="muted">你只出图、价格、起订量。其余由系统和 AI 补齐。</p>
       </div>
     </div>
 
@@ -13,386 +13,347 @@
       show-icon
       :closable="false"
       title="先授权一个店铺"
-      description="投料要用店铺 token 拉类目规则并上传图片银行。"
+      description="授权之后才能按这家店的规则成稿、把图传到店铺图库。"
       style="margin-bottom: 14px"
     />
 
     <div class="path-grid">
-      <div class="path-card" :class="{ 'is-active': tab === 'single' || tab === 'batch' }" @click="tab = 'single'">
+      <button class="path-card" :class="{ 'is-active': tab === 'single' }" @click="choose('single')">
         <small>最常见</small>
         <b>有实拍图</b>
-        <p class="muted">单条或按货号前缀批量。</p>
-      </div>
-      <div class="path-card" :class="{ 'is-active': tab === 'ai' }" @click="tab = 'ai'">
+        <p class="muted">单条或按货号批量。</p>
+      </button>
+      <button class="path-card" :class="{ 'is-active': tab === 'ai' }" @click="choose('ai')">
         <small>没图时</small>
         <b>先出套图提示词</b>
         <p class="muted">复制 6 条，自己生图后再投。</p>
-      </div>
-      <div class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="tab = 'excel'">
+      </button>
+      <button class="path-card" :class="{ 'is-active': tab === 'excel' }" @click="choose('excel')">
         <small>批量上品</small>
         <b>下载表格，填完传回</b>
-        <p class="muted">表在这里下。只填红线，其余交给 AI。</p>
-      </div>
+        <p class="muted">一行一个商品，一张表写多少就是多少。</p>
+      </button>
     </div>
 
-    <el-tabs v-model="tab" class="feed-tabs">
-      <el-tab-pane label="套图提示词" name="ai">
-        <div class="card">
-          <p class="muted" style="margin-bottom: 14px">
-            只要提示词。按类目出国际站 6 张位（白底主图、尺寸、细节、场景、外箱、OEM），
-            复制到你常用的生图模型。出图后再来「单条 / 批量」投料。
-          </p>
-          <el-form label-width="108px" style="max-width: 760px">
-            <el-form-item label="类目模板">
-              <el-select v-model="aiForm.familyId" placeholder="不选则按品名自动匹配" clearable style="width: 360px">
-                <el-option
-                  v-for="item in templates.families || []"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-                />
-              </el-select>
-              <div class="muted">{{ currentFamily?.why || "文具、五金、电子、服装等各有一套槽位。" }}</div>
-            </el-form-item>
-            <el-form-item label="品名 / 货">
-              <el-input v-model="aiForm.productName" placeholder="例如 colored pencil set / 油漆刷" />
-            </el-form-item>
-            <el-form-item label="补充">
-              <el-input
-                v-model="aiForm.note"
-                type="textarea"
-                :rows="2"
-                placeholder="材质、色号、一盒几支、能否印 logo。写上后提示词会锁这些事实。"
-              />
-            </el-form-item>
-            <el-button :loading="aiForm.planning" type="primary" @click="planStack">出 6 条提示词</el-button>
-          </el-form>
+    <!-- 有实拍 -->
+    <template v-if="tab === 'single'">
+      <FishboneSteps v-model="photoStep" :steps="photoSteps" :reached="photoReached" />
 
-          <div v-if="plan" class="stack">
-            <p>
-              套用「{{ plan.family.name }}」· {{ plan.family.alibaba_hint }}
-            </p>
-            <p class="muted">{{ plan.platform_note }}</p>
-            <el-button style="margin: 10px 0" @click="copyAll">复制全部提示词</el-button>
-            <div class="slot-grid">
-              <div v-for="slot in plan.slots" :key="slot.id" class="slot-card">
-                <div class="slot-head">
-                  <b>{{ slot.index }}. {{ slot.name }}</b>
-                  <el-tag size="small">{{ slot.layout }} {{ slot.layout_name }}</el-tag>
-                </div>
-                <p class="muted">买手看这张：{{ slot.buyer_job }}</p>
-                <pre class="prompt-body">{{ slot.prompt }}</pre>
-                <el-button size="small" @click="copyOne(slot)">复制这条</el-button>
-              </div>
-            </div>
-            <p class="muted">出图后去「单条上品」或「批量上品」把图投进来，后面类目和标题仍由 AI 填。</p>
+      <div v-if="photoStep === 0" class="step-panel">
+        <h3>上传产品图</h3>
+        <p class="muted">单条最多 6 张。批量时按货号命名，例如 SKU-1001_1.jpg，会自动归成同一个商品。</p>
+        <div class="toolbar" style="margin-top: 14px">
+          <el-radio-group v-model="photoMode">
+            <el-radio-button value="single">单条</el-radio-button>
+            <el-radio-button value="batch">按货号批量</el-radio-button>
+          </el-radio-group>
+        </div>
+        <el-upload
+          v-if="photoMode === 'single'"
+          v-model:file-list="files"
+          list-type="picture-card"
+          :auto-upload="false"
+          :limit="6"
+          accept="image/*"
+        >
+          <span style="font-size: 22px">+</span>
+        </el-upload>
+        <el-upload
+          v-else
+          v-model:file-list="batchFiles"
+          :auto-upload="false"
+          multiple
+          accept="image/*"
+          drag
+          style="width: 100%; margin-top: 8px"
+        >
+          <div style="padding: 26px 0">把整个文件夹的图拖进来</div>
+        </el-upload>
+        <div class="step-actions">
+          <el-button type="primary" :disabled="!hasPhotos" @click="advancePhoto(1)">下一步，填价格</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="photoStep === 1" class="step-panel">
+        <h3>填价格和起订量</h3>
+        <p class="muted">这两项是红线，AI 不会代填。批量时整批共用同一个价和起订量。</p>
+        <div class="prop-form" style="margin-top: 8px">
+          <div v-if="photoMode === 'single'" class="prop-row">
+            <label>货号</label>
+            <el-input v-model="form.sku" placeholder="留空则用图片文件名" />
+          </div>
+          <div class="prop-row">
+            <label>单价</label>
+            <el-input v-model="form.price" placeholder="12.50">
+              <template #append>USD</template>
+            </el-input>
+          </div>
+          <div class="prop-row">
+            <label>起订量</label>
+            <el-input v-model="form.moq" placeholder="100" />
+          </div>
+          <div v-if="photoMode === 'single'" class="prop-row">
+            <label>补充</label>
+            <el-input v-model="form.note" type="textarea" :rows="2" placeholder="可选。中文也行，例如：加厚款，可定制 logo" />
           </div>
         </div>
-      </el-tab-pane>
-      <el-tab-pane label="表格批量" name="excel">
-        <div class="card">
-          <p v-if="excel.style !== 'simple'" class="muted" style="margin-bottom: 10px">
-            正在用「{{ currentStyle?.label }}」。
-            <el-button text @click="useSimple">回到短表</el-button>
-          </p>
-          <div v-if="excel.style === 'simple'" class="simple-steps">
-            <p class="excel-lead">
-              表在这页下载。<b>一行一个商品，一张表写多少行就是多少个商品</b>，一次批量上品。
-              填写页只收依据：货号、价、起订量、图，品牌选填。
-              这些齐了，AI 按图和店铺默认推断标题、属性、详描、交易和物流，目标上架 5.0。
-              不是官方 40 列表，也不往表里加 Type / Color。
-            </p>
+        <div class="step-actions">
+          <el-button @click="photoStep = 0">上一步</el-button>
+          <el-button type="primary" :disabled="!form.price || !form.moq" @click="advancePhoto(2)">下一步，生成草稿</el-button>
+        </div>
+      </div>
 
-            <div class="policy-grid">
-              <section class="policy-card">
-                <small>你填</small>
-                <b>填写页就这几列</b>
-                <ul>
-                  <li v-for="item in policy.user_fills" :key="item.id">
-                    {{ item.label }}<span v-if="!item.required" class="muted"> 选填</span>
-                  </li>
-                </ul>
-              </section>
-              <section class="policy-card">
-                <small>AI 填</small>
-                <b>不要写进表</b>
-                <ul>
-                  <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
-                </ul>
-              </section>
-              <section class="policy-card is-redline">
-                <small>红线</small>
-                <b>不准交给 AI</b>
-                <ul>
-                  <li v-for="item in policy.redline" :key="item.id">
-                    <strong>{{ item.label }}</strong>
-                    <span class="muted"> {{ item.reason }}</span>
-                  </li>
-                </ul>
-              </section>
-            </div>
+      <div v-else class="step-panel">
+        <h3>生成草稿</h3>
+        <p class="muted">系统会看图、定类目、对齐属性、写英文标题。大约 20～40 秒一条。</p>
+        <div class="step-actions">
+          <el-button @click="photoStep = 1">上一步</el-button>
+          <el-button
+            type="primary"
+            :loading="loading"
+            :disabled="!store.shopId"
+            @click="photoMode === 'single' ? submitOne() : submitBatch()"
+          >
+            {{ photoMode === "single" ? "生成草稿" : "开始批量成稿" }}
+          </el-button>
+          <span v-if="loading" class="muted">正在成稿，可以先去干别的</span>
+        </div>
+        <div v-if="batch" style="margin-top: 18px">
+          <p>共 {{ batch.count }} 个商品，已完成 {{ progress.done }} 个。关掉页面也不影响。</p>
+          <el-progress :percentage="percent" :stroke-width="10" />
+          <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱</el-button>
+        </div>
+      </div>
+    </template>
 
-            <div class="prop-row">
-              <label>1. 这批货的类目</label>
-              <div>
-                <el-button @click="openCategory">{{ sheetPlan.category_name || "选择叶子类目" }}</el-button>
-                <p class="muted" style="margin-top: 6px">
-                  告诉系统按哪套官方规则补属性。类目是红线，整表选一次，不能让 AI 猜。
-                </p>
-                <p v-if="sheetPlan.ai_attrs?.length" class="muted" style="margin-top: 4px">
-                  选好后 AI 会补：{{ sheetPlan.ai_attrs.map((item) => item.header).join("、") }}。产地走店铺默认。
-                </p>
-              </div>
+    <!-- 套图提示词 -->
+    <template v-else-if="tab === 'ai'">
+      <FishboneSteps v-model="aiStep" :steps="aiSteps" :reached="aiReached" />
+
+      <div v-if="aiStep === 0" class="step-panel">
+        <h3>写出品名</h3>
+        <p class="muted">只出提示词，不代生图。按类目出国际站 6 张位：白底主图、尺寸、细节、场景、外箱、OEM。</p>
+        <el-form label-width="88px" style="max-width: 640px; margin-top: 12px">
+          <el-form-item label="类目">
+            <el-select v-model="aiForm.familyId" placeholder="不选则按品名自动匹配" clearable style="width: 320px">
+              <el-option v-for="item in templates.families || []" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="品名">
+            <el-input v-model="aiForm.productName" placeholder="例如 油漆刷 / colored pencil set" />
+          </el-form-item>
+          <el-form-item label="补充">
+            <el-input v-model="aiForm.note" type="textarea" :rows="2" placeholder="材质、色号、一盒几支、能否印 logo" />
+          </el-form-item>
+        </el-form>
+        <div class="step-actions">
+          <el-button type="primary" :loading="aiForm.planning" @click="planThenAdvance">出 6 条提示词</el-button>
+        </div>
+      </div>
+
+      <div v-else class="step-panel">
+        <h3>复制提示词去生图</h3>
+        <p class="muted">套用「{{ plan?.family?.name }}」。出图后再回到「有实拍图」投进来。</p>
+        <el-button style="margin: 10px 0" @click="copyAll">复制全部提示词</el-button>
+        <div class="slot-grid">
+          <div v-for="slot in plan?.slots || []" :key="slot.id" class="slot-card">
+            <div class="slot-head">
+              <b>{{ slot.index }}. {{ slot.name }}</b>
             </div>
-            <div class="prop-row">
-              <label>2. 下载表格</label>
-              <div>
-                <el-button type="primary" :disabled="!excel.categoryId" @click="downloadTemplate">下载填写表</el-button>
-                <p class="muted" style="margin-top: 6px">每批一张短表。类目写在「说明」页，填写页不加官方属性列。</p>
-              </div>
-            </div>
-            <div class="prop-row">
-              <label>3. 传回表格</label>
-              <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls" @change="onExcelPicked">
-                <el-button>选择填好的 xlsx</el-button>
-              </el-upload>
-            </div>
-            <div class="prop-row">
-              <label>4. 拖入图片</label>
-              <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*" drag>
-                <div style="padding: 18px 0">按货号命名，例如 SKU-1001_1.jpg。表里也可以填图片链接。</div>
-              </el-upload>
-            </div>
-            <div style="padding-top: 16px">
-              <el-button type="primary" :loading="excel.loading" :disabled="!excelFile.length || !store.shopId || !excel.categoryId" @click="importSimple">
-                批量成稿
-              </el-button>
-              <span v-if="excel.preview" class="muted" style="margin-left: 12px">
-                识别到 {{ excel.preview.row_count }} 个商品，可直接成稿 {{ excel.preview.ready_count }} 个
-              </span>
-            </div>
+            <p class="muted">买手看这张：{{ slot.buyer_job }}</p>
+            <pre class="prompt-body">{{ slot.prompt }}</pre>
+            <el-button size="small" @click="copyOne(slot)">复制这条</el-button>
           </div>
+        </div>
+        <div class="step-actions">
+          <el-button @click="aiStep = 0">上一步</el-button>
+          <el-button type="primary" @click="choose('single')">出图了，去投料</el-button>
+        </div>
+      </div>
+    </template>
 
-          <el-alert
-            v-for="warning in excel.preview?.warnings || []"
-            :key="warning"
-            type="warning"
-            :title="warning"
-            :closable="false"
-            style="margin: 12px 0 0"
-          />
-          <div v-if="excel.preview?.row_issues?.length" class="row-issues">
-            <b>成稿前先看这几行</b>
-            <p class="muted">红的会成红灯草稿，黄的只是提醒。改完表再传一次即可。</p>
+    <!-- 表格批量 -->
+    <template v-else>
+      <FishboneSteps v-model="excelStep" :steps="excelSteps" :reached="excelReached" />
+
+      <div v-if="excelStep === 0" class="step-panel">
+        <h3>这批货是哪一类</h3>
+        <p class="muted">整表共用一个类目。选错后面属性全废，所以这一步要人点一下，不能交给 AI。</p>
+        <div style="margin-top: 16px">
+          <el-button @click="openCategory">{{ sheetPlan.category_name || "选择类目" }}</el-button>
+          <p v-if="sheetPlan.ai_attrs?.length" class="muted" style="margin-top: 10px">
+            选好后，标题、关键词和 {{ sheetPlan.ai_attrs.map((item) => item.header).join("、") }} 都由 AI 补。
+          </p>
+        </div>
+        <div class="step-actions">
+          <el-button type="primary" :disabled="!excel.categoryId" @click="advanceExcel(1)">下一步，下载表格</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="excelStep === 1" class="step-panel">
+        <h3>下载填写表</h3>
+        <p class="muted">
+          一行一个商品。只填货号、单价、起订量、图片，品牌选填。
+          标题、类目属性、物流不要写进表。
+        </p>
+        <div class="policy-grid" style="margin-top: 16px">
+          <section class="policy-card">
+            <small>你填</small>
+            <b>就这几列</b>
             <ul>
-              <li v-for="(issue, index) in excel.preview.row_issues.slice(0, 12)" :key="index">
-                <span :class="['dot', issue.level]"></span>
-                第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
+              <li v-for="item in policy.user_fills" :key="item.id">
+                {{ item.label }}<span v-if="!item.required" class="muted"> 选填</span>
               </li>
             </ul>
-            <p v-if="excel.preview.row_issues.length > 12" class="muted">
-              还有 {{ excel.preview.row_issues.length - 12 }} 条同类问题。
-            </p>
-          </div>
-          <el-table
-            v-if="excel.preview?.rows_preview?.length"
-            :data="excel.preview.rows_preview"
-            size="small"
-            max-height="240"
-            style="margin-top: 14px"
+          </section>
+          <section class="policy-card">
+            <small>AI 填</small>
+            <b>不要写进表</b>
+            <ul>
+              <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
+            </ul>
+          </section>
+          <section class="policy-card is-redline">
+            <small>红线</small>
+            <b>不准交给 AI</b>
+            <ul>
+              <li v-for="item in policy.redline" :key="item.id">
+                <strong>{{ item.label }}</strong>
+              </li>
+            </ul>
+          </section>
+        </div>
+        <div class="step-actions">
+          <el-button @click="excelStep = 0">上一步</el-button>
+          <el-button type="primary" @click="downloadAndAdvance">下载填写表</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="excelStep === 2" class="step-panel">
+        <h3>填完传回来</h3>
+        <p class="muted">灰色那行是示例，导入时会自动跳过。从下一行开始写你的货。</p>
+        <el-upload
+          v-model:file-list="excelFile"
+          :auto-upload="false"
+          :limit="1"
+          accept=".xlsx,.xlsm,.xls"
+          drag
+          style="margin-top: 14px"
+          @change="onExcelPicked"
+        >
+          <div style="padding: 22px 0">把填好的表格拖到这里</div>
+        </el-upload>
+        <el-alert
+          v-for="warning in excel.preview?.warnings || []"
+          :key="warning"
+          type="warning"
+          :title="warning"
+          :closable="false"
+          style="margin: 12px 0 0"
+        />
+        <div v-if="excel.preview?.row_issues?.length" class="row-issues">
+          <b>成稿前先看这几行</b>
+          <p class="muted">红的要改完再传。黄的只是提醒。</p>
+          <ul>
+            <li v-for="(issue, index) in excel.preview.row_issues.slice(0, 12)" :key="index">
+              <span :class="['dot', issue.level]"></span>
+              第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
+            </li>
+          </ul>
+        </div>
+        <p v-if="excel.preview" class="muted" style="margin-top: 12px">
+          识别到 {{ excel.preview.row_count }} 个商品，其中 {{ excel.preview.ready_count }} 个可以直接成稿。
+        </p>
+        <div class="step-actions">
+          <el-button @click="excelStep = 1">上一步</el-button>
+          <el-button type="primary" :disabled="!excelFile.length" @click="advanceExcel(3)">下一步，配上图片</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="excelStep === 3" class="step-panel">
+        <h3>配上图片</h3>
+        <p class="muted">表里写了链接就不用再传。本地图按货号命名，例如 SKU-1001_1.jpg。</p>
+        <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*" drag style="margin-top: 14px">
+          <div style="padding: 22px 0">把图拖进来，或跳过这一步（表里已有链接）</div>
+        </el-upload>
+        <div class="step-actions">
+          <el-button @click="excelStep = 2">上一步</el-button>
+          <el-button type="primary" @click="advanceExcel(4)">下一步，开始成稿</el-button>
+        </div>
+      </div>
+
+      <div v-else class="step-panel">
+        <h3>开始成稿</h3>
+        <p class="muted">后台一条一条过。关掉页面也不影响，去草稿箱只审红黄项即可。</p>
+        <div class="step-actions">
+          <el-button @click="excelStep = 3">上一步</el-button>
+          <el-button
+            type="primary"
+            :loading="excel.loading"
+            :disabled="!excelFile.length || !store.shopId || !excel.categoryId"
+            @click="importSimple"
           >
-            <el-table-column
-              v-for="header in excel.preview.headers"
-              :key="header"
-              :prop="header"
-              :label="header"
-              min-width="120"
-              show-overflow-tooltip
-            />
-          </el-table>
-
-          <el-divider v-if="excel.batch" />
-          <div v-if="excel.batch">
-            <p>
-              批次 {{ excel.batch.batch_id.slice(0, 8) }}：共 {{ excel.batch.count }} 行，已成稿
-              {{ excelProgress.done }} 个。
-            </p>
-            <el-progress :percentage="excelPercent" :stroke-width="14" />
-            <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱审红黄项</el-button>
-          </div>
-
-          <details class="erp-more">
-            <summary>已有领星 / 店小秘 / 马帮 / 官方类目表</summary>
-            <el-radio-group v-model="excel.style" class="style-grid" @change="onStyleChange">
-              <el-radio-button v-for="item in otherStyles" :key="item.id" :value="item.id">
-                {{ item.label }}
-              </el-radio-button>
-            </el-radio-group>
-            <p class="muted" style="margin: 12px 0 16px">{{ currentStyle?.summary }}</p>
-            <el-form label-width="120px" style="max-width: 720px">
-              <el-form-item v-if="currentStyle?.needs_category" label="叶子类目 ID">
-                <el-input v-model="excel.categoryId" placeholder="例如 21111112" style="width: 320px" />
-              </el-form-item>
-              <el-form-item v-if="currentStyle?.needs_listing_template" label="刊登模板">
-                <el-select v-model="excel.listingTemplateId" placeholder="先选一个类目模板" style="width: 320px">
-                  <el-option
-                    v-for="item in listingTemplates"
-                    :key="item.id"
-                    :label="`${item.name} · ${item.category_id}`"
-                    :value="item.id"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="模板">
-                <el-button @click="downloadTemplate">下载 {{ currentStyle?.label || "" }} 模板</el-button>
-              </el-form-item>
-              <el-form-item label="填好的表格">
-                <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls">
-                  <el-button>选择 xlsx</el-button>
-                </el-upload>
-              </el-form-item>
-              <el-form-item label="配套图片">
-                <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*">
-                  <el-button>选择图片</el-button>
-                </el-upload>
-              </el-form-item>
-              <el-button :loading="excel.loading" :disabled="!excelFile.length" @click="previewExcel">探测表头</el-button>
-              <el-button type="primary" :loading="excel.loading" :disabled="!excel.preview" @click="importExcel">
-                确认导入
-              </el-button>
-            </el-form>
-            <el-table v-if="excel.style !== 'simple' && excel.preview" :data="mappingRows" size="small" style="max-width: 640px; margin-top: 12px">
-              <el-table-column prop="header" label="表格列" />
-              <el-table-column label="对到系统字段">
-                <template #default="{ row }">
-                  <el-select v-model="excel.mapping[row.header]" clearable placeholder="忽略这一列">
-                    <el-option v-for="field in excel.preview.fields" :key="field.id" :label="field.label" :value="field.id" />
-                  </el-select>
-                </template>
-              </el-table-column>
-            </el-table>
-          </details>
+            批量成稿
+          </el-button>
         </div>
-        <el-dialog v-model="categoryBrowser" title="选择叶子类目" width="640px">
-          <div class="muted" style="margin-bottom: 10px">
-            <span v-for="(node, index) in categoryPath" :key="node.category_id">
-              <el-link type="primary" @click="openCategoryNode(node.category_id)">{{ node.name }}</el-link>
-              <span v-if="index < categoryPath.length - 1"> / </span>
-            </span>
-            <el-link v-if="categoryPath.length" type="info" style="margin-left: 8px" @click="openCategoryNode('0')">回到顶层</el-link>
-          </div>
-          <el-table :data="categoryChildren" height="360" @row-click="(row) => openCategoryNode(row.category_id)">
-            <el-table-column label="类目" min-width="240">
-              <template #default="{ row }">
-                {{ row.label }}
-                <el-tag v-if="row.is_leaf" size="small" type="success" style="margin-left: 6px">可发布</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column width="110" align="right">
-              <template #default="{ row }">
-                <el-button v-if="row.is_leaf" text type="primary" @click.stop="pickCategory(row)">选这个</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-dialog>
-      </el-tab-pane>
-      <el-tab-pane label="有实拍 · 单条" name="single">
-        <div class="card">
-          <div class="toolbar" style="margin-top: 0">
-            <el-radio-group v-model="photoMode">
-              <el-radio-button value="single">单条</el-radio-button>
-              <el-radio-button value="batch">按货号批量</el-radio-button>
-            </el-radio-group>
-          </div>
-          <div v-if="photoMode === 'single'" class="prop-form">
-            <div class="prop-row">
-              <label>产品图</label>
-              <div>
-                <el-upload
-                  v-model:file-list="files"
-                  list-type="picture-card"
-                  :auto-upload="false"
-                  :limit="6"
-                  accept="image/*"
-                >
-                  <span style="font-size: 22px">+</span>
-                </el-upload>
-                <div class="muted">1～6 张。第一张作主图，会先进图片银行再发布。</div>
-              </div>
-            </div>
-            <div class="prop-row">
-              <label>货号</label>
-              <el-input v-model="form.sku" placeholder="留空则用图片文件名" />
-            </div>
-            <div class="prop-row">
-              <label>单价</label>
-              <el-input v-model="form.price" placeholder="12.50">
-                <template #append>USD</template>
-              </el-input>
-            </div>
-            <div class="prop-row">
-              <label>起订量</label>
-              <el-input v-model="form.moq" placeholder="100" />
-            </div>
-            <div class="prop-row">
-              <label>补充</label>
-              <el-input
-                v-model="form.note"
-                type="textarea"
-                :rows="2"
-                placeholder="可选。中文也行，例如：加厚款，可定制 logo"
+        <div v-if="excel.batch" style="margin-top: 18px">
+          <p>共 {{ excel.batch.count }} 个商品，已成稿 {{ excelProgress.done }} 个。</p>
+          <el-progress :percentage="excelPercent" :stroke-width="10" />
+          <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱审红黄项</el-button>
+        </div>
+      </div>
+
+      <details class="erp-more">
+        <summary>已有领星 / 店小秘 / 马帮的现成表</summary>
+        <el-radio-group v-model="excel.style" class="style-grid" @change="onStyleChange">
+          <el-radio-button v-for="item in otherStyles" :key="item.id" :value="item.id">
+            {{ item.label }}
+          </el-radio-button>
+        </el-radio-group>
+        <p class="muted" style="margin: 12px 0 16px">{{ currentStyle?.summary }}</p>
+        <el-form label-width="88px" style="max-width: 640px">
+          <el-form-item v-if="currentStyle?.needs_listing_template" label="刊登模板">
+            <el-select v-model="excel.listingTemplateId" placeholder="先选一个类目模板" style="width: 320px">
+              <el-option
+                v-for="item in listingTemplates"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
               />
-            </div>
-            <div style="padding-top: 16px">
-              <el-button type="primary" :loading="loading" :disabled="!store.shopId" @click="submitOne">
-                生成草稿
-              </el-button>
-              <span v-if="loading" class="muted" style="margin-left: 12px">
-                正在看图、定类目、拉规则、写文案，大约 20～40 秒
-              </span>
-            </div>
-          </div>
-          <div v-else>
-          <p class="muted" style="margin-bottom: 14px">
-            图片名以货号开头，<code>SKU-1001_1.jpg</code> 会自动归成同一个商品。
-          </p>
-          <el-form label-width="96px" style="max-width: 620px">
-            <el-form-item label="图片">
-              <el-upload
-                v-model:file-list="batchFiles"
-                :auto-upload="false"
-                multiple
-                accept="image/*"
-                drag
-                style="width: 100%"
-              >
-                <div style="padding: 26px 0">把整个文件夹的图拖进来</div>
-              </el-upload>
-            </el-form-item>
-            <el-form-item label="统一单价">
-              <el-input v-model="form.price" placeholder="12.50" />
-            </el-form-item>
-            <el-form-item label="统一起订量">
-              <el-input v-model="form.moq" placeholder="100" />
-            </el-form-item>
-            <el-button type="primary" :loading="loading" :disabled="!store.shopId" @click="submitBatch">
-              开始批量成稿
-            </el-button>
-          </el-form>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="模板">
+            <el-button @click="downloadTemplate">下载 {{ currentStyle?.label || "" }} 模板</el-button>
+          </el-form-item>
+          <el-form-item label="填好的表">
+            <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls">
+              <el-button>选择表格</el-button>
+            </el-upload>
+          </el-form-item>
+          <el-form-item label="配套图片">
+            <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*">
+              <el-button>选择图片</el-button>
+            </el-upload>
+          </el-form-item>
+          <el-button :loading="excel.loading" :disabled="!excelFile.length" @click="previewExcel">探测表头</el-button>
+          <el-button type="primary" :loading="excel.loading" :disabled="!excel.preview" @click="importExcel">
+            确认导入
+          </el-button>
+        </el-form>
+        <el-table v-if="excel.style !== 'simple' && excel.preview" :data="mappingRows" size="small" style="max-width: 640px; margin-top: 12px">
+          <el-table-column prop="header" label="表格列" />
+          <el-table-column label="对到">
+            <template #default="{ row }">
+              <el-select v-model="excel.mapping[row.header]" clearable placeholder="忽略这一列">
+                <el-option v-for="field in excel.preview.fields" :key="field.id" :label="field.label" :value="field.id" />
+              </el-select>
+            </template>
+          </el-table-column>
+        </el-table>
+      </details>
+    </template>
 
-          <el-divider v-if="batch" />
-          <div v-if="batch">
-            <p>
-              批次 {{ batch.batch_id.slice(0, 8) }}：共 {{ batch.count }} 个商品，已完成
-              {{ progress.done }} 个。可以直接去草稿箱，任务在后台继续跑。
-            </p>
-            <el-progress :percentage="percent" :stroke-width="14" />
-            <el-button style="margin-top: 12px" @click="$router.push('/drafts')">去草稿箱</el-button>
-          </div>
-          </div>
-        </div>
-      </el-tab-pane>
-    </el-tabs>
+    <CategoryPicker v-model="categoryBrowser" @pick="pickCategory" />
   </div>
 </template>
 
@@ -400,22 +361,42 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import CategoryPicker from "../components/CategoryPicker.vue";
+import FishboneSteps from "../components/FishboneSteps.vue";
 import { api } from "../api";
 import { store } from "../store";
 
 const router = useRouter();
 const route = useRoute();
-const tab = ref(route.query.tab === "excel" ? "excel" : route.query.tab === "ai" ? "ai" : route.query.tab === "batch" ? "single" : "single");
+const tab = ref(route.query.tab === "excel" ? "excel" : route.query.tab === "ai" ? "ai" : "single");
 const photoMode = ref(route.query.tab === "batch" ? "batch" : "single");
+const photoStep = ref(0);
+const photoReached = ref(0);
+const aiStep = ref(0);
+const aiReached = ref(0);
+const excelStep = ref(0);
+const excelReached = ref(0);
+
+const photoSteps = [
+  { key: "photos", label: "上传图片" },
+  { key: "price", label: "填价格" },
+  { key: "draft", label: "生成草稿" },
+];
+const aiSteps = [
+  { key: "name", label: "写出品名" },
+  { key: "copy", label: "复制提示词" },
+];
+const excelSteps = [
+  { key: "cat", label: "选类目" },
+  { key: "dl", label: "下载表格" },
+  { key: "up", label: "传回表格" },
+  { key: "img", label: "配上图片" },
+  { key: "go", label: "开始成稿" },
+];
+
 const templates = ref({ families: [], sources: [] });
 const plan = ref(null);
-const aiForm = reactive({
-  familyId: "",
-  productName: "",
-  note: "",
-  planning: false,
-});
-const currentFamily = computed(() => (templates.value.families || []).find((item) => item.id === aiForm.familyId));
+const aiForm = reactive({ familyId: "", productName: "", note: "", planning: false });
 const loading = ref(false);
 const files = ref([]);
 const batchFiles = ref([]);
@@ -438,8 +419,6 @@ const excel = reactive({
 });
 const sheetPlan = ref({ user_fills: [], ai_fills: [], redline: [], ai_attrs: [], category_name: "" });
 const categoryBrowser = ref(false);
-const categoryChildren = ref([]);
-const categoryPath = ref([]);
 const excelProgress = ref({ done: 0 });
 let timer = null;
 let excelTimer = null;
@@ -447,21 +426,34 @@ let excelTimer = null;
 const currentStyle = computed(() => styles.value.find((item) => item.id === excel.style));
 const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple"));
 const policy = computed(() => ({
-  user_fills: sheetPlan.value.user_fills?.length
-    ? sheetPlan.value.user_fills
-    : currentStyle.value?.policy?.user_fills || [],
-  ai_fills: sheetPlan.value.ai_fills?.length
-    ? sheetPlan.value.ai_fills
-    : currentStyle.value?.policy?.ai_fills || [],
-  redline: sheetPlan.value.redline?.length
-    ? sheetPlan.value.redline
-    : currentStyle.value?.policy?.redline || [],
+  user_fills: sheetPlan.value.user_fills?.length ? sheetPlan.value.user_fills : currentStyle.value?.policy?.user_fills || [],
+  ai_fills: sheetPlan.value.ai_fills?.length ? sheetPlan.value.ai_fills : currentStyle.value?.policy?.ai_fills || [],
+  redline: sheetPlan.value.redline?.length ? sheetPlan.value.redline : currentStyle.value?.policy?.redline || [],
 }));
 const mappingRows = computed(() => (excel.preview?.headers || []).map((header) => ({ header })));
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
   return Math.min(100, Math.round((excelProgress.value.done / excel.batch.count) * 100));
 });
+const percent = computed(() => {
+  if (!batch.value?.count) return 0;
+  return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
+});
+const hasPhotos = computed(() => (photoMode.value === "single" ? files.value.length : batchFiles.value.length));
+
+function choose(next) {
+  tab.value = next;
+}
+
+function advancePhoto(index) {
+  photoReached.value = Math.max(photoReached.value, index);
+  photoStep.value = index;
+}
+
+function advanceExcel(index) {
+  excelReached.value = Math.max(excelReached.value, index);
+  excelStep.value = index;
+}
 
 onMounted(async () => {
   try {
@@ -470,14 +462,23 @@ onMounted(async () => {
     templates.value = await api.imageTemplates();
     onStyleChange();
     await loadSheetPlan();
+    if (excel.categoryId) excelReached.value = Math.max(excelReached.value, 1);
   } catch (error) {
     ElMessage.error(error.message);
   }
 });
 
+async function planThenAdvance() {
+  await planStack();
+  if (plan.value) {
+    aiReached.value = 1;
+    aiStep.value = 1;
+  }
+}
+
 async function planStack() {
   if (!aiForm.productName && !aiForm.note && !aiForm.familyId) {
-    ElMessage.warning("先写品名，或选一个类目模板");
+    ElMessage.warning("先写品名，或选一个类目");
     return;
   }
   aiForm.planning = true;
@@ -488,7 +489,7 @@ async function planStack() {
       note: aiForm.note,
     });
     aiForm.familyId = plan.value.family.id;
-    ElMessage.success(`已套「${plan.value.family.name}」6 条提示词`);
+    ElMessage.success(`已套「${plan.value.family.name}」`);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -510,24 +511,13 @@ function copyOne(slot) {
 }
 
 function copyAll() {
-  const text = (plan.value?.slots || [])
-    .map((slot) => `# ${slot.index}. ${slot.name}\n${slot.prompt}`)
-    .join("\n\n");
+  const text = (plan.value?.slots || []).map((slot) => `# ${slot.index}. ${slot.name}\n${slot.prompt}`).join("\n\n");
   copyText(text, "6 条提示词已复制");
-}
-
-function styleLabel(id) {
-  return styles.value.find((item) => item.id === id)?.label || id;
 }
 
 function onStyleChange() {
   excel.createDrafts = Boolean(currentStyle.value?.create_drafts_default);
   excel.preview = null;
-}
-
-function useSimple() {
-  excel.style = "simple";
-  onStyleChange();
 }
 
 async function onExcelPicked() {
@@ -538,12 +528,8 @@ async function onExcelPicked() {
 
 async function importSimple() {
   excel.createDrafts = true;
-  if (!excel.preview) {
-    await previewExcel();
-  }
-  if (excel.preview) {
-    await importExcel();
-  }
+  if (!excel.preview) await previewExcel();
+  if (excel.preview) await importExcel();
 }
 
 async function loadSheetPlan() {
@@ -553,27 +539,20 @@ async function loadSheetPlan() {
   });
 }
 
-async function openCategory() {
+function openCategory() {
   if (!store.shopId) {
     ElMessage.warning("先授权一个店铺");
     return;
   }
   categoryBrowser.value = true;
-  await openCategoryNode("0");
-}
-
-async function openCategoryNode(parent) {
-  const data = await api.categories(store.shopId, parent);
-  categoryChildren.value = data.children || [];
-  categoryPath.value = data.path || [];
 }
 
 async function pickCategory(node) {
   excel.categoryId = node.category_id;
-  categoryBrowser.value = false;
   try {
     await loadSheetPlan();
     ElMessage.success(`已选「${sheetPlan.value.category_name || node.label}」`);
+    advanceExcel(1);
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -584,6 +563,11 @@ function downloadTemplate() {
     categoryId: excel.categoryId,
     shopId: store.shopId,
   });
+}
+
+function downloadAndAdvance() {
+  downloadTemplate();
+  advanceExcel(2);
 }
 
 async function previewExcel() {
@@ -600,7 +584,7 @@ async function previewExcel() {
   try {
     excel.preview = await api.excelPreview(body);
     excel.mapping = { ...(excel.preview.mapping || {}) };
-    ElMessage.success(`探测到 ${excel.preview.row_count} 个商品`);
+    ElMessage.success(`识别到 ${excel.preview.row_count} 个商品`);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -625,7 +609,7 @@ async function importExcel() {
     excelProgress.value = { done: 0 };
     clearInterval(excelTimer);
     excelTimer = setInterval(pollExcel, 3000);
-    ElMessage.success(`已接收 ${excel.batch.count} 行，后台在入库`);
+    ElMessage.success(`已接收 ${excel.batch.count} 个商品，后台在成稿`);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -642,11 +626,6 @@ async function pollExcel() {
     clearInterval(excelTimer);
   }
 }
-
-const percent = computed(() => {
-  if (!batch.value?.count) return 0;
-  return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
-});
 
 onUnmounted(() => {
   clearInterval(timer);
@@ -665,7 +644,6 @@ async function submitOne() {
   body.append("moq", form.moq);
   body.append("note", form.note);
   files.value.forEach((item) => item.raw && body.append("files", item.raw));
-
   loading.value = true;
   try {
     const draft = await api.feed(body);
@@ -688,7 +666,6 @@ async function submitBatch() {
   body.append("price", form.price);
   body.append("moq", form.moq);
   batchFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
-
   loading.value = true;
   try {
     batch.value = await api.feedBatch(body);
@@ -715,16 +692,42 @@ async function poll() {
 </script>
 
 <style scoped>
-.feed-tabs :deep(.el-tabs__header) {
-  display: none;
-}
-.style-grid {
-  display: flex;
-  flex-wrap: wrap;
+.path-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  margin-bottom: 18px;
 }
-.stack {
-  margin-top: 22px;
+.path-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.path-card:hover {
+  background: var(--gray2);
+}
+.path-card.is-active {
+  background: var(--accent-wash);
+  border-color: var(--accent-line);
+}
+.path-card small {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.path-card b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 .slot-grid {
   display: grid;
@@ -733,10 +736,9 @@ async function poll() {
   margin: 14px 0;
 }
 .slot-card {
-  border: 1px solid #e6e9ef;
-  border-radius: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   padding: 12px;
-  background: #fff;
 }
 .slot-head {
   display: flex;
@@ -752,13 +754,10 @@ async function poll() {
   max-height: 160px;
   overflow: auto;
   margin: 8px 0;
-  color: #4b5563;
-  background: #f4f6f9;
+  color: var(--ink-2);
+  background: var(--gray3);
   padding: 8px;
-  border-radius: 6px;
-}
-.stack a {
-  margin-right: 10px;
+  border-radius: var(--radius-sm);
 }
 .erp-more {
   margin-top: 22px;
@@ -769,17 +768,17 @@ async function poll() {
   cursor: pointer;
   margin-bottom: 12px;
 }
-.excel-lead {
-  margin: 0 0 16px;
-  color: var(--ink-2);
-  max-width: 720px;
+.style-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .row-issues {
   margin-top: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 12px 14px;
-  background: var(--fill);
+  background: var(--gray3);
 }
 .row-issues ul {
   margin: 8px 0 0;
@@ -794,28 +793,28 @@ async function poll() {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 20px;
 }
 .policy-card {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--fill);
+  background: var(--gray3);
   padding: 12px 14px;
 }
 .policy-card.is-redline {
   background: var(--red-soft);
-  border-color: #efd8d5;
+  border-color: var(--red-line);
 }
 .policy-card small {
   display: block;
   color: var(--muted);
   font-size: 11px;
+  font-weight: 600;
   margin-bottom: 4px;
 }
 .policy-card b {
   display: block;
   margin-bottom: 8px;
-  font-weight: 550;
+  font-weight: 600;
 }
 .policy-card ul {
   margin: 0;
@@ -826,6 +825,7 @@ async function poll() {
   margin-top: 4px;
 }
 @media (max-width: 900px) {
+  .path-grid,
   .policy-grid {
     grid-template-columns: 1fr;
   }

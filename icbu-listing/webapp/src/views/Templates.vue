@@ -11,11 +11,8 @@
     <div class="advanced-note">这页不在日常导航里。店铺默认值已经覆盖大多数字段。</div>
     <el-table :data="rows" v-loading="loading">
       <el-table-column prop="name" label="名称" min-width="180" />
-      <el-table-column prop="category_id" label="类目 ID" width="140" />
-      <el-table-column label="固化字段" min-width="280">
-        <template #default="{ row }">
-          <span class="muted">{{ Object.keys(row.values || {}).join("、") || "还没有字段" }}</span>
-        </template>
+      <el-table-column label="类目" min-width="220">
+        <template #default="{ row }">{{ row.category_name || "类目待定" }}</template>
       </el-table-column>
       <el-table-column label="操作" width="160" align="right">
         <template #default="{ row }">
@@ -29,32 +26,28 @@
     </el-table>
 
     <el-drawer v-model="drawer" :title="form.id ? '编辑模板' : '新建模板'" size="460px">
-      <el-form label-width="100px">
+      <el-form v-loading="optionsLoading" label-width="100px">
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="叶子类目 ID">
-          <el-input v-model="form.category_id" placeholder="从草稿箱类目名后面抄，例如 21111112" />
-          <div class="muted">必须是叶子类目。成稿后草稿上会带这个 ID，抄过来即可。</div>
+        <el-form-item label="类目">
+          <el-button @click="browser = true">{{ form.category_name || "选择类目" }}</el-button>
         </el-form-item>
-        <el-form-item label="产地"><el-input v-model="form.values.origin" /></el-form-item>
-        <el-form-item label="计量单位"><el-input v-model="form.values.priceUnit" placeholder="Piece/Pieces" /></el-form-item>
-        <el-form-item label="物流属性"><el-input v-model="form.values.logisticsProperty" placeholder="普货" /></el-form-item>
-        <el-form-item label="样品">
-          <el-select v-model="form.values.marketSample">
-            <el-option label="不提供" value="Unavailable" />
-            <el-option label="提供" value="Available (recommended)" />
+        <el-form-item v-for="field in pickable" :key="field.key" :label="field.label">
+          <el-select v-model="form.values[field.key]" :multiple="field.multiple" filterable clearable style="width: 100%">
+            <el-option v-for="option in field.options" :key="option.value" :label="option.label" :value="option.value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="运费模板 ID"><el-input v-model="form.values.shippingTemplateId" /></el-form-item>
         <el-form-item label="包装重量"><el-input v-model="form.values.pkgWeight" /></el-form-item>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!form.category_id" @click="save">保存</el-button>
       </el-form>
     </el-drawer>
+    <CategoryPicker v-model="browser" @pick="onCategory" />
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
+import CategoryPicker from "../components/CategoryPicker.vue";
 import { api } from "../api";
 import { store } from "../store";
 
@@ -62,12 +55,18 @@ const rows = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const drawer = ref(false);
+const browser = ref(false);
+const optionsLoading = ref(false);
+const optionFields = ref([]);
 const form = reactive({
   id: "",
   name: "",
   category_id: "",
-  values: { origin: "China", priceUnit: "Piece/Pieces", logisticsProperty: "普货", marketSample: "Unavailable" },
+  category_name: "",
+  values: {},
 });
+
+const pickable = computed(() => optionFields.value.filter((item) => item.kind === "select"));
 
 async function reload() {
   if (!store.shopId) {
@@ -91,7 +90,9 @@ function openNew() {
   form.id = "";
   form.name = "";
   form.category_id = "";
-  form.values = { origin: "China", priceUnit: "Piece/Pieces", logisticsProperty: "普货", marketSample: "Unavailable" };
+  form.category_name = "";
+  form.values = {};
+  optionFields.value = [];
   drawer.value = true;
 }
 
@@ -99,8 +100,35 @@ function edit(row) {
   form.id = row.id;
   form.name = row.name;
   form.category_id = row.category_id;
+  form.category_name = row.category_name || row.name;
   form.values = { ...row.values };
   drawer.value = true;
+  loadOptions(row.category_id);
+}
+
+async function onCategory(node) {
+  form.category_id = node.category_id;
+  form.category_name = node.label;
+  if (!form.name) form.name = node.label;
+  await loadOptions(node.category_id);
+}
+
+async function loadOptions(categoryId) {
+  if (!store.shopId || !categoryId) return;
+  optionsLoading.value = true;
+  try {
+    const data = await api.shopDefaultOptions(store.shopId, categoryId);
+    optionFields.value = data.fields || [];
+    for (const field of pickable.value) {
+      if (form.values[field.key] == null || form.values[field.key] === "") {
+        form.values[field.key] = field.value;
+      }
+    }
+  } catch (error) {
+    ElMessage.warning(error.message);
+  } finally {
+    optionsLoading.value = false;
+  }
 }
 
 async function save() {

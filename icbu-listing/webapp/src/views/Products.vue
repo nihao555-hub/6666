@@ -50,7 +50,9 @@
       </el-table-column>
       <template #empty>
         <div class="empty">
-          还没有商品。点「入库新商品」，或去投料页拖图——投料也会自动进商品库。
+          <img class="empty-art" src="/art/empty-drafts.png" alt="" />
+          <b>还没有商品</b>
+          点「入库新商品」，或去投料页拖图。
         </div>
       </template>
     </el-table>
@@ -77,7 +79,7 @@
 
     <el-dialog v-model="distributing" title="铺到哪些店铺" width="520px">
       <p class="muted" style="margin-bottom: 12px">
-        {{ selected.length }} 个商品 × 选中的店铺。每个店会各自上传图片银行、各自成稿。
+        {{ selected.length }} 个商品 × 选中的店铺。每个店会各自传到店铺图库、各自成稿。
         勾选「差异化文案」后，第二家店起会换一个卖点角度，降低重铺风险。
       </p>
       <el-checkbox-group v-model="shopIds">

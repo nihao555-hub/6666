@@ -21,7 +21,7 @@
           {{ mode === "login" ? "还没有账号？用注册码开通" : "已经有账号，去登录" }}
         </el-button>
       </el-form>
-      <p class="muted auth-note">官方 OAuth 授权，不收集店铺密码</p>
+      <p class="muted auth-note">跳转阿里官方页面授权，不收集店铺密码</p>
     </div>
   </div>
 </template>
@@ -62,18 +62,22 @@ async function submit() {
   min-height: 100%;
   display: grid;
   place-items: center;
-  background: #f3f3f2;
+  background: var(--shell);
 }
 
 .auth-card {
   width: 360px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--line-medium);
+  padding: 28px 28px 24px;
 }
 
 .auth-card h2 {
   margin: 28px 0 6px;
-  font-size: 26px;
-  font-weight: 550;
-  letter-spacing: -0.03em;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .auth-card :deep(.el-form) {
@@ -82,8 +86,7 @@ async function submit() {
 
 .auth-card :deep(.el-input__wrapper),
 .auth-card :deep(.el-textarea__inner) {
-  background: #f1f1f1 !important;
-  box-shadow: none !important;
+  background: var(--alpha-lighter) !important;
 }
 
 .auth-note {

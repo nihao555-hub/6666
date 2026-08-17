@@ -2,11 +2,11 @@
   <div class="page" v-loading="loading">
     <div class="page-head">
       <div>
-        <h2>审稿 · {{ draft.sku || draft.id?.slice(0, 8) }}</h2>
+        <h2>审稿 · {{ draft.sku || draft.title || "未命名" }}</h2>
         <p class="muted">
-          只有红黄项需要你动手。预估信息质量分
+          只有红黄项需要你动手。预估质量
           <b>{{ draft.quality?.score ?? "—" }}</b> / 5.0
-          <span v-if="draft.quality?.ready">，可以按 5.0 发。</span>
+          <span v-if="draft.quality?.ready">，可以发。</span>
         </p>
       </div>
       <div>
@@ -65,58 +65,33 @@
             <el-form-item label="英文标题">
               <el-input v-model="title" type="textarea" :rows="2" />
               <div class="muted">
-                {{ titleBytes }} / 128 字节。
-                <el-tag v-if="sourceOf('productTitle')" size="small" :type="sourceType('productTitle')" style="margin-left: 6px">
-                  {{ sourceOf('productTitle').label }}
-                </el-tag>
+                {{ titleTooLong ? "标题偏长，发布时可能被拒。" : "手改过的不会被重新成稿盖掉。" }}
+                <span v-if="sourceOf('productTitle')" class="status-pill" style="margin-left: 6px">{{ sourceOf('productTitle').label }}</span>
               </div>
             </el-form-item>
             <el-form-item label="关键词">
-              <el-input v-model="keywords" placeholder="用逗号分隔" />
-              <el-tag v-if="sourceOf('productKeywords')" size="small" :type="sourceType('productKeywords')" style="margin-top: 6px">
-                {{ sourceOf('productKeywords').label }}
-              </el-tag>
+              <el-input v-model="keywords" placeholder="用逗号分隔，最多 3 个" />
             </el-form-item>
             <el-form-item label="卖点描述">
               <el-input v-model="highlights" type="textarea" :rows="4" />
             </el-form-item>
             <el-form-item label="单价">
               <el-input v-model="price" style="width: 200px" />
-              <el-tag v-if="sourceOf('ladderPrice')" size="small" :type="sourceType('ladderPrice')" style="margin-left: 8px">
-                {{ sourceOf('ladderPrice').label }}
-              </el-tag>
             </el-form-item>
             <el-form-item label="起订量">
               <el-input v-model="moq" style="width: 200px" />
-              <el-tag v-if="sourceOf('minOrderQuantity')" size="small" :type="sourceType('minOrderQuantity')" style="margin-left: 8px">
-                {{ sourceOf('minOrderQuantity').label }}
-              </el-tag>
             </el-form-item>
             <el-button type="primary" :loading="saving" @click="save">保存</el-button>
           </el-form>
         </div>
 
-        <div class="card">
-          <el-collapse>
-            <el-collapse-item title="系统已经填好的字段（按官方 schema 校验通过）" name="values">
-              <el-descriptions :column="1" border size="small">
-                <el-descriptions-item v-for="(value, key) in flatValues" :key="key" :label="key">
-                  {{ value }}
-                </el-descriptions-item>
-              </el-descriptions>
-            </el-collapse-item>
-            <el-collapse-item title="AI 看图识别结果" name="ai">
-              <pre class="raw">{{ JSON.stringify(draft.ai?.understanding || {}, null, 2) }}</pre>
-            </el-collapse-item>
-          </el-collapse>
-        </div>
       </el-col>
 
       <el-col :span="8">
         <div class="card">
           <h3>类目</h3>
           <p style="margin: 8px 0 4px">{{ draft.category_name || "待定" }}</p>
-          <span class="muted">ID {{ draft.category_id || "—" }} · 置信度 {{ percent }}</span>
+          <span class="muted">{{ percent }} 确定</span>
           <div style="margin-top: 10px">
             <el-button size="small" @click="browser = true">改类目</el-button>
             <el-button size="small" :loading="saving" @click="regenerate">按当前类目重新成稿</el-button>
@@ -125,7 +100,7 @@
         </div>
 
         <div class="card">
-          <h3>图片（已进图片银行）</h3>
+          <h3>产品图</h3>
           <div class="thumbs">
             <img v-for="image in draft.images || []" :key="image.file_id" :src="image.preview" class="thumb big" />
           </div>
@@ -133,28 +108,7 @@
       </el-col>
     </el-row>
 
-    <el-dialog v-model="browser" title="选择类目" width="640px">
-      <div class="muted" style="margin-bottom: 10px">
-        <span v-for="(node, index) in path" :key="node.category_id">
-          <el-link type="primary" @click="openNode(node.category_id)">{{ node.name }}</el-link>
-          <span v-if="index < path.length - 1"> / </span>
-        </span>
-        <el-link v-if="path.length" type="info" style="margin-left: 8px" @click="openNode('0')">回到顶层</el-link>
-      </div>
-      <el-table :data="children" height="360" @row-click="(row) => openNode(row.category_id)">
-        <el-table-column label="类目" min-width="240">
-          <template #default="{ row }">
-            {{ row.label }}
-            <el-tag v-if="row.is_leaf" size="small" type="success" style="margin-left: 6px">可发布</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column width="110" align="right">
-          <template #default="{ row }">
-            <el-button v-if="row.is_leaf" text type="primary" @click.stop="pickCategory(row)">选这个</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
+    <CategoryPicker v-model="browser" @pick="pickCategory" />
   </div>
 </template>
 
@@ -162,8 +116,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import CategoryPicker from "../components/CategoryPicker.vue";
 import { api } from "../api";
-import { store } from "../store";
 
 const route = useRoute();
 const router = useRouter();
@@ -172,8 +126,6 @@ const loading = ref(false);
 const saving = ref(false);
 const publishing = ref(false);
 const browser = ref(false);
-const children = ref([]);
-const path = ref([]);
 const attrFix = ref({});
 const categoryChoice = ref("");
 
@@ -186,33 +138,11 @@ const moq = ref("");
 const issues = computed(() => draft.value.issues || []);
 const hasRed = computed(() => issues.value.some((item) => item.level === "red"));
 const percent = computed(() => `${Math.round((draft.value.category_confidence || 0) * 100)}%`);
-const titleBytes = computed(() => new TextEncoder().encode(title.value || "").length);
+const titleTooLong = computed(() => new TextEncoder().encode(title.value || "").length > 128);
 
 function sourceOf(key) {
   return draft.value.sources?.[key] || null;
 }
-
-function sourceType(key) {
-  const origin = sourceOf(key)?.origin;
-  return { user: "danger", excel: "warning", ai: "success", template: "info", shop: "", system: "info" }[origin] || "info";
-}
-
-const flatValues = computed(() => {
-  const output = {};
-  const walk = (value, prefix) => {
-    if (value && typeof value === "object" && !Array.isArray(value) && !("$value" in value)) {
-      Object.entries(value).forEach(([key, item]) => walk(item, prefix ? `${prefix}.${key}` : key));
-    } else if (Array.isArray(value)) {
-      output[prefix] = JSON.stringify(value).slice(0, 120);
-    } else if (value && typeof value === "object") {
-      output[prefix] = String(value.$value);
-    } else {
-      output[prefix] = String(value);
-    }
-  };
-  walk(draft.value.values || {}, "");
-  return output;
-});
 
 async function load() {
   loading.value = true;
@@ -231,10 +161,7 @@ async function load() {
   }
 }
 
-onMounted(async () => {
-  await load();
-  await openNode("0");
-});
+onMounted(load);
 
 async function save() {
   saving.value = true;
@@ -265,17 +192,6 @@ async function fixAttribute(issue, value) {
   values[group] = { ...(values[group] || {}), [issue.field_id]: value };
   draft.value = await api.patchDraft(draft.value.id, { values });
   ElMessage.success(`${issue.field_name} 已确认`);
-}
-
-async function openNode(parent) {
-  if (!store.shopId) return;
-  try {
-    const data = await api.categories(store.shopId, parent);
-    children.value = data.children;
-    path.value = data.path;
-  } catch (error) {
-    ElMessage.error(error.message);
-  }
 }
 
 async function pickCategory(node) {
@@ -317,7 +233,7 @@ async function publish() {
   try {
     const job = await api.publishDraft(draft.value.id);
     if (job.status === "success") {
-      ElMessage.success(`发布成功，商品 ID ${job.product_id || "已进草稿箱"}`);
+      ElMessage.success(job.product_id ? "已发布到国际站" : "已发到官方草稿箱");
       router.push("/queue");
     } else {
       ElMessage.error(job.error || "发布失败");
@@ -364,14 +280,5 @@ async function publish() {
 .thumb.big {
   width: 78px;
   height: 78px;
-}
-
-.raw {
-  max-height: 320px;
-  overflow: auto;
-  background: #f7f8fa;
-  padding: 12px;
-  border-radius: 6px;
-  font-size: 12px;
 }
 </style>

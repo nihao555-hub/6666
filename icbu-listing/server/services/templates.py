@@ -17,9 +17,10 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
-from ..models import Template
+from ..models import CategoryNode, Template
+from . import catalog
 
 PROTECTED = {
     "productTitle",
@@ -80,11 +81,18 @@ def apply_to_values(db: Session, shop_id: str, category_id: str, values: Mapping
 
 
 def as_dict(template: Template) -> dict[str, Any]:
+    category_name = ""
+    session = object_session(template)
+    if session is not None and template.category_id:
+        node = session.get(CategoryNode, template.category_id)
+        if node is not None:
+            category_name = catalog.label(node)
     return {
         "id": template.id,
         "shop_id": template.shop_id,
         "name": template.name,
         "category_id": template.category_id,
+        "category_name": category_name,
         "values": values_of(template),
         "is_auto": template.is_auto,
         "created_at": template.created_at.isoformat(),
