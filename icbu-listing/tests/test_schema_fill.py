@@ -80,6 +80,26 @@ class MockAi:
     def chat_json(self, messages: list[dict[str, Any]], temperature: float = 0.0) -> dict[str, Any]:
         return {"p-77": "matte", "p-9": "colored"}
 
+    def map_attributes(self, *, images, facts, attributes) -> dict[str, str]:
+        return {"p-88": "Snap"}
+
+
+DUAL_SIDE_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<itemSchema>
+  <field id="icbuCatProp" name="Product feature" type="complex">
+    <fields>
+      <field id="p-200001254" name="Dual-side Writing" type="singleCheck">
+        <rules><rule name="requiredRule" value="true"/></rules>
+        <options>
+          <option displayName="No" value="1954507641"/>
+          <option displayName="Yes" value="1954509723"/>
+        </options>
+      </field>
+    </fields>
+  </field>
+</itemSchema>
+"""
+
 
 class SchemaFillTests(unittest.TestCase):
     def test_local_origin_from_bundle_without_ai(self) -> None:
@@ -204,6 +224,45 @@ class SchemaFillTests(unittest.TestCase):
         result = FillResult()
         values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
         self.assertEqual(values.get("p-3"), "GP-100")
+
+    def test_dual_tip_fills_dual_side_writing_without_ai(self) -> None:
+        fields = parse_schema(DUAL_SIDE_SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(
+            name="双头美术马克笔24色",
+            note="alcohol based; dual tip fine and chisel",
+            specs={"tip": "Dual tip", "color_count": "24"},
+        )
+        u = bundle.enrich(Understanding(product_name="双头美术马克笔24色"))
+        result = FillResult()
+        values = align_attributes(group, u, {}, None, bundle, result)
+        self.assertEqual(values.get("p-200001254"), "1954509723")
+        self.assertEqual(result.stats.ai_calls, 0)
+
+    def test_ai_trusts_valid_option_without_verbatim_corpus(self) -> None:
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<itemSchema>
+  <field id="icbuCatProp" name="Product feature" type="complex">
+    <fields>
+      <field id="p-88" name="Closure Type" type="singleCheck">
+        <rules><rule name="requiredRule" value="true"/></rules>
+        <options>
+          <option displayName="Zip" value="1"/>
+          <option displayName="Snap" value="2"/>
+        </options>
+      </field>
+    </fields>
+  </field>
+</itemSchema>"""
+        fields = parse_schema(xml)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(note="retail blister pack")
+        u = Understanding(product_name="Marker set")
+        result = FillResult()
+        values = align_attributes(group, u, {}, MockAi(), bundle, result, images=[MagicMock()])
+        self.assertEqual(values.get("p-88"), "2")
+        self.assertEqual(result.evidence["icbuCatProp.p-88"].source, "ai")
+        self.assertEqual(result.stats.ai_calls, 1)
 
 
 if __name__ == "__main__":

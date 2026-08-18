@@ -59,6 +59,9 @@ HARDNESS_HINTS = ("hardness", "硬度", "lead hardness", "笔芯硬度")
 TIP_HINTS = ("tip", "笔尖", "nib", "笔头")
 INK_HINTS = ("ink", "墨水", "墨型")
 FORM_HINTS = ("form", "形态", "形状", "type", "类型")
+DUAL_SIDE_HINTS = ("dual-side", "dual side", "double side", "double-sided", "双面", "双头", "双尖", "dual writing")
+DUAL_TIP_CORPUS = ("dual tip", "dual side", "double tip", "double end", "double-sided", "双头", "双面", "双尖")
+MULTICOLOR_LABELS = frozenset({"colored", "multi", "multicolor", "multi color", "multicolour", "multi-color"})
 
 SPEC_KEY_HINTS: dict[str, tuple[str, ...]] = {
     "color_count": COLOR_HINTS,
@@ -251,14 +254,21 @@ def _deterministic_certain(
     if _wanted(spec.name, COLOR_HINTS):
         count_raw = str(specs.get("color_count") or "")
         match = re.search(r"\d+", count_raw)
-        if match and int(match.group()) > 1 and answer_norm in {"colored", "multi", "multicolor", "multi color"}:
-            if "色" in name or any(token in name for token in ("colored", "colour", "multicolor", "multi color")):
+        if match and int(match.group()) > 1 and answer_norm in MULTICOLOR_LABELS:
+            if "色" in name or any(token in name for token in ("colored", "colour", "multicolor", "multi color", "彩色", "多色")):
                 return "excel", f"color_count={match.group()}"
         if answer_norm == "colored" and any(token in name for token in ("彩色", "多色", "colored")):
             return "excel", str(facts.get("name") or understanding.product_name)
         explicit = str(specs.get("color") or "")
         if explicit and _apply_option(spec, re_split_first(explicit)) and answer_norm == _norm(re_split_first(explicit)):
             return "excel", explicit
+
+    if _wanted(spec.name, DUAL_SIDE_HINTS) or ("dual" in _norm(spec.name) and "writing" in _norm(spec.name)):
+        if answer_norm == "yes":
+            corpus = _fact_corpus(facts, understanding, bundle)
+            if any(token in corpus for token in DUAL_TIP_CORPUS):
+                tip = str(specs.get("tip") or "")
+                return "excel", tip or "dual tip"
 
     if _wanted(spec.name, HARDNESS_HINTS):
         hardness = str(specs.get("hardness") or "")
@@ -380,6 +390,53 @@ def _is_certain_fill(
     inferred = _deterministic_certain(spec, answer, facts, understanding, bundle)
     if inferred:
         return True, inferred[0], inferred[1]
+
+    return False, "", ""
+
+
+def _contradicts_facts(
+    spec: SchemaField,
+    answer: str,
+    facts: Mapping[str, Any],
+    bundle: FactBundle | None,
+) -> bool:
+    """Reject answers that invent or clash with seller-stated facts."""
+    if _wanted(spec.name, BRAND_HINTS):
+        brand = str(facts.get("brand") or (bundle.brand if bundle else "") or "").strip()
+        if not brand:
+            return True
+        if _norm(answer) != _norm(brand):
+            return True
+    if _wanted(spec.name, ORIGIN_HINTS):
+        origin = str((bundle.origin if bundle else "") or facts.get("origin") or "").strip()
+        if origin and _norm(answer) != _norm(origin):
+            return True
+    return False
+
+
+def _trust_ai_map_answer(
+    spec: SchemaField,
+    answer: str,
+    facts: Mapping[str, Any],
+    understanding: Understanding,
+    bundle: FactBundle | None,
+) -> tuple[bool, str, str]:
+    """Multimodal AI path: valid official value + no contradiction with facts."""
+    raw = str(answer or "").strip()
+    if not raw or _is_generic_option(raw):
+        return False, "", ""
+
+    if _contradicts_facts(spec, raw, facts, bundle):
+        return False, "", ""
+
+    certain, source, quote = _is_certain_fill(spec, raw, facts, understanding, bundle)
+    if certain:
+        return True, source, quote
+
+    if spec.options:
+        if spec.option_by_label(raw) is None:
+            return False, "", ""
+        return True, "ai", raw
 
     return False, "", ""
 
@@ -550,7 +607,8 @@ def align_attributes(
                 applied = _apply_option(spec, answer)
             else:
                 certain, _, _ = _is_certain_fill(spec, answer, facts, understanding, bundle)
-                applied = answer if certain else None
+                trusted, _, _ = _trust_ai_map_answer(spec, answer, facts, understanding, bundle)
+                applied = answer if certain or trusted else None
             if applied is not None:
                 values[spec.id] = applied
 
@@ -624,8 +682,8 @@ def _ask_attributes(
         answer = str(payload.get(spec.id) or "").strip()
         if not answer:
             continue
-        certain, source, quote = _is_certain_fill(spec, answer, facts, understanding, bundle)
-        if not certain:
+        trusted, source, quote = _trust_ai_map_answer(spec, answer, facts, understanding, bundle)
+        if not trusted:
             continue
         out[spec.id] = answer
         result.record_evidence(f"{group_id}.{spec.id}", source, quote or answer)
