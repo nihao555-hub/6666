@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-18T18:51:47.498684+00:00",
+  "generated_at": "2026-08-18T19:04:08.226659+00:00",
   "model": "gemini-3.1-flash-lite",
   "rows": [
     {
@@ -15,8 +15,15 @@
           "color_count": "12",
           "material": "Wood",
           "hardness": "HB",
-          "size": "17.5cm"
-        }
+          "size": "17.5cm",
+          "color": "colored"
+        },
+        "image_paths": [
+          "/workspace/icbu-listing/data/generated-images/refs/25148ec012584dc1a3bc5fa9600b7703.jpg",
+          "/workspace/icbu-listing/data/generated-images/refs/4f68286c79d940cb8267375a4d5d9ad0.jpg",
+          "/workspace/icbu-listing/data/generated-images/refs/68fdd90850ce43e1b8892ea0dfdb8cd9.jpg",
+          "/workspace/icbu-listing/data/generated-images/refs/783c1784e727448f8b4d662a6493c81d.jpg"
+        ]
       },
       "category_label": "Colored Pencils / 彩色铅笔",
       "values": {
@@ -33,7 +40,7 @@
             "3460182"
           ],
           "p-200307261": [
-            "44476017"
+            "68739970"
           ]
         },
         "priceUnit": "4",
@@ -59,11 +66,11 @@
             "day": "15"
           }
         },
-        "productTitle": "Wholesale 12色木杆彩色铅笔",
+        "productTitle": "Wholesale colored pencil set",
         "productKeywords": {
           "productKeywords_0": "wholesale"
         },
-        "textDesc": "12色木杆彩色铅笔 500@1.80; 1000@1.50; OEM logo welcome 色数 12 材质 Wood 硬度 HB 尺寸 17.5cm",
+        "textDesc": "12色木杆彩色铅笔 500@1.80; 1000@1.50; OEM logo welcome 色数 12 材质 Wood 硬度 HB 尺寸 17.5cm 颜色 colored",
         "productDescType": "2"
       },
       "evidence": {
@@ -72,12 +79,12 @@
           "quote": "Giorgione"
         },
         "icbuCatProp.p-1": {
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         "icbuCatProp.p-191288433": {
           "source": "excel",
-          "quote": "color_count=12"
+          "quote": "multicolored"
         },
         "saleProp.p-191288435": {
           "source": "excel",
@@ -85,7 +92,7 @@
         },
         "saleProp.p-200307261": {
           "source": "excel",
-          "quote": "色数 12"
+          "quote": "8 Colors"
         },
         "ladderPrice.ladderPrice_0": {
           "source": "excel",
@@ -101,7 +108,7 @@
         },
         "productTitle": {
           "source": "user",
-          "quote": "Wholesale 12色木杆彩色铅笔"
+          "quote": "Wholesale colored pencil set"
         },
         "productKeywords": {
           "source": "ai",
@@ -127,7 +134,7 @@
           "value_raw": "100000458",
           "value_label": "China",
           "required": "是",
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         {
@@ -138,7 +145,7 @@
           "value_label": "colored",
           "required": "是",
           "source": "excel",
-          "quote": "color_count=12"
+          "quote": "multicolored"
         },
         {
           "group": "saleProp",
@@ -154,21 +161,21 @@
           "group": "saleProp",
           "field_id": "p-200307261",
           "field_name": "Number of Colors",
-          "value_raw": "[\"44476017\"]",
-          "value_label": "12 Colors",
+          "value_raw": "[\"68739970\"]",
+          "value_label": "8 Colors",
           "required": "否",
           "source": "excel",
-          "quote": "色数 12"
+          "quote": "8 Colors"
         },
         {
           "group": "trade",
           "field_id": "productTitle",
           "field_name": "Product name",
-          "value_raw": "Wholesale 12色木杆彩色铅笔",
-          "value_label": "Wholesale 12色木杆彩色铅笔",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
           "required": "是",
           "source": "user",
-          "quote": "Wholesale 12色木杆彩色铅笔"
+          "quote": "Wholesale colored pencil set"
         },
         {
           "group": "trade",
@@ -225,7 +232,7 @@
         "red_issues": 0
       },
       "model": "gemini-3.1-flash-lite",
-      "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
     },
     {
       "sample": {
@@ -281,7 +288,7 @@
             "day": "15"
           }
         },
-        "productTitle": "Wholesale 双头美术马克笔24色",
+        "productTitle": "Wholesale colored pencil set",
         "productKeywords": {
           "productKeywords_0": "wholesale"
         },
@@ -294,16 +301,16 @@
           "quote": "Giorgione"
         },
         "icbuCatProp.p-1": {
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         "icbuCatProp.p-390873113": {
-          "source": "vision",
+          "source": "excel",
           "quote": "Plastic barrel"
         },
         "saleProp.p-200307261": {
           "source": "excel",
-          "quote": "色数 24"
+          "quote": "24"
         },
         "ladderPrice.ladderPrice_0": {
           "source": "excel",
@@ -319,7 +326,7 @@
         },
         "productTitle": {
           "source": "user",
-          "quote": "Wholesale 双头美术马克笔24色"
+          "quote": "Wholesale colored pencil set"
         },
         "productKeywords": {
           "source": "ai",
@@ -331,7 +338,7 @@
           "field_id": "p-200001254",
           "field_name": "Dual-side Writing",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "icbuCatProp.p-200001254",
           "options": [
             {
@@ -348,7 +355,7 @@
           "field_id": "p-210190015",
           "field_name": "Color",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "saleProp.p-210190015",
           "options": [
             {
@@ -372,6 +379,13 @@
               "label": "other"
             }
           ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
         }
       ],
       "fields": [
@@ -392,7 +406,7 @@
           "value_raw": "100000458",
           "value_label": "China",
           "required": "是",
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         {
@@ -402,7 +416,7 @@
           "value_raw": "[\"3542796\"]",
           "value_label": "PLA",
           "required": "否",
-          "source": "vision",
+          "source": "excel",
           "quote": "Plastic barrel"
         },
         {
@@ -413,17 +427,17 @@
           "value_label": "24 Colors",
           "required": "否",
           "source": "excel",
-          "quote": "色数 24"
+          "quote": "24"
         },
         {
           "group": "trade",
           "field_id": "productTitle",
           "field_name": "Product name",
-          "value_raw": "Wholesale 双头美术马克笔24色",
-          "value_label": "Wholesale 双头美术马克笔24色",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
           "required": "是",
           "source": "user",
-          "quote": "Wholesale 双头美术马克笔24色"
+          "quote": "Wholesale colored pencil set"
         },
         {
           "group": "trade",
@@ -477,10 +491,10 @@
         "required_option_fields": 3,
         "filled_required_options": 1,
         "missing_required_options": 2,
-        "red_issues": 2
+        "red_issues": 3
       },
       "model": "gemini-3.1-flash-lite",
-      "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
     },
     {
       "sample": {
@@ -528,7 +542,7 @@
             "day": "15"
           }
         },
-        "productTitle": "Wholesale 18色固体水彩颜料",
+        "productTitle": "Wholesale colored pencil set",
         "productKeywords": {
           "productKeywords_0": "wholesale"
         },
@@ -541,7 +555,7 @@
           "quote": "Giorgione"
         },
         "icbuCatProp.p-1": {
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         "ladderPrice.ladderPrice_0": {
@@ -558,7 +572,7 @@
         },
         "productTitle": {
           "source": "user",
-          "quote": "Wholesale 18色固体水彩颜料"
+          "quote": "Wholesale colored pencil set"
         },
         "productKeywords": {
           "source": "ai",
@@ -570,7 +584,7 @@
           "field_id": "p-210190051",
           "field_name": "Capacity",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "icbuCatProp.p-210190051",
           "options": [
             {
@@ -607,7 +621,7 @@
           "field_id": "p-191288010",
           "field_name": "Color",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "saleProp.p-191288010",
           "options": [
             {
@@ -647,6 +661,13 @@
               "label": "other"
             }
           ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
         }
       ],
       "fields": [
@@ -667,18 +688,18 @@
           "value_raw": "100000458",
           "value_label": "China",
           "required": "是",
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         {
           "group": "trade",
           "field_id": "productTitle",
           "field_name": "Product name",
-          "value_raw": "Wholesale 18色固体水彩颜料",
-          "value_label": "Wholesale 18色固体水彩颜料",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
           "required": "是",
           "source": "user",
-          "quote": "Wholesale 18色固体水彩颜料"
+          "quote": "Wholesale colored pencil set"
         },
         {
           "group": "trade",
@@ -732,10 +753,10 @@
         "required_option_fields": 3,
         "filled_required_options": 1,
         "missing_required_options": 2,
-        "red_issues": 2
+        "red_issues": 3
       },
       "model": "gemini-3.1-flash-lite",
-      "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
     },
     {
       "sample": {
@@ -757,6 +778,8 @@
       "values": {
         "catId": "100003017",
         "icbuCatProp": {
+          "p-100000801": "1875814357",
+          "p-100001000": "428124982",
           "p-191284014": "34313717",
           "p-231671682": "111689382",
           "p-100001004": "3339564",
@@ -791,7 +814,7 @@
             "day": "15"
           }
         },
-        "productTitle": "Wholesale 户外花园PE藤编沙发三件套",
+        "productTitle": "Wholesale colored pencil set",
         "productKeywords": {
           "productKeywords_0": "wholesale"
         },
@@ -799,28 +822,36 @@
         "productDescType": "2"
       },
       "evidence": {
+        "icbuCatProp.p-100000801": {
+          "source": "excel",
+          "quote": "Garden Sofa"
+        },
+        "icbuCatProp.p-100001000": {
+          "source": "excel",
+          "quote": "pieces 3"
+        },
         "icbuCatProp.p-191284014": {
-          "source": "vision",
+          "source": "excel",
           "quote": "PE rattan"
         },
         "icbuCatProp.p-231671682": {
-          "source": "fact",
+          "source": "excel",
           "quote": "N"
         },
         "icbuCatProp.p-100001004": {
-          "source": "fact",
+          "source": "excel",
           "quote": "Set"
         },
         "icbuCatProp.p-1": {
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         "icbuCatProp.p-400004414": {
-          "source": "fact",
+          "source": "excel",
           "quote": "UV-Resistant PE Rattan"
         },
         "saleProp.p-210190015": {
-          "source": "vision",
+          "source": "excel",
           "quote": "Brown"
         },
         "ladderPrice.ladderPrice_0": {
@@ -837,7 +868,7 @@
         },
         "productTitle": {
           "source": "user",
-          "quote": "Wholesale 户外花园PE藤编沙发三件套"
+          "quote": "Wholesale colored pencil set"
         },
         "productKeywords": {
           "source": "ai",
@@ -849,7 +880,7 @@
           "field_id": "p-234916993",
           "field_name": "application",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "icbuCatProp.p-234916993",
           "options": [
             {
@@ -962,7 +993,7 @@
           "field_id": "p-235983983",
           "field_name": "design style",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "icbuCatProp.p-235983983",
           "options": [
             {
@@ -1071,7 +1102,7 @@
           "field_id": "p-191284006",
           "field_name": "size",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "saleProp.p-191284006",
           "options": [
             {
@@ -1079,9 +1110,36 @@
               "label": "other"
             }
           ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
         }
       ],
       "fields": [
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-100000801",
+          "field_name": "specific use",
+          "value_raw": "1875814357",
+          "value_label": "Garden Sofa",
+          "required": "否",
+          "source": "excel",
+          "quote": "Garden Sofa"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-100001000",
+          "field_name": "general use",
+          "value_raw": "428124982",
+          "value_label": "Outdoor Furniture",
+          "required": "否",
+          "source": "excel",
+          "quote": "pieces 3"
+        },
         {
           "group": "icbuCatProp",
           "field_id": "p-191284014",
@@ -1089,7 +1147,7 @@
           "value_raw": "34313717",
           "value_label": "Rattan",
           "required": "是",
-          "source": "vision",
+          "source": "excel",
           "quote": "PE rattan"
         },
         {
@@ -1099,7 +1157,7 @@
           "value_raw": "111689382",
           "value_label": "N",
           "required": "是",
-          "source": "fact",
+          "source": "excel",
           "quote": "N"
         },
         {
@@ -1109,7 +1167,7 @@
           "value_raw": "3339564",
           "value_label": "Set",
           "required": "否",
-          "source": "fact",
+          "source": "excel",
           "quote": "Set"
         },
         {
@@ -1119,7 +1177,7 @@
           "value_raw": "100000458",
           "value_label": "China",
           "required": "是",
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         {
@@ -1129,7 +1187,7 @@
           "value_raw": "1982267690",
           "value_label": "UV-Resistant PE Rattan",
           "required": "否",
-          "source": "fact",
+          "source": "excel",
           "quote": "UV-Resistant PE Rattan"
         },
         {
@@ -1139,18 +1197,18 @@
           "value_raw": "[\"3399503\"]",
           "value_label": "Brown",
           "required": "是",
-          "source": "vision",
+          "source": "excel",
           "quote": "Brown"
         },
         {
           "group": "trade",
           "field_id": "productTitle",
           "field_name": "Product name",
-          "value_raw": "Wholesale 户外花园PE藤编沙发三件套",
-          "value_label": "Wholesale 户外花园PE藤编沙发三件套",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
           "required": "是",
           "source": "user",
-          "quote": "Wholesale 户外花园PE藤编沙发三件套"
+          "quote": "Wholesale colored pencil set"
         },
         {
           "group": "trade",
@@ -1204,10 +1262,10 @@
         "required_option_fields": 7,
         "filled_required_options": 4,
         "missing_required_options": 3,
-        "red_issues": 3
+        "red_issues": 4
       },
       "model": "gemini-3.1-flash-lite",
-      "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
     },
     {
       "sample": {
@@ -1231,7 +1289,7 @@
           "p-390873113": "190092752",
           "p-1": "100000458",
           "p-360946261": "352×478×30mm",
-          "p-191284008": "1982271415"
+          "p-191284008": "190092098"
         },
         "priceUnit": "4",
         "saleType": "normal",
@@ -1256,7 +1314,7 @@
             "day": "15"
           }
         },
-        "productTitle": "Wholesale 空气净化器HEPA滤芯",
+        "productTitle": "Wholesale colored pencil set",
         "productKeywords": {
           "productKeywords_0": "wholesale"
         },
@@ -1265,11 +1323,11 @@
       },
       "evidence": {
         "icbuCatProp.p-390873113": {
-          "source": "vision",
+          "source": "excel",
           "quote": "HEPA paper"
         },
         "icbuCatProp.p-1": {
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         "icbuCatProp.p-360946261": {
@@ -1277,8 +1335,8 @@
           "quote": "352×478×30mm"
         },
         "icbuCatProp.p-191284008": {
-          "source": "fact",
-          "quote": "High-Efficiency HEPA Filter"
+          "source": "excel",
+          "quote": "Filter"
         },
         "ladderPrice.ladderPrice_0": {
           "source": "excel",
@@ -1294,7 +1352,7 @@
         },
         "productTitle": {
           "source": "user",
-          "quote": "Wholesale 空气净化器HEPA滤芯"
+          "quote": "Wholesale colored pencil set"
         },
         "productKeywords": {
           "source": "ai",
@@ -1306,7 +1364,7 @@
           "field_id": "p-210194274",
           "field_name": "application",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "icbuCatProp.p-210194274",
           "options": [
             {
@@ -1347,7 +1405,7 @@
           "field_id": "p-210196802",
           "field_name": "power source",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "icbuCatProp.p-210196802",
           "options": [
             {
@@ -1388,7 +1446,7 @@
           "field_id": "p-373265001",
           "field_name": "Feature",
           "level": "red",
-          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
           "path": "icbuCatProp.p-373265001",
           "options": [
             {
@@ -1408,6 +1466,13 @@
               "label": "other"
             }
           ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
         }
       ],
       "fields": [
@@ -1418,7 +1483,7 @@
           "value_raw": "190092752",
           "value_label": "Hepa",
           "required": "是",
-          "source": "vision",
+          "source": "excel",
           "quote": "HEPA paper"
         },
         {
@@ -1428,7 +1493,7 @@
           "value_raw": "100000458",
           "value_label": "China",
           "required": "是",
-          "source": "shop",
+          "source": "excel",
           "quote": "China"
         },
         {
@@ -1445,21 +1510,21 @@
           "group": "icbuCatProp",
           "field_id": "p-191284008",
           "field_name": "type",
-          "value_raw": "1982271415",
-          "value_label": "High-Efficiency HEPA Filter",
+          "value_raw": "190092098",
+          "value_label": "Filter",
           "required": "是",
-          "source": "fact",
-          "quote": "High-Efficiency HEPA Filter"
+          "source": "excel",
+          "quote": "Filter"
         },
         {
           "group": "trade",
           "field_id": "productTitle",
           "field_name": "Product name",
-          "value_raw": "Wholesale 空气净化器HEPA滤芯",
-          "value_label": "Wholesale 空气净化器HEPA滤芯",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
           "required": "是",
           "source": "user",
-          "quote": "Wholesale 空气净化器HEPA滤芯"
+          "quote": "Wholesale colored pencil set"
         },
         {
           "group": "trade",
@@ -1513,10 +1578,10 @@
         "required_option_fields": 6,
         "filled_required_options": 3,
         "missing_required_options": 3,
-        "red_issues": 3
+        "red_issues": 4
       },
       "model": "gemini-3.1-flash-lite",
-      "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
     }
   ]
 }
