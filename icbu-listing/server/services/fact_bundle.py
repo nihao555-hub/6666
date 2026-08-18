@@ -127,15 +127,20 @@ class FactBundle:
 
     def facts_for_ai(self, understanding: Understanding | None = None) -> dict[str, Any]:
         u = understanding or Understanding()
+        specs = {**self.specs, **u.specs}
+        labeled = {SPEC_LABELS.get(k, k): v for k, v in specs.items() if str(v).strip()}
         return {
             "product_name": u.product_name or self.name,
+            "category_hint": u.category_hint or self.name,
             "material": u.material or self.specs.get("material", ""),
             "colors": u.colors,
-            "specs": {**self.specs, **u.specs},
+            "specs": specs,
+            "specs_labeled": labeled,
             "features": u.features,
             "usage": u.usage,
             "note": self.note,
             "brand": self.brand,
+            "text_blob": self.text_blob(),
             "price_tiers": [{"quantity": t.quantity, "price": t.price} for t in self.price_tiers],
         }
 

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-18T18:43:09.169378+00:00",
+  "generated_at": "2026-08-18T18:51:47.498684+00:00",
   "model": "gemini-3.1-flash-lite",
   "rows": [
     {
@@ -23,11 +23,17 @@
         "catId": "21110712",
         "icbuCatProp": {
           "p-2": "Giorgione",
-          "p-1": "100000458"
+          "p-1": "100000458",
+          "p-191288433": [
+            "12970290"
+          ]
         },
         "saleProp": {
           "p-191288435": [
             "3460182"
+          ],
+          "p-200307261": [
+            "44476017"
           ]
         },
         "priceUnit": "4",
@@ -69,9 +75,17 @@
           "source": "shop",
           "quote": "China"
         },
-        "p-191288435": {
-          "source": "ai",
+        "icbuCatProp.p-191288433": {
+          "source": "excel",
+          "quote": "color_count=12"
+        },
+        "saleProp.p-191288435": {
+          "source": "excel",
           "quote": "HB"
+        },
+        "saleProp.p-200307261": {
+          "source": "excel",
+          "quote": "色数 12"
         },
         "ladderPrice.ladderPrice_0": {
           "source": "excel",
@@ -94,96 +108,7 @@
           "quote": "wholesale,factory,bulk"
         }
       },
-      "issues": [
-        {
-          "field_id": "p-191288433",
-          "field_name": "Lead Color",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-191288433",
-          "options": [
-            {
-              "value": "12970290",
-              "label": "colored"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-191288433",
-          "field_name": "Lead Color",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-191288433",
-          "options": [
-            {
-              "value": "12970290",
-              "label": "colored"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-191288433",
-          "field_name": "Lead Color",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-191288433",
-          "options": [
-            {
-              "value": "12970290",
-              "label": "colored"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-191288435",
-          "field_name": "Lead Hardness",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "saleProp.p-191288435",
-          "options": [
-            {
-              "value": "3287393",
-              "label": "2B"
-            },
-            {
-              "value": "29440",
-              "label": "B"
-            },
-            {
-              "value": "84499",
-              "label": "H"
-            },
-            {
-              "value": "3460182",
-              "label": "HB"
-            },
-            {
-              "value": "3231237",
-              "label": "2H"
-            },
-            {
-              "value": "-1",
-              "label": "Other"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        }
-      ],
+      "issues": [],
       "fields": [
         {
           "group": "icbuCatProp",
@@ -206,14 +131,34 @@
           "quote": "China"
         },
         {
+          "group": "icbuCatProp",
+          "field_id": "p-191288433",
+          "field_name": "Lead Color",
+          "value_raw": "[\"12970290\"]",
+          "value_label": "colored",
+          "required": "是",
+          "source": "excel",
+          "quote": "color_count=12"
+        },
+        {
           "group": "saleProp",
           "field_id": "p-191288435",
           "field_name": "Lead Hardness",
           "value_raw": "[\"3460182\"]",
           "value_label": "HB",
           "required": "是",
-          "source": "ai",
+          "source": "excel",
           "quote": "HB"
+        },
+        {
+          "group": "saleProp",
+          "field_id": "p-200307261",
+          "field_name": "Number of Colors",
+          "value_raw": "[\"44476017\"]",
+          "value_label": "12 Colors",
+          "required": "否",
+          "source": "excel",
+          "quote": "色数 12"
         },
         {
           "group": "trade",
@@ -267,17 +212,17 @@
         }
       ],
       "stats": {
-        "required_total": 4,
+        "required_total": 3,
         "filled": 1,
-        "blocked_no_evidence": 4,
-        "ai_calls": 6,
-        "rounds": 3,
-        "filled_ai": 1,
-        "filled_local": 1,
+        "blocked_no_evidence": 0,
+        "ai_calls": 0,
+        "rounds": 2,
+        "filled_ai": 0,
+        "filled_local": 3,
         "required_option_fields": 3,
-        "filled_required_options": 2,
-        "missing_required_options": 1,
-        "red_issues": 4
+        "filled_required_options": 3,
+        "missing_required_options": 0,
+        "red_issues": 0
       },
       "model": "gemini-3.1-flash-lite",
       "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
@@ -306,6 +251,11 @@
           "p-1": "100000458",
           "p-390873113": [
             "3542796"
+          ]
+        },
+        "saleProp": {
+          "p-200307261": [
+            "62999051"
           ]
         },
         "priceUnit": "4",
@@ -351,6 +301,10 @@
           "source": "vision",
           "quote": "Plastic barrel"
         },
+        "saleProp.p-200307261": {
+          "source": "excel",
+          "quote": "色数 24"
+        },
         "ladderPrice.ladderPrice_0": {
           "source": "excel",
           "quote": "200@3.20"
@@ -377,7 +331,7 @@
           "field_id": "p-200001254",
           "field_name": "Dual-side Writing",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "icbuCatProp.p-200001254",
           "options": [
             {
@@ -394,99 +348,7 @@
           "field_id": "p-210190015",
           "field_name": "Color",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "saleProp.p-210190015",
-          "options": [
-            {
-              "value": "5412614",
-              "label": "Gray"
-            },
-            {
-              "value": "3558409",
-              "label": "Orange"
-            },
-            {
-              "value": "3252738",
-              "label": "Others"
-            },
-            {
-              "value": "153630482",
-              "label": "Wihte"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-200001254",
-          "field_name": "Dual-side Writing",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-200001254",
-          "options": [
-            {
-              "value": "1954507641",
-              "label": "No"
-            },
-            {
-              "value": "1954509723",
-              "label": "Yes"
-            }
-          ]
-        },
-        {
-          "field_id": "p-210190015",
-          "field_name": "Color",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "saleProp.p-210190015",
-          "options": [
-            {
-              "value": "5412614",
-              "label": "Gray"
-            },
-            {
-              "value": "3558409",
-              "label": "Orange"
-            },
-            {
-              "value": "3252738",
-              "label": "Others"
-            },
-            {
-              "value": "153630482",
-              "label": "Wihte"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-200001254",
-          "field_name": "Dual-side Writing",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-200001254",
-          "options": [
-            {
-              "value": "1954507641",
-              "label": "No"
-            },
-            {
-              "value": "1954509723",
-              "label": "Yes"
-            }
-          ]
-        },
-        {
-          "field_id": "p-210190015",
-          "field_name": "Color",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "saleProp.p-210190015",
           "options": [
             {
@@ -544,6 +406,16 @@
           "quote": "Plastic barrel"
         },
         {
+          "group": "saleProp",
+          "field_id": "p-200307261",
+          "field_name": "Number of Colors",
+          "value_raw": "[\"62999051\"]",
+          "value_label": "24 Colors",
+          "required": "否",
+          "source": "excel",
+          "quote": "色数 24"
+        },
+        {
           "group": "trade",
           "field_id": "productTitle",
           "field_name": "Product name",
@@ -595,17 +467,17 @@
         }
       ],
       "stats": {
-        "required_total": 4,
+        "required_total": 5,
         "filled": 1,
-        "blocked_no_evidence": 6,
-        "ai_calls": 6,
-        "rounds": 3,
+        "blocked_no_evidence": 4,
+        "ai_calls": 4,
+        "rounds": 2,
         "filled_ai": 0,
         "filled_local": 1,
         "required_option_fields": 3,
         "filled_required_options": 1,
         "missing_required_options": 2,
-        "red_issues": 6
+        "red_issues": 2
       },
       "model": "gemini-3.1-flash-lite",
       "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
@@ -698,7 +570,7 @@
           "field_id": "p-210190051",
           "field_name": "Capacity",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "icbuCatProp.p-210190051",
           "options": [
             {
@@ -735,171 +607,7 @@
           "field_id": "p-191288010",
           "field_name": "Color",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "saleProp.p-191288010",
-          "options": [
-            {
-              "value": "3399503",
-              "label": "Brown"
-            },
-            {
-              "value": "3778969",
-              "label": "Coffee"
-            },
-            {
-              "value": "5412614",
-              "label": "Gray"
-            },
-            {
-              "value": "4371350",
-              "label": "Navy"
-            },
-            {
-              "value": "3851110",
-              "label": "Purple"
-            },
-            {
-              "value": "3331260",
-              "label": "Red"
-            },
-            {
-              "value": "20928969",
-              "label": "Sky Blue"
-            },
-            {
-              "value": "3331185",
-              "label": "White"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-210190051",
-          "field_name": "Capacity",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-210190051",
-          "options": [
-            {
-              "value": "1954508533",
-              "label": "20 ml"
-            },
-            {
-              "value": "46301",
-              "label": "3 mL"
-            },
-            {
-              "value": "75368834",
-              "label": "5 ml"
-            },
-            {
-              "value": "46302",
-              "label": "12 ml"
-            },
-            {
-              "value": "46990",
-              "label": "45 ml"
-            },
-            {
-              "value": "75366294",
-              "label": "100 mL"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-191288010",
-          "field_name": "Color",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "saleProp.p-191288010",
-          "options": [
-            {
-              "value": "3399503",
-              "label": "Brown"
-            },
-            {
-              "value": "3778969",
-              "label": "Coffee"
-            },
-            {
-              "value": "5412614",
-              "label": "Gray"
-            },
-            {
-              "value": "4371350",
-              "label": "Navy"
-            },
-            {
-              "value": "3851110",
-              "label": "Purple"
-            },
-            {
-              "value": "3331260",
-              "label": "Red"
-            },
-            {
-              "value": "20928969",
-              "label": "Sky Blue"
-            },
-            {
-              "value": "3331185",
-              "label": "White"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-210190051",
-          "field_name": "Capacity",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-210190051",
-          "options": [
-            {
-              "value": "1954508533",
-              "label": "20 ml"
-            },
-            {
-              "value": "46301",
-              "label": "3 mL"
-            },
-            {
-              "value": "75368834",
-              "label": "5 ml"
-            },
-            {
-              "value": "46302",
-              "label": "12 ml"
-            },
-            {
-              "value": "46990",
-              "label": "45 ml"
-            },
-            {
-              "value": "75366294",
-              "label": "100 mL"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-191288010",
-          "field_name": "Color",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "saleProp.p-191288010",
           "options": [
             {
@@ -1016,15 +724,15 @@
       "stats": {
         "required_total": 4,
         "filled": 1,
-        "blocked_no_evidence": 6,
-        "ai_calls": 6,
-        "rounds": 3,
+        "blocked_no_evidence": 4,
+        "ai_calls": 4,
+        "rounds": 2,
         "filled_ai": 0,
         "filled_local": 1,
         "required_option_fields": 3,
         "filled_required_options": 1,
         "missing_required_options": 2,
-        "red_issues": 6
+        "red_issues": 2
       },
       "model": "gemini-3.1-flash-lite",
       "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
@@ -1050,7 +758,10 @@
         "catId": "100003017",
         "icbuCatProp": {
           "p-191284014": "34313717",
-          "p-1": "100000458"
+          "p-231671682": "111689382",
+          "p-100001004": "3339564",
+          "p-1": "100000458",
+          "p-400004414": "1982267690"
         },
         "saleProp": {
           "p-210190015": [
@@ -1092,9 +803,21 @@
           "source": "vision",
           "quote": "PE rattan"
         },
+        "icbuCatProp.p-231671682": {
+          "source": "fact",
+          "quote": "N"
+        },
+        "icbuCatProp.p-100001004": {
+          "source": "fact",
+          "quote": "Set"
+        },
         "icbuCatProp.p-1": {
           "source": "shop",
           "quote": "China"
+        },
+        "icbuCatProp.p-400004414": {
+          "source": "fact",
+          "quote": "UV-Resistant PE Rattan"
         },
         "saleProp.p-210190015": {
           "source": "vision",
@@ -1123,27 +846,10 @@
       },
       "issues": [
         {
-          "field_id": "p-231671682",
-          "field_name": "mail packing",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-231671682",
-          "options": [
-            {
-              "value": "110675540",
-              "label": "Y"
-            },
-            {
-              "value": "111689382",
-              "label": "N"
-            }
-          ]
-        },
-        {
           "field_id": "p-234916993",
           "field_name": "application",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "icbuCatProp.p-234916993",
           "options": [
             {
@@ -1256,7 +962,7 @@
           "field_id": "p-235983983",
           "field_name": "design style",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "icbuCatProp.p-235983983",
           "options": [
             {
@@ -1365,511 +1071,7 @@
           "field_id": "p-191284006",
           "field_name": "size",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "saleProp.p-191284006",
-          "options": [
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-231671682",
-          "field_name": "mail packing",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-231671682",
-          "options": [
-            {
-              "value": "110675540",
-              "label": "Y"
-            },
-            {
-              "value": "111689382",
-              "label": "N"
-            }
-          ]
-        },
-        {
-          "field_id": "p-234916993",
-          "field_name": "application",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-234916993",
-          "options": [
-            {
-              "value": "22188974",
-              "label": "Living Room"
-            },
-            {
-              "value": "5662101",
-              "label": "Bedroom"
-            },
-            {
-              "value": "6743162",
-              "label": "Dining"
-            },
-            {
-              "value": "3778175",
-              "label": "Outdoor"
-            },
-            {
-              "value": "3413080",
-              "label": "Hotel"
-            },
-            {
-              "value": "29162183",
-              "label": "Apartment"
-            },
-            {
-              "value": "305782145",
-              "label": "Office Building"
-            },
-            {
-              "value": "17774471",
-              "label": "Hospital"
-            },
-            {
-              "value": "7429513",
-              "label": "School"
-            },
-            {
-              "value": "11185772",
-              "label": "Mall"
-            },
-            {
-              "value": "1841738623",
-              "label": "Sports Venues"
-            },
-            {
-              "value": "190065876",
-              "label": "Leisure Facilities"
-            },
-            {
-              "value": "8596889",
-              "label": "Supermarket"
-            },
-            {
-              "value": "3492452",
-              "label": "Warehouse"
-            },
-            {
-              "value": "7146473",
-              "label": "Park"
-            },
-            {
-              "value": "3610200",
-              "label": "Farmhouse"
-            },
-            {
-              "value": "53879761",
-              "label": "Courtyard"
-            },
-            {
-              "value": "-1",
-              "label": "Other"
-            },
-            {
-              "value": "7723216",
-              "label": "Entry"
-            },
-            {
-              "value": "9986815",
-              "label": "Hall"
-            },
-            {
-              "value": "4319137",
-              "label": "Basement"
-            },
-            {
-              "value": "190066266",
-              "label": "Garage and Shed"
-            },
-            {
-              "value": "3363202",
-              "label": "Gym"
-            },
-            {
-              "value": "3410426",
-              "label": "Laundry"
-            },
-            {
-              "value": "3288788",
-              "label": "Villa"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-235983983",
-          "field_name": "design style",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-235983983",
-          "options": [
-            {
-              "value": "11109397",
-              "label": "Contemporary"
-            },
-            {
-              "value": "24609390",
-              "label": "Traditional"
-            },
-            {
-              "value": "3583053",
-              "label": "Modern"
-            },
-            {
-              "value": "64891176",
-              "label": "Minimalist"
-            },
-            {
-              "value": "12795819",
-              "label": "Industrial"
-            },
-            {
-              "value": "190065877",
-              "label": "Midcentury"
-            },
-            {
-              "value": "3610200",
-              "label": "Farmhouse"
-            },
-            {
-              "value": "90749667",
-              "label": "Scandinavian"
-            },
-            {
-              "value": "1477768126",
-              "label": "Postmodern"
-            },
-            {
-              "value": "3887311",
-              "label": "Mediterranean"
-            },
-            {
-              "value": "28919724",
-              "label": "Coastal"
-            },
-            {
-              "value": "40992611",
-              "label": "Rustic"
-            },
-            {
-              "value": "47057755",
-              "label": "European"
-            },
-            {
-              "value": "19663260",
-              "label": "Asian"
-            },
-            {
-              "value": "8622617",
-              "label": "Eclectic"
-            },
-            {
-              "value": "118914711",
-              "label": "Southwestern"
-            },
-            {
-              "value": "12046218",
-              "label": "Craftsman"
-            },
-            {
-              "value": "308136385",
-              "label": "Midcentury Modern"
-            },
-            {
-              "value": "180176014",
-              "label": "Transitional"
-            },
-            {
-              "value": "3805497",
-              "label": "Tropical"
-            },
-            {
-              "value": "3275469",
-              "label": "Victorian"
-            },
-            {
-              "value": "12116395",
-              "label": "Japanese"
-            },
-            {
-              "value": "11187305",
-              "label": "Chinese"
-            },
-            {
-              "value": "11628874",
-              "label": "French"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-191284006",
-          "field_name": "size",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "saleProp.p-191284006",
-          "options": [
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-231671682",
-          "field_name": "mail packing",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-231671682",
-          "options": [
-            {
-              "value": "110675540",
-              "label": "Y"
-            },
-            {
-              "value": "111689382",
-              "label": "N"
-            }
-          ]
-        },
-        {
-          "field_id": "p-234916993",
-          "field_name": "application",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-234916993",
-          "options": [
-            {
-              "value": "22188974",
-              "label": "Living Room"
-            },
-            {
-              "value": "5662101",
-              "label": "Bedroom"
-            },
-            {
-              "value": "6743162",
-              "label": "Dining"
-            },
-            {
-              "value": "3778175",
-              "label": "Outdoor"
-            },
-            {
-              "value": "3413080",
-              "label": "Hotel"
-            },
-            {
-              "value": "29162183",
-              "label": "Apartment"
-            },
-            {
-              "value": "305782145",
-              "label": "Office Building"
-            },
-            {
-              "value": "17774471",
-              "label": "Hospital"
-            },
-            {
-              "value": "7429513",
-              "label": "School"
-            },
-            {
-              "value": "11185772",
-              "label": "Mall"
-            },
-            {
-              "value": "1841738623",
-              "label": "Sports Venues"
-            },
-            {
-              "value": "190065876",
-              "label": "Leisure Facilities"
-            },
-            {
-              "value": "8596889",
-              "label": "Supermarket"
-            },
-            {
-              "value": "3492452",
-              "label": "Warehouse"
-            },
-            {
-              "value": "7146473",
-              "label": "Park"
-            },
-            {
-              "value": "3610200",
-              "label": "Farmhouse"
-            },
-            {
-              "value": "53879761",
-              "label": "Courtyard"
-            },
-            {
-              "value": "-1",
-              "label": "Other"
-            },
-            {
-              "value": "7723216",
-              "label": "Entry"
-            },
-            {
-              "value": "9986815",
-              "label": "Hall"
-            },
-            {
-              "value": "4319137",
-              "label": "Basement"
-            },
-            {
-              "value": "190066266",
-              "label": "Garage and Shed"
-            },
-            {
-              "value": "3363202",
-              "label": "Gym"
-            },
-            {
-              "value": "3410426",
-              "label": "Laundry"
-            },
-            {
-              "value": "3288788",
-              "label": "Villa"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-235983983",
-          "field_name": "design style",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-235983983",
-          "options": [
-            {
-              "value": "11109397",
-              "label": "Contemporary"
-            },
-            {
-              "value": "24609390",
-              "label": "Traditional"
-            },
-            {
-              "value": "3583053",
-              "label": "Modern"
-            },
-            {
-              "value": "64891176",
-              "label": "Minimalist"
-            },
-            {
-              "value": "12795819",
-              "label": "Industrial"
-            },
-            {
-              "value": "190065877",
-              "label": "Midcentury"
-            },
-            {
-              "value": "3610200",
-              "label": "Farmhouse"
-            },
-            {
-              "value": "90749667",
-              "label": "Scandinavian"
-            },
-            {
-              "value": "1477768126",
-              "label": "Postmodern"
-            },
-            {
-              "value": "3887311",
-              "label": "Mediterranean"
-            },
-            {
-              "value": "28919724",
-              "label": "Coastal"
-            },
-            {
-              "value": "40992611",
-              "label": "Rustic"
-            },
-            {
-              "value": "47057755",
-              "label": "European"
-            },
-            {
-              "value": "19663260",
-              "label": "Asian"
-            },
-            {
-              "value": "8622617",
-              "label": "Eclectic"
-            },
-            {
-              "value": "118914711",
-              "label": "Southwestern"
-            },
-            {
-              "value": "12046218",
-              "label": "Craftsman"
-            },
-            {
-              "value": "308136385",
-              "label": "Midcentury Modern"
-            },
-            {
-              "value": "180176014",
-              "label": "Transitional"
-            },
-            {
-              "value": "3805497",
-              "label": "Tropical"
-            },
-            {
-              "value": "3275469",
-              "label": "Victorian"
-            },
-            {
-              "value": "12116395",
-              "label": "Japanese"
-            },
-            {
-              "value": "11187305",
-              "label": "Chinese"
-            },
-            {
-              "value": "11628874",
-              "label": "French"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-191284006",
-          "field_name": "size",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "saleProp.p-191284006",
           "options": [
             {
@@ -1892,6 +1094,26 @@
         },
         {
           "group": "icbuCatProp",
+          "field_id": "p-231671682",
+          "field_name": "mail packing",
+          "value_raw": "111689382",
+          "value_label": "N",
+          "required": "是",
+          "source": "fact",
+          "quote": "N"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-100001004",
+          "field_name": "sofa type",
+          "value_raw": "3339564",
+          "value_label": "Set",
+          "required": "否",
+          "source": "fact",
+          "quote": "Set"
+        },
+        {
+          "group": "icbuCatProp",
           "field_id": "p-1",
           "field_name": "place of origin",
           "value_raw": "100000458",
@@ -1899,6 +1121,16 @@
           "required": "是",
           "source": "shop",
           "quote": "China"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-400004414",
+          "field_name": "Rattan",
+          "value_raw": "1982267690",
+          "value_label": "UV-Resistant PE Rattan",
+          "required": "否",
+          "source": "fact",
+          "quote": "UV-Resistant PE Rattan"
         },
         {
           "group": "saleProp",
@@ -1962,17 +1194,17 @@
         }
       ],
       "stats": {
-        "required_total": 7,
+        "required_total": 6,
         "filled": 1,
-        "blocked_no_evidence": 12,
-        "ai_calls": 6,
-        "rounds": 3,
+        "blocked_no_evidence": 6,
+        "ai_calls": 4,
+        "rounds": 2,
         "filled_ai": 0,
-        "filled_local": 3,
+        "filled_local": 4,
         "required_option_fields": 7,
-        "filled_required_options": 3,
-        "missing_required_options": 4,
-        "red_issues": 12
+        "filled_required_options": 4,
+        "missing_required_options": 3,
+        "red_issues": 3
       },
       "model": "gemini-3.1-flash-lite",
       "note": "无依据的必填项留空标红，需人工补或补事实后再生成"
@@ -2044,8 +1276,8 @@
           "source": "excel",
           "quote": "352×478×30mm"
         },
-        "p-191284008": {
-          "source": "ai",
+        "icbuCatProp.p-191284008": {
+          "source": "fact",
           "quote": "High-Efficiency HEPA Filter"
         },
         "ladderPrice.ladderPrice_0": {
@@ -2071,51 +1303,10 @@
       },
       "issues": [
         {
-          "field_id": "p-210196802",
-          "field_name": "power source",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-210196802",
-          "options": [
-            {
-              "value": "190000786",
-              "label": "Battery"
-            },
-            {
-              "value": "190063384",
-              "label": "Electric"
-            },
-            {
-              "value": "3439116",
-              "label": "Gas"
-            },
-            {
-              "value": "4221285",
-              "label": "Manual"
-            },
-            {
-              "value": "3683583",
-              "label": "Solar"
-            },
-            {
-              "value": "22041",
-              "label": "Usb"
-            },
-            {
-              "value": "200009521",
-              "label": "Vehicle Power Supply"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
           "field_id": "p-210194274",
           "field_name": "application",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "icbuCatProp.p-210194274",
           "options": [
             {
@@ -2153,35 +1344,10 @@
           ]
         },
         {
-          "field_id": "p-373265001",
-          "field_name": "Feature",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-373265001",
-          "options": [
-            {
-              "value": "100040006",
-              "label": "Eco-Friendly"
-            },
-            {
-              "value": "1951280765",
-              "label": "High Permeability"
-            },
-            {
-              "value": "1982271801",
-              "label": "Strong Compatibility"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
           "field_id": "p-210196802",
           "field_name": "power source",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "icbuCatProp.p-210196802",
           "options": [
             {
@@ -2219,158 +1385,10 @@
           ]
         },
         {
-          "field_id": "p-210194274",
-          "field_name": "application",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-210194274",
-          "options": [
-            {
-              "value": "3562099",
-              "label": "Car"
-            },
-            {
-              "value": "7248880",
-              "label": "Commercial"
-            },
-            {
-              "value": "3925011",
-              "label": "Garage"
-            },
-            {
-              "value": "3413080",
-              "label": "Hotel"
-            },
-            {
-              "value": "13820659",
-              "label": "Household"
-            },
-            {
-              "value": "3778175",
-              "label": "Outdoor"
-            },
-            {
-              "value": "4363857",
-              "label": "RV"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
           "field_id": "p-373265001",
           "field_name": "Feature",
           "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-373265001",
-          "options": [
-            {
-              "value": "100040006",
-              "label": "Eco-Friendly"
-            },
-            {
-              "value": "1951280765",
-              "label": "High Permeability"
-            },
-            {
-              "value": "1982271801",
-              "label": "Strong Compatibility"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-210196802",
-          "field_name": "power source",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-210196802",
-          "options": [
-            {
-              "value": "190000786",
-              "label": "Battery"
-            },
-            {
-              "value": "190063384",
-              "label": "Electric"
-            },
-            {
-              "value": "3439116",
-              "label": "Gas"
-            },
-            {
-              "value": "4221285",
-              "label": "Manual"
-            },
-            {
-              "value": "3683583",
-              "label": "Solar"
-            },
-            {
-              "value": "22041",
-              "label": "Usb"
-            },
-            {
-              "value": "200009521",
-              "label": "Vehicle Power Supply"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-210194274",
-          "field_name": "application",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
-          "path": "icbuCatProp.p-210194274",
-          "options": [
-            {
-              "value": "3562099",
-              "label": "Car"
-            },
-            {
-              "value": "7248880",
-              "label": "Commercial"
-            },
-            {
-              "value": "3925011",
-              "label": "Garage"
-            },
-            {
-              "value": "3413080",
-              "label": "Hotel"
-            },
-            {
-              "value": "13820659",
-              "label": "Household"
-            },
-            {
-              "value": "3778175",
-              "label": "Outdoor"
-            },
-            {
-              "value": "4363857",
-              "label": "RV"
-            },
-            {
-              "value": "-1",
-              "label": "other"
-            }
-          ]
-        },
-        {
-          "field_id": "p-373265001",
-          "field_name": "Feature",
-          "level": "red",
-          "message": "平台必填属性缺少依据，AI 未填。请补事实或手动选择",
+          "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
           "path": "icbuCatProp.p-373265001",
           "options": [
             {
@@ -2430,7 +1448,7 @@
           "value_raw": "1982271415",
           "value_label": "High-Efficiency HEPA Filter",
           "required": "是",
-          "source": "ai",
+          "source": "fact",
           "quote": "High-Efficiency HEPA Filter"
         },
         {
@@ -2487,15 +1505,15 @@
       "stats": {
         "required_total": 7,
         "filled": 1,
-        "blocked_no_evidence": 9,
-        "ai_calls": 3,
-        "rounds": 3,
-        "filled_ai": 1,
-        "filled_local": 2,
+        "blocked_no_evidence": 6,
+        "ai_calls": 2,
+        "rounds": 2,
+        "filled_ai": 0,
+        "filled_local": 3,
         "required_option_fields": 6,
         "filled_required_options": 3,
         "missing_required_options": 3,
-        "red_issues": 9
+        "red_issues": 3
       },
       "model": "gemini-3.1-flash-lite",
       "note": "无依据的必填项留空标红，需人工补或补事实后再生成"

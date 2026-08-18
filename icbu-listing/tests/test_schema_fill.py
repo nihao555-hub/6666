@@ -88,6 +88,19 @@ class SchemaFillTests(unittest.TestCase):
         self.assertEqual(values["p-1"], "100000458")
         self.assertIn("icbuCatProp.p-1", result.evidence)
 
+    def test_color_count_infers_colored_lead_without_ai(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(
+            name="12色木杆彩色铅笔",
+            specs={"color_count": "12", "hardness": "HB", "material": "Wood"},
+        )
+        u = bundle.enrich(Understanding(product_name="Colored pencil set"))
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertEqual(values.get("p-9"), ["12970290"])
+        self.assertEqual(result.stats.ai_calls, 0)
+
     def test_color_spec_maps_to_option_without_ai(self) -> None:
         fields = parse_schema(SAMPLE)
         group = next(field for field in fields if field.id == "icbuCatProp")
@@ -143,7 +156,7 @@ class SchemaFillTests(unittest.TestCase):
             images_applied=True,
             title="Wholesale product",
         )
-        self.assertTrue(any("缺少依据" in issue["message"] for issue in report.issues))
+        self.assertTrue(any("仍缺事实依据" in issue["message"] for issue in report.issues))
 
 
 if __name__ == "__main__":
