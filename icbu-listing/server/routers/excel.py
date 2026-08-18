@@ -14,6 +14,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ai import AiClient, ImageInput  # noqa: E402
+from gop_client import GopError  # noqa: E402
 
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
@@ -358,6 +359,13 @@ def _run_import(
         shop = db.get(Shop, shop_id) if shop_id else None
         listing = db.get(Template, listing_template_id) if listing_template_id else None
         ai = AiClient.from_env_or_none()
+        if shop is not None:
+            try:
+                from . import defaults as defaults_service
+
+                defaults_service.pull_from_shop(db, shop_api(shop), shop)
+            except (GopError, ShopNotConnected, RuntimeError, TypeError, ValueError):
+                pass
         for raw in payload:
             row = excel_import.ExcelRow(
                 sku=raw.get("sku") or "",

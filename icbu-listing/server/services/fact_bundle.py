@@ -125,6 +125,40 @@ class FactBundle:
             "origin": self.origin,
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "FactBundle":
+        tiers = [
+            PriceTier(str(item.get("quantity") or ""), str(item.get("price") or ""))
+            for item in (payload.get("price_tiers") or [])
+            if isinstance(item, Mapping)
+        ]
+        variants = [
+            VariantFact(
+                sku=str(item.get("sku") or ""),
+                color=str(item.get("color") or ""),
+                size=str(item.get("size") or ""),
+                price=str(item.get("price") or ""),
+                moq=str(item.get("moq") or ""),
+            )
+            for item in (payload.get("variants") or [])
+            if isinstance(item, Mapping)
+        ]
+        specs_raw = payload.get("specs") or {}
+        specs = {str(k): str(v) for k, v in specs_raw.items() if str(v).strip()} if isinstance(specs_raw, Mapping) else {}
+        return cls(
+            parent_sku=str(payload.get("parent_sku") or ""),
+            sku=str(payload.get("sku") or ""),
+            name=str(payload.get("name") or ""),
+            brand=str(payload.get("brand") or ""),
+            note=str(payload.get("note") or ""),
+            specs=specs,
+            price_tiers=tiers,
+            variants=variants,
+            moq=str(payload.get("moq") or ""),
+            price=str(payload.get("price") or ""),
+            origin=str(payload.get("origin") or ""),
+        )
+
     def facts_for_ai(self, understanding: Understanding | None = None) -> dict[str, Any]:
         u = understanding or Understanding()
         specs = {**self.specs, **u.specs}

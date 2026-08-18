@@ -453,15 +453,35 @@ def _run_batch(
 @router.get("/batches/{batch_id}")
 def batch_progress(
     batch_id: str,
+    total: int = 0,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     drafts = db.query(Draft).filter(Draft.user_id == user.id, Draft.batch_id == batch_id).all()
     products = db.query(Product).filter(Product.user_id == user.id, Product.batch_id == batch_id).count()
-    counts = {"red": 0, "yellow": 0, "green": 0, "published": 0, "failed": 0}
+    counts = {"red": 0, "yellow": 0, "green": 0, "published": 0, "failed": 0, "publishing": 0}
+    reviewed = 0
+    ready = 0
     for draft in drafts:
         counts[draft.status] = counts.get(draft.status, 0) + 1
-    return {"batch_id": batch_id, "done": max(len(drafts), products), "products": products, "drafts": len(drafts), "counts": counts}
+        if draft.reviewed_at:
+            reviewed += 1
+        if audit.can_publish(draft)[0]:
+            ready += 1
+    done = max(len(drafts), products)
+    expected = total if total > 0 else done
+    return {
+        "batch_id": batch_id,
+        "total": expected,
+        "done": done,
+        "complete": done >= expected if expected else bool(drafts),
+        "products": products,
+        "drafts": len(drafts),
+        "reviewed": reviewed,
+        "ready": ready,
+        "pending": len(drafts) - reviewed,
+        "counts": counts,
+    }
 
 
 @router.get("/drafts")
@@ -511,6 +531,11 @@ def patch_draft(
         category_changed = bool(payload.category_id and payload.category_id != draft.category_id)
         if category_changed:
             field_sources = sources.unlock_for_category_change(field_sources)
+        from ..services.fact_bundle import FactBundle
+
+        ai_data = _json(draft.ai_json, {})
+        fb_raw = ai_data.get("fact_bundle")
+        fact_bundle = FactBundle.from_dict(fb_raw) if isinstance(fb_raw, dict) else None
         result = pipeline.build_draft(
             db,
             shop_api(shop),
@@ -523,6 +548,7 @@ def patch_draft(
             ai=AiClient.from_env_or_none(),
             forced_category_id=payload.category_id or draft.category_id,
             language=str(shop_defaults(shop).get("language") or "en_US"),
+            fact_bundle=fact_bundle,
         )
         result.values = sources.keep_locked(old_values, result.values, field_sources)
         if field_sources.get("productTitle") in sources.LOCKED and old_values.get("productTitle"):
@@ -596,38 +622,54 @@ def delete_draft(db: Session = Depends(get_db), draft: Draft = Depends(owned_dra
     return {"ok": True}
 
 
-def _publish_one(db: Session, user: User, shop: Shop, draft: Draft) -> Job:
+def _publish_one(db: Session, user: User, shop: Shop, draft: Draft, *, job: Job | None = None) -> Job:
     allowed, reason = audit.can_publish(draft)
     if not allowed:
+        if job is None:
+            job = Job(
+                user_id=user.id,
+                shop_id=shop.id,
+                draft_id=draft.id,
+                batch_id=draft.batch_id,
+                mode=shop.publish_mode,
+                status="failed",
+                attempts=1,
+                sku=draft.sku,
+                title=draft.title,
+                error=reason,
+                finished_at=datetime.utcnow(),
+            )
+            db.add(job)
+        else:
+            job.mode = shop.publish_mode
+            job.status = "failed"
+            job.error = reason
+            job.attempts = (job.attempts or 0) + 1
+            job.finished_at = datetime.utcnow()
+        db.commit()
+        return job
+
+    if job is None:
         job = Job(
             user_id=user.id,
             shop_id=shop.id,
             draft_id=draft.id,
             batch_id=draft.batch_id,
             mode=shop.publish_mode,
-            status="failed",
+            status="running",
             attempts=1,
             sku=draft.sku,
             title=draft.title,
-            error=reason,
-            finished_at=datetime.utcnow(),
         )
         db.add(job)
-        db.commit()
-        return job
-
-    job = Job(
-        user_id=user.id,
-        shop_id=shop.id,
-        draft_id=draft.id,
-        batch_id=draft.batch_id,
-        mode=shop.publish_mode,
-        status="running",
-        attempts=1,
-        sku=draft.sku,
-        title=draft.title,
-    )
-    db.add(job)
+    else:
+        job.mode = shop.publish_mode
+        job.status = "running"
+        job.attempts = (job.attempts or 0) + 1
+        job.error = ""
+        job.error_fields_json = ""
+        job.finished_at = None
+        job.product_online_id = ""
     draft.status = "publishing"
     db.commit()
 
@@ -697,14 +739,16 @@ def publish_many(
     if not eligible:
         raise HTTPException(status_code=400, detail=skipped[0]["reason"] if skipped else "没有可发布的草稿")
 
+    shops = {shop.id: shop for shop in db.query(Shop).filter(Shop.user_id == user.id).all()}
     queued = []
     for draft in eligible:
+        shop = shops.get(draft.shop_id)
         job = Job(
             user_id=user.id,
             shop_id=draft.shop_id,
             draft_id=draft.id,
             batch_id=draft.batch_id,
-            mode="draft",
+            mode=(shop.publish_mode if shop is not None else "draft"),
             status="queued",
             sku=draft.sku,
             title=draft.title,
@@ -732,11 +776,10 @@ def _run_publish_queue(user_id: str, job_ids: list[str]) -> None:
             if draft is None or shop is None:
                 job.status = "failed"
                 job.error = "草稿或店铺已经不存在"
+                job.finished_at = datetime.utcnow()
                 db.commit()
                 continue
-            db.delete(job)
-            db.commit()
-            _publish_one(db, user, shop, draft)
+            _publish_one(db, user, shop, draft, job=job)
     finally:
         db.close()
 

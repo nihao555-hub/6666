@@ -1,5 +1,18 @@
 <template>
   <div class="page">
+    <el-alert
+      v-if="batchId"
+      type="info"
+      show-icon
+      :closable="false"
+      style="margin-bottom: 14px"
+      title="当前只看本批导入"
+      :description="`本批 ${rows.length} 条。审完可批量发布。`"
+    />
+    <div v-if="batchId" style="margin: -6px 0 14px">
+      <el-button text type="primary" @click="clearBatch">看全部商品</el-button>
+    </div>
+
     <div class="page-head">
       <div>
         <h2>商品</h2>
@@ -139,6 +152,7 @@ const rows = ref([]);
 const all = ref([]);
 const loading = ref(false);
 const filter = ref(route.query.filter || "");
+const batchId = ref(route.query.batch_id || "");
 const selected = ref([]);
 const shopFilter = ref(route.query.shop === "all" ? "" : store.shopId || "");
 const tab = ref(route.query.tab === "live" ? "live" : "local");
@@ -190,13 +204,22 @@ async function reload() {
   }
   loading.value = true;
   try {
-    all.value = await api.drafts(shopFilter.value ? { shop_id: shopFilter.value } : {});
+    const params = {};
+    if (shopFilter.value) params.shop_id = shopFilter.value;
+    if (batchId.value) params.batch_id = batchId.value;
+    all.value = await api.drafts(params);
     rows.value = all.value.filter(matches);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
     loading.value = false;
   }
+}
+
+function clearBatch() {
+  batchId.value = "";
+  router.replace({ path: "/drafts", query: { ...(filter.value ? { filter: filter.value } : {}) } });
+  reload();
 }
 
 async function loadLive() {

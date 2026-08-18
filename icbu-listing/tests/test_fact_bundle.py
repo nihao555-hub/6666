@@ -45,6 +45,22 @@ class FactBundleTests(unittest.TestCase):
         self.assertEqual(u.material, "Wood")
         self.assertEqual(u.specs.get("color"), "Red, Blue")
 
+    def test_from_dict_roundtrip(self) -> None:
+        bundle = FactBundle(
+            sku="MKR-01",
+            name="Marker set",
+            brand="Giorgione",
+            note="dual tip",
+            specs={"color_count": "24", "tip": "Dual tip"},
+            moq="200",
+            price="3.20",
+            origin="China",
+        )
+        restored = FactBundle.from_dict(bundle.as_dict())
+        self.assertEqual(restored.sku, "MKR-01")
+        self.assertEqual(restored.specs["tip"], "Dual tip")
+        self.assertEqual(restored.note, "dual tip")
+
 
 if __name__ == "__main__":
     unittest.main()

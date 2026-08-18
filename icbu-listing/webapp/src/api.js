@@ -56,7 +56,7 @@ export const api = {
 
   feed: (form) => http.post("/listings/feed", form),
   feedBatch: (form) => http.post("/listings/batch", form),
-  batchProgress: (batchId) => http.get(`/batches/${batchId}`),
+  batchProgress: (batchId, params) => http.get(`/batches/${batchId}`, { params }),
   feedSessions: (shopId) => http.get("/feed-sessions", { params: { shop_id: shopId || "" } }),
   createFeedSession: (body) => http.post("/feed-sessions", body),
   feedSession: (id) => http.get(`/feed-sessions/${id}`),

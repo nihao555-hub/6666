@@ -552,9 +552,26 @@
           </el-button>
         </div>
         <div v-if="excel.batch" style="margin-top: 18px">
-          <p>共 {{ excel.batch.count }} 个商品，已成稿 {{ excelProgress.done }} 个。成稿不等于能发，还要一条条打开审。</p>
+          <p>
+            共 {{ excel.batch.count }} 个商品，已成稿 {{ excelProgress.done }}/{{ excel.batch.count }}。
+            <template v-if="excelProgress.complete">
+              待审 {{ excelProgress.pending || 0 }} · 待改 {{ excelProgress.counts?.red || 0 }} · 已审可发 {{ excelProgress.ready || 0 }}。
+            </template>
+            <template v-else> 后台还在跑，可以关掉页面。</template>
+          </p>
           <el-progress :percentage="excelPercent" :stroke-width="10" />
-          <el-button style="margin-top: 12px" @click="$router.push('/drafts?filter=pending')">去商品里一条条审</el-button>
+          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
+            <el-button
+              type="primary"
+              :disabled="!excelProgress.complete"
+              @click="goBatchDrafts('pending')"
+            >
+              去审这一批
+            </el-button>
+            <el-button v-if="excelProgress.complete && excelProgress.ready" @click="goBatchDrafts('ready')">
+              看已审可发（{{ excelProgress.ready }}）
+            </el-button>
+          </div>
         </div>
       </div>
 
@@ -1325,11 +1342,15 @@ async function importExcel() {
 async function pollExcel() {
   if (!excel.batch) return;
   try {
-    excelProgress.value = await api.batchProgress(excel.batch.batch_id);
-    if (excelProgress.value.done >= excel.batch.count) clearInterval(excelTimer);
+    excelProgress.value = await api.batchProgress(excel.batch.batch_id, { total: excel.batch.count });
+    if (excelProgress.value.complete) clearInterval(excelTimer);
   } catch {
     clearInterval(excelTimer);
   }
+}
+
+function goBatchDrafts(filter = "pending") {
+  router.push({ path: "/drafts", query: { batch_id: excel.batch.batch_id, filter } });
 }
 
 onUnmounted(() => {
