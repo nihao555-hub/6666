@@ -19,6 +19,7 @@ from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
 from ..services import catalog, distribution, excel_import, excel_images, feed_sessions, pipeline, products as catalogue, public_refs, templates
+from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
@@ -497,6 +498,7 @@ def _import_one(
             seed_values=row.seed_values(),
             provided_sources=row.provided_sources(),
             extra_defaults=row.extra_defaults(),
+            fact_bundle=from_excel_row(row),
         )
     except ShopNotConnected as exc:
         distribution.failed_draft(db, user.id, shop.id, product, batch_id, str(exc))

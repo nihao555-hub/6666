@@ -17,6 +17,7 @@ from ai import AiClient  # noqa: E402
 
 from ..models import Draft, Product, Shop, User
 from . import dedup, pipeline, products as catalogue, sources, templates
+from .fact_bundle import FactBundle
 from .shop_client import shop_api, shop_defaults
 
 # A product listed in several shops must not read like the same listing
@@ -46,6 +47,7 @@ def build_draft_for_shop(
     seed_values: dict[str, Any] | None = None,
     provided_sources: dict[str, str] | None = None,
     extra_defaults: dict[str, Any] | None = None,
+    fact_bundle: FactBundle | None = None,
 ) -> Draft:
     api = shop_api(shop)
     defaults = shop_defaults(shop)
@@ -69,8 +71,12 @@ def build_draft_for_shop(
         language=str(defaults.get("language") or "en_US"),
         copy_angle=angle,
         extra_defaults=extra_defaults,
+        fact_bundle=fact_bundle,
     )
     field_sources = sources.infer_initial(result.values, provided_sources)
+    for path, payload in (result.ai.get("evidence") or {}).items():
+        if path and path not in field_sources:
+            field_sources[path] = str(payload.get("source") or "excel")
     if seed_values:
         result.values, field_sources = sources.apply_incoming(result.values, seed_values, field_sources, "excel")
         if seed_values.get("productTitle"):

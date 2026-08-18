@@ -31,7 +31,9 @@ from schema import (  # noqa: E402
 
 from ..models import CategoryMemory, Shop
 from . import catalog, defaults as defaults_service, quality, templates as template_service
+from .fact_bundle import FactBundle
 from .images import BankImage
+from .schema_fill import ATTR_GROUPS, FillResult, align_attributes, apply_trade_from_facts
 
 MAX_DESCENT_DEPTH = 6
 BEAM_WIDTH = 3
@@ -337,9 +339,8 @@ def align_attributes(
             if applied is not None:
                 values[spec.id] = applied
                 continue
-            # Recommended attrs also go to AI: 5.0 needs completeness, not
-            # just required stars. Empty string if the photo does not show it.
-            if spec.required or guess or spec.options:
+            # Only ask AI when required or we already have a fact-backed guess.
+            if spec.required or guess:
                 unresolved.append(spec)
             continue
         if guess:
@@ -427,6 +428,7 @@ def apply_trade_terms(
     defaults: Mapping[str, Any],
     price: str,
     moq: str,
+    ladder: Mapping[str, dict[str, str]] | None = None,
 ) -> None:
     unit = _option_value(specs.get("priceUnit"), str(defaults.get("priceUnit") or "Piece/Pieces"), fallback_first=True)
     if unit:
@@ -440,7 +442,9 @@ def apply_trade_terms(
     price_setting = _option_value(specs.get("scPrice"), "Tiered pricing by quantity")
     if price_setting:
         values["scPrice"] = price_setting
-    if price and moq:
+    if ladder:
+        values["ladderPrice"] = dict(ladder)
+    elif price and moq:
         values["ladderPrice"] = {"ladderPrice_0": {"quantity": moq, "price": price}}
     if moq:
         values["minOrderQuantity"] = moq
@@ -667,8 +671,12 @@ def build_draft(
     language: str = "en_US",
     copy_angle: str = "",
     extra_defaults: Mapping[str, Any] | None = None,
+    fact_bundle: FactBundle | None = None,
 ) -> DraftResult:
     result = DraftResult(ai={"understanding": understanding.raw})
+    if fact_bundle is not None:
+        understanding = fact_bundle.enrich(understanding)
+        result.ai["fact_bundle"] = fact_bundle.as_dict()
 
     category_id, category_name, confidence, candidates = resolve_category(
         db, api, shop, understanding, ai, forced_category_id
@@ -690,7 +698,6 @@ def build_draft(
     xml = catalog.get_schema_xml(db, api, category_id, language)
     fields = parse_schema(xml)
     specs = index_fields(fields)
-    values: dict[str, Any] = {"catId": category_id}
 
     category_values = {}
     template = template_service.find_for(db, shop.id, category_id)
@@ -698,16 +705,19 @@ def build_draft(
         category_values = template_service.values_of(template)
     layered = defaults_service.layer_defaults(defaults, category_values, extra_defaults)
 
-    for group_id in ("icbuCatProp", "saleProp"):
+    fill_state = FillResult(values={"catId": category_id})
+    for group_id in ATTR_GROUPS:
         group = specs.get(group_id)
         if group is None or not group.children:
             continue
-        group_values, group_issues = align_attributes(group, understanding, layered, ai)
-        if group_values:
-            values[group_id] = group_values
-        result.issues.extend(group_issues)
-
-    apply_trade_terms(specs, values, layered, price, moq)
+        chunk = align_attributes(group, understanding, layered, ai, fact_bundle, fill_state)
+        if chunk:
+            fill_state.values[group_id] = {**(fill_state.values.get(group_id) or {}), **chunk}
+    apply_trade_from_facts(specs, fill_state.values, layered, fact_bundle, price, moq, fill_state)
+    values = fill_state.values
+    result.issues.extend(fill_state.issues)
+    result.ai["fill_stats"] = fill_state.stats.as_dict()
+    result.ai["evidence"] = {path: ev.as_dict() for path, ev in fill_state.evidence.items()}
 
     title_spec = specs.get("productTitle")
     keyword_spec = specs.get("productKeywords")
