@@ -33,7 +33,7 @@ from openpyxl.utils import get_column_letter  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-from ai import AiClient, Understanding  # noqa: E402
+from ai import AiClient, ImageInput, Understanding  # noqa: E402
 from schema import SchemaField, index_fields, parse_schema  # noqa: E402
 
 from server.models import Shop  # noqa: E402
@@ -52,7 +52,8 @@ SAMPLES: list[dict[str, Any]] = [
         "moq": "500",
         "brand": "Giorgione",
         "note": "500@1.80; 1000@1.50; OEM logo welcome",
-        "specs": {"color_count": "12", "material": "Wood", "hardness": "HB", "size": "17.5cm"},
+        "specs": {"color_count": "12", "material": "Wood", "hardness": "HB", "size": "17.5cm", "color": "colored"},
+        "image_paths": sorted(str(p) for p in (ROOT / "data" / "generated-images" / "refs").glob("*.jpg"))[:4],
     },
     {
         "sku": "MKR-WB-24",
@@ -367,7 +368,7 @@ def build_workbook(results: list[dict[str, Any]]) -> bytes:
         )
     summary.append([])
     summary.append(["生成时间(UTC)", datetime.now(timezone.utc).isoformat(timespec="seconds")])
-    summary.append(["流程", "Excel事实 → AI填官方属性 → 导出（未发布）"])
+    summary.append(["流程", "Excel事实+商品图 → vision识图 → AI填官方属性 → 导出（未发布）"])
     _style_header(summary, color="7C3AED")
 
     for sheet in book.worksheets:
@@ -376,6 +377,16 @@ def build_workbook(results: list[dict[str, Any]]) -> bytes:
     buffer = BytesIO()
     book.save(buffer)
     return buffer.getvalue()
+
+
+def _load_images(sample: dict[str, Any]) -> list[ImageInput]:
+    out: list[ImageInput] = []
+    for raw in sample.get("image_paths") or []:
+        path = Path(raw)
+        if not path.is_file():
+            continue
+        out.append(ImageInput(filename=path.name, content=path.read_bytes()))
+    return out[:6]
 
 
 def run_one(
@@ -402,16 +413,22 @@ def run_one(
         moq=sample["moq"],
         origin="China",
     )
-    understanding = bundle.enrich(
-        Understanding(
-            product_name=sample["name"],
-            material=bundle.specs.get("material", ""),
-            colors=[part.strip() for part in str(bundle.specs.get("color", "")).split(",") if part.strip()],
-            usage=bundle.specs.get("usage", ""),
-            features=["OEM welcome", "Bulk order"],
-            specs=dict(bundle.specs),
-        )
+    images = _load_images(sample)
+    understanding = Understanding(
+        product_name=sample["name"],
+        material=bundle.specs.get("material", ""),
+        colors=[part.strip() for part in str(bundle.specs.get("color", "")).split(",") if part.strip()],
+        usage=bundle.specs.get("usage", ""),
+        features=["OEM welcome", "Bulk order"],
+        specs=dict(bundle.specs),
     )
+    if images and ai is not None:
+        try:
+            understanding = bundle.enrich(ai.understand(images, bundle.text_blob() or sample["name"]))
+        except Exception:
+            understanding = bundle.enrich(understanding)
+    else:
+        understanding = bundle.enrich(understanding)
     report = fill_category_draft(
         xml,
         understanding=understanding,
@@ -421,9 +438,10 @@ def run_one(
         price=sample["price"],
         moq=sample["moq"],
         ai=ai,
-        images_applied=True,
+        images_applied=bool(images),
         category_id=category_id,
-        title=f"Wholesale {sample['name'][:48]}",
+        images=images,
+        title=f"Wholesale colored pencil set",
         keywords=["wholesale", "factory", "bulk"],
         highlights=bundle.text_blob(),
     )
@@ -471,7 +489,7 @@ def run_one(
             "red_issues": len(red_issues),
         },
         "model": ai.text_model,
-        "note": "无依据的必填项留空标红，需人工补或补事实后再生成",
+        "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性",
     }
 
 

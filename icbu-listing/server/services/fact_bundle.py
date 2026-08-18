@@ -130,6 +130,8 @@ class FactBundle:
         specs = {**self.specs, **u.specs}
         labeled = {SPEC_LABELS.get(k, k): v for k, v in specs.items() if str(v).strip()}
         return {
+            "sku": self.sku,
+            "name": self.name,
             "product_name": u.product_name or self.name,
             "category_hint": u.category_hint or self.name,
             "material": u.material or self.specs.get("material", ""),
@@ -140,8 +142,19 @@ class FactBundle:
             "usage": u.usage,
             "note": self.note,
             "brand": self.brand,
+            "price": self.price,
+            "moq": self.moq,
             "text_blob": self.text_blob(),
             "price_tiers": [{"quantity": t.quantity, "price": t.price} for t in self.price_tiers],
+            "vision": {
+                "product_name": u.product_name,
+                "material": u.material,
+                "colors": u.colors,
+                "features": u.features,
+                "specs": u.specs,
+                "usage": u.usage,
+                "audience": u.audience,
+            },
         }
 
     def ladder_values(self, max_slots: int = 4) -> dict[str, dict[str, str]]:

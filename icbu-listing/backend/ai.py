@@ -161,6 +161,20 @@ Return JSON only:
 {{"title": "", "keywords": [], "highlights": "", "selling_points": [], "faqs": [{{"question": "", "answer": ""}}], "confidence": 0.0}}"""
 
 
+ATTR_MAP_PROMPT = """You map a wholesale product to Alibaba.com official attribute options.
+
+You receive ALL seller facts (Excel columns, notes, specs, brand, price tiers) AND product photos.
+
+Rules:
+- Pick an option ONLY when seller text or something clearly visible in the photos supports it.
+- Use option display text exactly as given for that attribute id.
+- Do not invent certifications, brands, origin, price, MOQ, or category.
+- Never pick Other / Custom / 其他.
+- If facts and photos do not support an attribute, return empty string for that id.
+
+Return JSON only: {{"p-1": "China", "p-9": "colored"}}"""
+
+
 class AiClient:
     def __init__(
         self,
@@ -280,6 +294,25 @@ class AiClient:
             faqs=faqs,
             confidence=_confidence(payload.get("confidence")),
         )
+
+    def map_attributes(
+        self,
+        *,
+        images: Sequence[ImageInput],
+        facts: Mapping[str, Any],
+        attributes: Mapping[str, Any],
+    ) -> dict[str, str]:
+        """One multimodal call: seller facts + photos → official option labels."""
+        prompt = (
+            f"{ATTR_MAP_PROMPT}\n\n"
+            f"Seller facts: {json.dumps(dict(facts), ensure_ascii=False)}\n"
+            f"Attributes: {json.dumps(dict(attributes), ensure_ascii=False)}"
+        )
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for image in images[:6]:
+            content.append({"type": "image_url", "image_url": {"url": image.as_data_url()}})
+        payload = self.chat_json([{"role": "user", "content": content}], temperature=0.0)
+        return {str(key): str(value).strip() for key, value in payload.items() if value not in (None, "")}
 
     def shortlist(
         self,

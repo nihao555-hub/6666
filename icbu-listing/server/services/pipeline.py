@@ -581,7 +581,7 @@ def build_draft(
         group = specs.get(group_id)
         if group is None or not group.children:
             continue
-        chunk = align_attributes(group, understanding, layered, ai, fact_bundle, fill_state)
+        chunk = align_attributes(group, understanding, layered, ai, fact_bundle, fill_state, images)
         if chunk:
             fill_state.values[group_id] = {**(fill_state.values.get(group_id) or {}), **chunk}
     apply_trade_from_facts(specs, fill_state.values, layered, fact_bundle, price, moq, fill_state)

@@ -88,18 +88,23 @@ class SchemaFillTests(unittest.TestCase):
         self.assertEqual(values["p-1"], "100000458")
         self.assertIn("icbuCatProp.p-1", result.evidence)
 
-    def test_color_count_infers_colored_lead_without_ai(self) -> None:
+    def test_color_count_alone_does_not_infer_colored(self) -> None:
         fields = parse_schema(SAMPLE)
         group = next(field for field in fields if field.id == "icbuCatProp")
-        bundle = FactBundle(
-            name="12色木杆彩色铅笔",
-            specs={"color_count": "12", "hardness": "HB", "material": "Wood"},
-        )
-        u = bundle.enrich(Understanding(product_name="Colored pencil set"))
+        bundle = FactBundle(name="12色木杆彩色铅笔", specs={"color_count": "12", "hardness": "HB"})
+        u = bundle.enrich(Understanding(product_name="学生绘画铅笔套装"))
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertNotIn("p-9", values)
+
+    def test_vision_color_fills_lead_color(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(name="Colored pencil set")
+        u = bundle.enrich(Understanding(product_name="Colored pencil set", colors=["colored"]))
         result = FillResult()
         values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
         self.assertEqual(values.get("p-9"), ["12970290"])
-        self.assertEqual(result.stats.ai_calls, 0)
 
     def test_color_spec_maps_to_option_without_ai(self) -> None:
         fields = parse_schema(SAMPLE)

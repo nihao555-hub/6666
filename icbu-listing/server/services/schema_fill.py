@@ -1,9 +1,7 @@
-"""Evidence-gated, iterative schema fill for any leaf category.
-
-One fact table in, schema.get rules out. We do not materialise 7521 Excel forms.
+"""Evidence-gated schema fill for any leaf category.
 
 Red lines (never AI-invented): price, MOQ, brand, photos, category.
-Official attrs: AI + rules map facts/product name → platform options aggressively.
+Official attrs: all seller facts + product photos go to AI; answers must match evidence corpus.
 """
 
 from __future__ import annotations
@@ -14,12 +12,13 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 import requests
-from ai import AiClient, AiUnavailable, Copy, Understanding  # noqa: E402
+from ai import AiClient, AiUnavailable, Copy, ImageInput, Understanding  # noqa: E402
 from schema import SchemaField, ValidationIssue, index_fields, parse_schema, validate_values  # noqa: E402
 
 from . import defaults as defaults_service, quality, templates as template_service
 from .excel_import import SPEC_LABELS
 from .fact_bundle import FactBundle, Evidence
+from .images import BankImage
 
 USER_OR_SHOP_KEYS = frozenset(
     {
@@ -142,12 +141,20 @@ def _fact_corpus(
     bundle: FactBundle | None,
 ) -> str:
     bits = [
+        str(facts.get("sku") or ""),
+        str(facts.get("name") or ""),
         str(facts.get("product_name") or ""),
+        str(facts.get("category_hint") or ""),
         str(facts.get("material") or ""),
         str(facts.get("note") or ""),
         str(facts.get("brand") or ""),
+        str(facts.get("price") or ""),
+        str(facts.get("moq") or ""),
+        str(facts.get("text_blob") or ""),
         " ".join(str(item) for item in facts.get("colors") or []),
         json.dumps(facts.get("specs") or {}, ensure_ascii=False),
+        json.dumps(facts.get("specs_labeled") or {}, ensure_ascii=False),
+        json.dumps(facts.get("vision") or {}, ensure_ascii=False),
         " ".join(str(v) for v in (facts.get("specs") or {}).values()),
         understanding.product_name,
         understanding.category_hint,
@@ -161,6 +168,16 @@ def _fact_corpus(
         bits.append(bundle.text_blob())
         bits.append(bundle.name)
     return _norm(" ".join(bit for bit in bits if bit))
+
+
+def _coerce_images(images: Sequence[ImageInput | BankImage] | None) -> list[ImageInput]:
+    out: list[ImageInput] = []
+    for item in images or []:
+        if isinstance(item, ImageInput):
+            out.append(item)
+        else:
+            out.append(ImageInput(filename=item.file_name or "product.jpg", url=item.absolute_url))
+    return out[:6]
 
 
 def _is_generic_option(label: str) -> bool:
@@ -177,44 +194,21 @@ def _apply_option(spec: SchemaField, raw: str) -> Any | None:
 
 
 def _fuzzy_option_match(spec: SchemaField, corpus: str) -> tuple[str, str] | None:
-    """Pick official option whose label tokens best overlap fact corpus."""
+    """Option label must appear in the evidence corpus — no numeric inference."""
     if not spec.options:
         return None
     corpus_tokens = _tokens(corpus)
-    best: tuple[int, str] | None = None
     for option in spec.options[:80]:
         label = option.display_name.strip()
         if not label or _is_generic_option(label):
             continue
         label_norm = _norm(label)
-        if label_norm in corpus:
+        if label_norm and label_norm in corpus:
             return label, label
-        overlap = len(_tokens(label) & corpus_tokens)
-        if overlap <= 0:
-            continue
-        score = overlap * 10 + len(label_norm)
-        if best is None or score > best[0]:
-            best = (score, label)
-    return (best[1], best[1]) if best else None
-
-
-def _infer_color_option(spec: SchemaField, bundle: FactBundle | None, understanding: Understanding) -> tuple[str, str, str]:
-    if not _wanted(spec.name, COLOR_HINTS):
-        return "", "", ""
-    specs = {**(bundle.specs if bundle else {}), **understanding.specs}
-    count_raw = str(specs.get("color_count") or specs.get("colors") or "").strip()
-    match = re.search(r"\d+", count_raw)
-    if match and int(match.group()) > 1:
-        for option in spec.options:
-            label = option.display_name.lower()
-            if label in {"colored", "multi", "multicolor", "multi color", "multi-color"}:
-                return option.display_name, "excel", f"color_count={match.group()}"
-    name_blob = _norm(f"{bundle.name if bundle else ''} {understanding.product_name}")
-    if any(token in name_blob for token in ("彩色", "多色", "colored", "colour pencil", "color pencil")):
-        for option in spec.options:
-            if option.display_name.lower() in {"colored", "multi", "multicolor"}:
-                return option.display_name, "excel", understanding.product_name or (bundle.name if bundle else "")
-    return "", "", ""
+        label_tokens = _tokens(label)
+        if label_tokens and label_tokens.issubset(corpus_tokens):
+            return label, label
+    return None
 
 
 def _infer_from_spec_keys(spec: SchemaField, bundle: FactBundle | None, understanding: Understanding) -> tuple[str, str, str]:
@@ -228,9 +222,6 @@ def _infer_from_spec_keys(spec: SchemaField, bundle: FactBundle | None, understa
         applied = _apply_option(spec, value)
         if applied is not None:
             return value, "excel", f"{SPEC_LABELS.get(key, key)} {value}"
-        fuzzy = _fuzzy_option_match(spec, _norm(value))
-        if fuzzy:
-            return fuzzy[0], "excel", value
     return "", "", ""
 
 
@@ -257,9 +248,6 @@ def _local_guess(
         color = (bundle.specs.get("color") if bundle else "") or ""
         if color:
             return re_split_first(color), "excel", color
-        inferred = _infer_color_option(spec, bundle, understanding)
-        if inferred[0]:
-            return inferred
     if _wanted(spec.name, MATERIAL_HINTS):
         raw = understanding.material or (bundle.specs.get("material") if bundle else "") or ""
         raw = str(raw).strip()
@@ -313,6 +301,7 @@ def align_attributes(
     ai: AiClient | None,
     bundle: FactBundle | None,
     result: FillResult,
+    images: Sequence[ImageInput | BankImage] | None = None,
 ) -> dict[str, Any]:
     values: dict[str, Any] = {}
     facts = bundle.facts_for_ai(understanding) if bundle else {
@@ -345,7 +334,7 @@ def align_attributes(
         batch = unresolved[batch_start : batch_start + AI_BATCH]
         if not batch or ai is None:
             break
-        resolved = _ask_attributes(ai, batch, understanding, bundle, result, group.id)
+        resolved = _ask_attributes(ai, batch, understanding, bundle, result, group.id, images)
         result.stats.ai_calls += 1
         for spec in batch:
             answer = resolved.get(spec.id, "")
@@ -354,7 +343,6 @@ def align_attributes(
             applied = _apply_option(spec, answer)
             if applied is not None:
                 values[spec.id] = applied
-                result.record_evidence(f"{group.id}.{spec.id}", "ai", answer)
 
     for spec in unresolved:
         if spec.required and spec.id not in values:
@@ -373,38 +361,27 @@ def align_attributes(
     return values
 
 
-def _ai_answer_allowed(
+def _answer_supported(
     spec: SchemaField,
     answer: str,
     facts: Mapping[str, Any],
     understanding: Understanding,
     bundle: FactBundle | None,
 ) -> bool:
-    if _is_generic_option(answer):
-        return False
-    if spec.option_by_label(answer) is None:
+    if _is_generic_option(answer) or spec.option_by_label(answer) is None:
         return False
     if _wanted(spec.name, BRAND_HINTS):
         brand = str(facts.get("brand") or (bundle.brand if bundle else "") or "").strip()
-        return bool(brand) and _norm(answer) in (_norm(brand), *(_tokens(brand)))
+        if not brand:
+            return False
+        return _norm(answer) == _norm(brand) or _norm(answer) in _tokens(brand)
     corpus = _fact_corpus(facts, understanding, bundle)
-    answer_norm = _norm(answer)
-    if answer_norm in corpus:
+    needle = _norm(answer)
+    if needle in corpus:
         return True
     for token in _tokens(answer):
-        if token in _tokens(corpus):
+        if len(token) >= 2 and token in _tokens(corpus):
             return True
-    if _wanted(spec.name, COLOR_HINTS) and any(
-        token in corpus for token in ("colored", "multi", "彩色", "多色", "colour", "color")
-    ):
-        return answer_norm in {"colored", "multi", "multicolor", "multi color", "multi-color"}
-    if _wanted(spec.name, HARDNESS_HINTS):
-        hardness = str((facts.get("specs") or {}).get("hardness") or understanding.specs.get("hardness") or "")
-        if hardness and _norm(hardness) in answer_norm:
-            return True
-    fuzzy = _fuzzy_option_match(spec, corpus)
-    if fuzzy and _norm(fuzzy[0]) == answer_norm:
-        return True
     return False
 
 
@@ -415,6 +392,7 @@ def _ask_attributes(
     bundle: FactBundle | None,
     result: FillResult,
     group_id: str,
+    images: Sequence[ImageInput | BankImage] | None = None,
 ) -> dict[str, str]:
     facts = bundle.facts_for_ai(understanding) if bundle else {
         "product_name": understanding.product_name,
@@ -430,25 +408,25 @@ def _ask_attributes(
         spec.id: {
             "attribute": spec.name or spec.id,
             "required": spec.required,
-            "options": [option.display_name for option in spec.options[:50] if not _is_generic_option(option.display_name)],
+            "options": [
+                option.display_name for option in spec.options[:50] if not _is_generic_option(option.display_name)
+            ],
         }
         for spec in specs
     }
-    prompt = (
-        "You map wholesale product facts onto Alibaba official attribute options.\n"
-        "Goal: fill as many attributes as the facts reasonably support — this saves manual work.\n"
-        "Rules:\n"
-        "- Pick option text exactly from the options list when facts or product name imply it.\n"
-        "- Reasonable inference OK for official attrs (e.g. 12-color pencil set → Lead Color colored).\n"
-        "- Do NOT invent price, MOQ, brand, certifications, or origin not in facts.\n"
-        "- Never pick Other / Custom / 其他.\n"
-        "- Leave empty string only when facts truly give no clue.\n\n"
-        f"Facts: {json.dumps(facts, ensure_ascii=False)}\n"
-        f"Attributes: {json.dumps(question, ensure_ascii=False)}\n\n"
-        'Return JSON only: {"p-1": "China", "p-9": "colored"}'
-    )
+    image_inputs = _coerce_images(images)
     try:
-        payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
+        if image_inputs:
+            payload = ai.map_attributes(images=image_inputs, facts=facts, attributes=question)
+        else:
+            prompt = (
+                "Map seller facts to official attribute options.\n"
+                "Only pick options supported by the facts. Never pick Other / 其他.\n"
+                "Leave empty when unsupported.\n\n"
+                f"Facts: {json.dumps(facts, ensure_ascii=False)}\n"
+                f"Attributes: {json.dumps(question, ensure_ascii=False)}\n"
+            )
+            payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
     except (AiUnavailable, ValueError, requests.RequestException):
         return {}
     out: dict[str, str] = {}
@@ -456,9 +434,11 @@ def _ask_attributes(
         answer = str(payload.get(spec.id) or "").strip()
         if not answer:
             continue
-        if not _ai_answer_allowed(spec, answer, facts, understanding, bundle):
+        if not _answer_supported(spec, answer, facts, understanding, bundle):
             continue
         out[spec.id] = answer
+        source = "vision" if image_inputs and answer.lower() not in _fact_corpus(facts, understanding, bundle) else "ai"
+        result.record_evidence(f"{group_id}.{spec.id}", source, answer)
     return out
 
 
@@ -499,6 +479,7 @@ def fill_category_draft(
     ai: AiClient | None,
     images_applied: bool,
     category_id: str = "",
+    images: Sequence[ImageInput | BankImage] | None = None,
     copy: Copy | None = None,
     title: str = "",
     keywords: Sequence[str] | None = None,
@@ -520,7 +501,7 @@ def fill_category_draft(
             group = specs.get(group_id)
             if group is None or not group.children:
                 continue
-            chunk = align_attributes(group, understanding, layered, ai, bundle, result)
+            chunk = align_attributes(group, understanding, layered, ai, bundle, result, images)
             if chunk:
                 values[group_id] = {**(values.get(group_id) or {}), **chunk}
 
