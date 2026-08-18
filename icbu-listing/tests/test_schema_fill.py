@@ -60,6 +60,9 @@ SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
           <option displayName="Vietnam" value="100000630"/>
         </options>
       </field>
+      <field id="p-3" name="Model Number" type="input">
+        <rules><rule name="requiredRule" value="true"/></rules>
+      </field>
       <field id="p-9" name="Lead Color" type="multiCheck">
         <rules><rule name="requiredRule" value="true"/></rules>
         <options>
@@ -192,6 +195,15 @@ class SchemaFillTests(unittest.TestCase):
             title="Wholesale product",
         )
         self.assertTrue(any("无法百分百确定" in issue["message"] for issue in report.issues))
+
+    def test_model_text_input_from_specs(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(specs={"model": "GP-100"}, origin="China")
+        u = bundle.enrich(Understanding(product_name="Pencil set"))
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertEqual(values.get("p-3"), "GP-100")
 
 
 if __name__ == "__main__":

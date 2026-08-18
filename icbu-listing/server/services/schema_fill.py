@@ -1,8 +1,8 @@
 """Evidence-gated schema fill for any leaf category.
 
 Red lines (never AI-invented): price, MOQ, brand, photos, category.
-Official attrs: fill only when the seller could be 100% sure of the option
-from their facts + photos — not a guess, not verbatim-only matching.
+Official attrs: fill only when the seller could be 100% sure of the value
+(options, text inputs, numbers — any field type) from facts + photos.
 """
 
 from __future__ import annotations
@@ -73,6 +73,7 @@ SPEC_KEY_HINTS: dict[str, tuple[str, ...]] = {
     "pieces": ("pieces", "件数", "set", "套装"),
     "frame": ("frame", "框架", "骨架"),
     "grade": ("grade", "等级", "filter"),
+    "model": MODEL_HINTS,
 }
 
 
@@ -267,6 +268,57 @@ def _deterministic_certain(
     return None
 
 
+def _attr_fillable(spec: SchemaField) -> bool:
+    if spec.type == "label":
+        return False
+    return spec.id not in USER_OR_SHOP_KEYS
+
+
+def _is_certain_text_value(
+    spec: SchemaField,
+    text: str,
+    facts: Mapping[str, Any],
+    understanding: Understanding,
+    bundle: FactBundle | None,
+) -> tuple[bool, str, str]:
+    raw = str(text or "").strip()
+    if not raw:
+        return False, "", ""
+
+    if _wanted(spec.name, BRAND_HINTS):
+        brand = str(facts.get("brand") or (bundle.brand if bundle else "") or "").strip()
+        if brand and _norm(raw) == _norm(brand):
+            return True, "excel", brand
+        return False, "", ""
+
+    corpus = _fact_corpus(facts, understanding, bundle)
+    text_norm = _norm(raw)
+    if text_norm in corpus:
+        return True, "excel", raw
+    for token in _tokens(raw):
+        if len(token) >= 2 and token in _tokens(corpus):
+            return True, "excel", raw
+
+    for key, value in _merged_specs(bundle, understanding).items():
+        if not _field_related(spec, key):
+            continue
+        if _norm(str(value)) == text_norm:
+            return True, "excel", f"{SPEC_LABELS.get(key, key)} {value}"
+
+    if _wanted(spec.name, MATERIAL_HINTS):
+        material = str(facts.get("material") or understanding.material or "").strip()
+        if material and _norm(material) == text_norm:
+            src = "vision" if understanding.material else "excel"
+            return True, src, material
+
+    if _wanted(spec.name, MODEL_HINTS):
+        model = str((facts.get("specs") or {}).get("model") or understanding.specs.get("model") or "").strip()
+        if model and _norm(model) == text_norm:
+            return True, "excel", model
+
+    return False, "", ""
+
+
 def _is_certain_fill(
     spec: SchemaField,
     answer: str,
@@ -274,7 +326,10 @@ def _is_certain_fill(
     understanding: Understanding,
     bundle: FactBundle | None,
 ) -> tuple[bool, str, str]:
-    """True when the seller could pick this option with 100% confidence."""
+    """True when the seller could pick this value with 100% confidence."""
+    if not spec.options:
+        return _is_certain_text_value(spec, answer, facts, understanding, bundle)
+
     if _is_generic_option(answer) or spec.option_by_label(answer) is None:
         return False, "", ""
 
@@ -356,8 +411,11 @@ def _infer_from_spec_keys(spec: SchemaField, bundle: FactBundle | None, understa
             continue
         if not _wanted(spec.name, hints) and _norm(key) not in _norm(spec.name):
             continue
-        applied = _apply_option(spec, value)
-        if applied is not None:
+        if spec.options:
+            applied = _apply_option(spec, value)
+            if applied is not None:
+                return value, "excel", f"{SPEC_LABELS.get(key, key)} {value}"
+        elif _field_related(spec, key):
             return value, "excel", f"{SPEC_LABELS.get(key, key)} {value}"
     return "", "", ""
 
@@ -377,8 +435,13 @@ def _local_guess(
         if raw:
             return raw, "excel" if bundle and bundle.brand else "shop", raw
     if _wanted(spec.name, MODEL_HINTS):
-        raw = str(defaults.get("model") or "").strip()
-        return (raw, "shop", raw) if raw else ("", "", "")
+        raw = str(
+            (bundle.specs.get("model") if bundle else "")
+            or understanding.specs.get("model")
+            or defaults.get("model")
+            or ""
+        ).strip()
+        return (raw, "excel", raw) if raw else ("", "", "")
     if _wanted(spec.name, COLOR_HINTS):
         if understanding.colors:
             return understanding.colors[0], "vision", understanding.colors[0]
@@ -430,7 +493,9 @@ def _resolve_spec(
                 return applied, "excel", fuzzy[2]
         return None, "", ""
     if guess:
-        return guess, src or "fact", quote or guess
+        certain, c_src, c_quote = _is_certain_fill(spec, guess, facts, understanding, bundle)
+        if certain:
+            return guess, c_src or src, c_quote or quote
     return None, "", ""
 
 
@@ -464,10 +529,11 @@ def align_attributes(
 
     unresolved: list[SchemaField] = []
     for spec in group.children:
-        if spec.id in values or not spec.options:
+        if spec.id in values:
             continue
-        if spec.required:
-            unresolved.append(spec)
+        if not spec.required or not _attr_fillable(spec):
+            continue
+        unresolved.append(spec)
 
     unresolved.sort(key=lambda item: (not item.required, item.id))
     for batch_start in range(0, len(unresolved), AI_BATCH):
@@ -480,7 +546,11 @@ def align_attributes(
             answer = resolved.get(spec.id, "")
             if not answer:
                 continue
-            applied = _apply_option(spec, answer)
+            if spec.options:
+                applied = _apply_option(spec, answer)
+            else:
+                certain, _, _ = _is_certain_fill(spec, answer, facts, understanding, bundle)
+                applied = answer if certain else None
             if applied is not None:
                 values[spec.id] = applied
 
@@ -492,9 +562,11 @@ def align_attributes(
                     "field_id": spec.id,
                     "field_name": spec.name or spec.id,
                     "level": "red",
-                    "message": "平台必填属性无法百分百确定，请补规格或人工选择",
+                    "message": "平台必填字段无法百分百确定，请补事实或人工填写",
                     "path": f"{group.id}.{spec.id}",
-                    "options": [{"value": o.value, "label": o.display_name} for o in spec.options[:60]],
+                    "options": [{"value": o.value, "label": o.display_name} for o in spec.options[:60]]
+                    if spec.options
+                    else [],
                 }
             )
 
@@ -524,6 +596,7 @@ def _ask_attributes(
         spec.id: {
             "attribute": spec.name or spec.id,
             "required": spec.required,
+            "field_type": spec.type,
             "options": [
                 option.display_name for option in spec.options[:50] if not _is_generic_option(option.display_name)
             ],
@@ -536,11 +609,12 @@ def _ask_attributes(
             payload = ai.map_attributes(images=image_inputs, facts=facts, attributes=question)
         else:
             prompt = (
-                "Map seller facts to official attribute options.\n"
-                "Only pick an option when the seller would be 100% sure from their facts and photos.\n"
-                "If two options could fit, leave empty. Never pick Other / 其他.\n\n"
+                "Map seller facts to official category fields (dropdown options OR text inputs).\n"
+                "For option fields use exact option text; for text/input fields use the factual text.\n"
+                "Only fill when the seller would be 100% sure from facts and photos.\n"
+                "If ambiguous, leave empty. Never pick Other / 其他.\n\n"
                 f"Facts: {json.dumps(facts, ensure_ascii=False)}\n"
-                f"Attributes: {json.dumps(question, ensure_ascii=False)}\n"
+                f"Fields: {json.dumps(question, ensure_ascii=False)}\n"
             )
             payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
     except (AiUnavailable, ValueError, requests.RequestException):

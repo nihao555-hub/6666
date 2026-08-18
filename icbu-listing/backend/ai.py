@@ -161,18 +161,21 @@ Return JSON only:
 {{"title": "", "keywords": [], "highlights": "", "selling_points": [], "faqs": [{{"question": "", "answer": ""}}], "confidence": 0.0}}"""
 
 
-ATTR_MAP_PROMPT = """You map a wholesale product to Alibaba.com official attribute options.
+ATTR_MAP_PROMPT = """You map a wholesale product to Alibaba.com official category fields.
 
 You receive ALL seller facts (Excel columns, notes, specs, brand, price tiers) AND product photos.
 
+Each field has a field_type:
+- singleCheck / multiCheck: pick one option text exactly from the options list
+- input / other text fields: write the factual value (model number, size text, etc.)
+
 Rules:
-- Fill an option ONLY when the seller would be 100% sure which one to pick from their facts and photos.
-- If two or more options could reasonably fit, return empty string — do not guess.
-- Use option display text exactly as given for that attribute id.
+- Fill ONLY when the seller would be 100% sure from their facts and photos.
+- If two or more values could fit, return empty string — do not guess.
 - Do not invent certifications, brands, origin, price, MOQ, or category.
 - Never pick Other / Custom / 其他.
 
-Return JSON only: {{"p-1": "China", "p-9": "colored"}}"""
+Return JSON only: {{"p-1": "China", "p-3": "GP-100", "p-9": "colored"}}"""
 
 
 class AiClient:
