@@ -144,6 +144,7 @@ class FactBundle:
             "brand": self.brand,
             "price": self.price,
             "moq": self.moq,
+            "origin": self.origin,
             "text_blob": self.text_blob(),
             "price_tiers": [{"quantity": t.quantity, "price": t.price} for t in self.price_tiers],
             "vision": {

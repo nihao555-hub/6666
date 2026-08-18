@@ -1,7 +1,8 @@
 """Evidence-gated schema fill for any leaf category.
 
 Red lines (never AI-invented): price, MOQ, brand, photos, category.
-Official attrs: all seller facts + product photos go to AI; answers must match evidence corpus.
+Official attrs: fill only when the seller could be 100% sure of the option
+from their facts + photos — not a guess, not verbatim-only matching.
 """
 
 from __future__ import annotations
@@ -193,21 +194,157 @@ def _apply_option(spec: SchemaField, raw: str) -> Any | None:
     return [option.value] if spec.type == "multiCheck" else option.value
 
 
-def _fuzzy_option_match(spec: SchemaField, corpus: str) -> tuple[str, str] | None:
-    """Option label must appear in the evidence corpus — no numeric inference."""
-    if not spec.options:
-        return None
-    corpus_tokens = _tokens(corpus)
-    for option in spec.options[:80]:
+def _merged_specs(bundle: FactBundle | None, understanding: Understanding) -> dict[str, str]:
+    merged = dict(understanding.specs)
+    if bundle:
+        merged = {**bundle.specs, **merged}
+    return {k: str(v).strip() for k, v in merged.items() if str(v).strip()}
+
+
+def _field_related(spec: SchemaField, spec_key: str) -> bool:
+    key_norm = _norm(spec_key)
+    name_norm = _norm(spec.name)
+    label_norm = _norm(SPEC_LABELS.get(spec_key, spec_key))
+    hints = SPEC_KEY_HINTS.get(spec_key, ())
+    return key_norm in name_norm or name_norm in key_norm or label_norm in name_norm or _wanted(spec.name, hints)
+
+
+def _matching_options(spec: SchemaField, raw: str) -> list[Any]:
+    needle = _norm(raw)
+    if not needle or not spec.options:
+        return []
+    hits = []
+    for option in spec.options:
         label = option.display_name.strip()
         if not label or _is_generic_option(label):
             continue
         label_norm = _norm(label)
-        if label_norm and label_norm in corpus:
-            return label, label
-        label_tokens = _tokens(label)
-        if label_tokens and label_tokens.issubset(corpus_tokens):
-            return label, label
+        if label_norm == needle or label_norm in needle or needle in label_norm:
+            hits.append(option)
+        elif _tokens(label).issubset(_tokens(needle)) or _tokens(needle).issubset(_tokens(label)):
+            hits.append(option)
+    return hits
+
+
+def _deterministic_certain(
+    spec: SchemaField,
+    answer: str,
+    facts: Mapping[str, Any],
+    understanding: Understanding,
+    bundle: FactBundle | None,
+) -> tuple[str, str] | None:
+    """Narrow rules where one official option is the only sensible pick."""
+    answer_norm = _norm(answer)
+    specs = _merged_specs(bundle, understanding)
+    name = _norm(
+        " ".join(
+            [
+                str(facts.get("name") or ""),
+                str(facts.get("product_name") or ""),
+                understanding.product_name,
+                bundle.name if bundle else "",
+            ]
+        )
+    )
+
+    if _wanted(spec.name, COLOR_HINTS):
+        count_raw = str(specs.get("color_count") or "")
+        match = re.search(r"\d+", count_raw)
+        if match and int(match.group()) > 1 and answer_norm in {"colored", "multi", "multicolor", "multi color"}:
+            if "色" in name or any(token in name for token in ("colored", "colour", "multicolor", "multi color")):
+                return "excel", f"color_count={match.group()}"
+        if answer_norm == "colored" and any(token in name for token in ("彩色", "多色", "colored")):
+            return "excel", str(facts.get("name") or understanding.product_name)
+        explicit = str(specs.get("color") or "")
+        if explicit and _apply_option(spec, re_split_first(explicit)) and answer_norm == _norm(re_split_first(explicit)):
+            return "excel", explicit
+
+    if _wanted(spec.name, HARDNESS_HINTS):
+        hardness = str(specs.get("hardness") or "")
+        if hardness and _norm(hardness) == answer_norm:
+            return "excel", f"hardness={hardness}"
+
+    return None
+
+
+def _is_certain_fill(
+    spec: SchemaField,
+    answer: str,
+    facts: Mapping[str, Any],
+    understanding: Understanding,
+    bundle: FactBundle | None,
+) -> tuple[bool, str, str]:
+    """True when the seller could pick this option with 100% confidence."""
+    if _is_generic_option(answer) or spec.option_by_label(answer) is None:
+        return False, "", ""
+
+    if _wanted(spec.name, BRAND_HINTS):
+        brand = str(facts.get("brand") or (bundle.brand if bundle else "") or "").strip()
+        if brand and _norm(answer) == _norm(brand):
+            return True, "excel", brand
+        return False, "", ""
+
+    corpus = _fact_corpus(facts, understanding, bundle)
+    answer_norm = _norm(answer)
+
+    if _wanted(spec.name, ORIGIN_HINTS):
+        origin = str((bundle.origin if bundle else "") or facts.get("origin") or "").strip()
+        if origin and answer_norm == _norm(origin):
+            src = "excel" if bundle and bundle.origin else "shop"
+            return True, src, origin
+        if answer_norm in corpus:
+            return True, "shop", answer
+        return False, "", ""
+
+    if answer_norm in corpus:
+        return True, "excel", answer
+    for token in _tokens(answer):
+        if len(token) >= 2 and token in _tokens(corpus):
+            return True, "excel", answer
+
+    specs = _merged_specs(bundle, understanding)
+    for key, value in specs.items():
+        if not _field_related(spec, key):
+            continue
+        if _norm(spec.option_by_label(value).display_name if spec.option_by_label(value) else "") == answer_norm:
+            return True, "excel", f"{SPEC_LABELS.get(key, key)} {value}"
+        matches = _matching_options(spec, value)
+        if len(matches) == 1 and _norm(matches[0].display_name) == answer_norm:
+            return True, "excel", f"{SPEC_LABELS.get(key, key)} {value}"
+
+    for key, value in specs.items():
+        matches = _matching_options(spec, value)
+        if len(matches) == 1 and _norm(matches[0].display_name) == answer_norm:
+            return True, "excel", f"{SPEC_LABELS.get(key, key)} {value}"
+
+    if understanding.colors and _wanted(spec.name, COLOR_HINTS):
+        for color in understanding.colors:
+            if _norm(color) == answer_norm or _norm(color) in answer_norm:
+                return True, "vision", color
+
+    inferred = _deterministic_certain(spec, answer, facts, understanding, bundle)
+    if inferred:
+        return True, inferred[0], inferred[1]
+
+    return False, "", ""
+
+
+def _fuzzy_option_match(
+    spec: SchemaField,
+    corpus: str,
+    facts: Mapping[str, Any],
+    understanding: Understanding,
+    bundle: FactBundle | None,
+) -> tuple[str, str, str] | None:
+    if not spec.options:
+        return None
+    for option in spec.options[:80]:
+        label = option.display_name.strip()
+        if not label or _is_generic_option(label):
+            continue
+        certain, _, quote = _is_certain_fill(spec, label, facts, understanding, bundle)
+        if certain:
+            return label, quote, quote
     return None
 
 
@@ -276,18 +413,21 @@ def _resolve_spec(
     understanding: Understanding,
     defaults: Mapping[str, Any],
     bundle: FactBundle | None,
-    corpus: str,
+    facts: Mapping[str, Any],
 ) -> tuple[Any | None, str, str]:
     guess, src, quote = _local_guess(spec, understanding, defaults, bundle)
     if spec.options:
-        applied = _apply_option(spec, guess)
-        if applied is not None:
-            return applied, src or "fact", quote or guess
-        fuzzy = _fuzzy_option_match(spec, corpus)
+        if guess:
+            certain, c_src, c_quote = _is_certain_fill(spec, guess, facts, understanding, bundle)
+            if certain:
+                applied = _apply_option(spec, guess)
+                if applied is not None:
+                    return applied, c_src or src, c_quote or quote
+        fuzzy = _fuzzy_option_match(spec, "", facts, understanding, bundle)
         if fuzzy:
             applied = _apply_option(spec, fuzzy[0])
             if applied is not None:
-                return applied, "fact", fuzzy[1]
+                return applied, "excel", fuzzy[2]
         return None, "", ""
     if guess:
         return guess, src or "fact", quote or guess
@@ -317,7 +457,7 @@ def align_attributes(
     corpus = _fact_corpus(facts, understanding, bundle)
 
     for spec in group.children:
-        applied, src, quote = _resolve_spec(spec, group.id, understanding, defaults, bundle, corpus)
+        applied, src, quote = _resolve_spec(spec, group.id, understanding, defaults, bundle, facts)
         if applied is not None:
             values[spec.id] = applied
             result.record_evidence(f"{group.id}.{spec.id}", src, quote)
@@ -352,37 +492,13 @@ def align_attributes(
                     "field_id": spec.id,
                     "field_name": spec.name or spec.id,
                     "level": "red",
-                    "message": "平台必填属性仍缺事实依据，请补规格或人工选择",
+                    "message": "平台必填属性无法百分百确定，请补规格或人工选择",
                     "path": f"{group.id}.{spec.id}",
                     "options": [{"value": o.value, "label": o.display_name} for o in spec.options[:60]],
                 }
             )
 
     return values
-
-
-def _answer_supported(
-    spec: SchemaField,
-    answer: str,
-    facts: Mapping[str, Any],
-    understanding: Understanding,
-    bundle: FactBundle | None,
-) -> bool:
-    if _is_generic_option(answer) or spec.option_by_label(answer) is None:
-        return False
-    if _wanted(spec.name, BRAND_HINTS):
-        brand = str(facts.get("brand") or (bundle.brand if bundle else "") or "").strip()
-        if not brand:
-            return False
-        return _norm(answer) == _norm(brand) or _norm(answer) in _tokens(brand)
-    corpus = _fact_corpus(facts, understanding, bundle)
-    needle = _norm(answer)
-    if needle in corpus:
-        return True
-    for token in _tokens(answer):
-        if len(token) >= 2 and token in _tokens(corpus):
-            return True
-    return False
 
 
 def _ask_attributes(
@@ -421,8 +537,8 @@ def _ask_attributes(
         else:
             prompt = (
                 "Map seller facts to official attribute options.\n"
-                "Only pick options supported by the facts. Never pick Other / 其他.\n"
-                "Leave empty when unsupported.\n\n"
+                "Only pick an option when the seller would be 100% sure from their facts and photos.\n"
+                "If two options could fit, leave empty. Never pick Other / 其他.\n\n"
                 f"Facts: {json.dumps(facts, ensure_ascii=False)}\n"
                 f"Attributes: {json.dumps(question, ensure_ascii=False)}\n"
             )
@@ -434,11 +550,11 @@ def _ask_attributes(
         answer = str(payload.get(spec.id) or "").strip()
         if not answer:
             continue
-        if not _answer_supported(spec, answer, facts, understanding, bundle):
+        certain, source, quote = _is_certain_fill(spec, answer, facts, understanding, bundle)
+        if not certain:
             continue
         out[spec.id] = answer
-        source = "vision" if image_inputs and answer.lower() not in _fact_corpus(facts, understanding, bundle) else "ai"
-        result.record_evidence(f"{group_id}.{spec.id}", source, answer)
+        result.record_evidence(f"{group_id}.{spec.id}", source, quote or answer)
     return out
 
 

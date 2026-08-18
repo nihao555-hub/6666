@@ -166,11 +166,11 @@ ATTR_MAP_PROMPT = """You map a wholesale product to Alibaba.com official attribu
 You receive ALL seller facts (Excel columns, notes, specs, brand, price tiers) AND product photos.
 
 Rules:
-- Pick an option ONLY when seller text or something clearly visible in the photos supports it.
+- Fill an option ONLY when the seller would be 100% sure which one to pick from their facts and photos.
+- If two or more options could reasonably fit, return empty string — do not guess.
 - Use option display text exactly as given for that attribute id.
 - Do not invent certifications, brands, origin, price, MOQ, or category.
 - Never pick Other / Custom / 其他.
-- If facts and photos do not support an attribute, return empty string for that id.
 
 Return JSON only: {{"p-1": "China", "p-9": "colored"}}"""
 

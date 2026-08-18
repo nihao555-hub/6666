@@ -16,6 +16,7 @@ from schema import parse_schema  # noqa: E402
 from server.services.fact_bundle import FactBundle, from_excel_row  # noqa: E402
 from server.services.schema_fill import (  # noqa: E402
     FillResult,
+    _is_certain_fill,
     align_attributes,
     fill_category_draft,
     sample_fill_report,
@@ -88,10 +89,39 @@ class SchemaFillTests(unittest.TestCase):
         self.assertEqual(values["p-1"], "100000458")
         self.assertIn("icbuCatProp.p-1", result.evidence)
 
+    def test_color_count_with_product_name_is_certain(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        facts = {
+            "name": "12色木杆彩色铅笔",
+            "product_name": "12色木杆彩色铅笔",
+            "specs": {"color_count": "12"},
+            "specs_labeled": {"色数": "12"},
+            "note": "",
+            "brand": "",
+            "colors": [],
+            "vision": {},
+        }
+        bundle = FactBundle(name="12色木杆彩色铅笔", specs={"color_count": "12"})
+        u = bundle.enrich(Understanding(product_name="12色木杆彩色铅笔"))
+        certain, _, _ = _is_certain_fill(group.child("p-9"), "colored", facts, u, bundle)
+        self.assertTrue(certain)
+
+    def test_color_count_alone_without_context_not_certain(self) -> None:
+        from server.services.schema_fill import _is_certain_fill
+
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(specs={"color_count": "12"})
+        u = bundle.enrich(Understanding(product_name="学生绘画铅笔套装"))
+        facts = bundle.facts_for_ai(u)
+        certain, _, _ = _is_certain_fill(group.child("p-9"), "colored", facts, u, bundle)
+        self.assertFalse(certain)
+
     def test_color_count_alone_does_not_infer_colored(self) -> None:
         fields = parse_schema(SAMPLE)
         group = next(field for field in fields if field.id == "icbuCatProp")
-        bundle = FactBundle(name="12色木杆彩色铅笔", specs={"color_count": "12", "hardness": "HB"})
+        bundle = FactBundle(name="绘画铅笔", specs={"color_count": "12"})
         u = bundle.enrich(Understanding(product_name="学生绘画铅笔套装"))
         result = FillResult()
         values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
@@ -161,7 +191,7 @@ class SchemaFillTests(unittest.TestCase):
             images_applied=True,
             title="Wholesale product",
         )
-        self.assertTrue(any("仍缺事实依据" in issue["message"] for issue in report.issues))
+        self.assertTrue(any("无法百分百确定" in issue["message"] for issue in report.issues))
 
 
 if __name__ == "__main__":
