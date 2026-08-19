@@ -6,7 +6,7 @@
         <p class="muted">授权国际站店铺后，可在这里管理默认设置并批量上品。</p>
       </div>
       <div class="head-actions">
-        <el-button type="primary" :disabled="!oauthAvailable" @click="openEmbeddedOAuth">
+        <el-button type="primary" @click="openEmbeddedOAuth">
           新增店铺
         </el-button>
       </div>
@@ -23,7 +23,7 @@
     />
 
     <el-empty v-if="!store.shops.length && !loading" description="还没有店铺">
-      <el-button type="primary" :disabled="!oauthAvailable" @click="openEmbeddedOAuth">
+      <el-button type="primary" @click="openEmbeddedOAuth">
         新增店铺
       </el-button>
     </el-empty>
@@ -228,8 +228,16 @@ async function loadConnectOptions() {
   try {
     const options = await api.shopConnectOptions();
     oauthAvailable.value = Boolean(options.oauth_available);
+    return;
   } catch {
-    oauthAvailable.value = false;
+    // Older servers may not expose connect-options yet; health still tells us
+    // whether the platform OAuth app is configured.
+  }
+  try {
+    const health = await api.health();
+    oauthAvailable.value = Boolean(health.platform_ready);
+  } catch {
+    oauthAvailable.value = true;
   }
 }
 

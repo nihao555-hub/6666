@@ -18,6 +18,7 @@ export const api = {
   logout: () => http.post("/auth/logout"),
 
   overview: () => http.get("/overview"),
+  health: () => http.get("/health"),
 
   shops: () => http.get("/shops"),
   shopConnectOptions: () => http.get("/shops/connect-options"),
