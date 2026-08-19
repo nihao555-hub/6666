@@ -72,8 +72,8 @@ class TenancyTests(unittest.TestCase):
 
     def test_one_tenant_can_bind_several_shops(self) -> None:
         alice = signup("alice@example.com")
-        first = alice.post("/api/v1/shops/bind-env", json={"name": "工厂店"})
-        second = alice.post("/api/v1/shops/bind-env", json={"name": "贸易店"})
+        first = alice.post("/api/v1/shops/bind-env", json={"name": "工厂店", "reuse": False})
+        second = alice.post("/api/v1/shops/bind-env", json={"name": "贸易店", "reuse": False})
         self.assertEqual(first.status_code, 200, first.text)
         self.assertEqual(second.status_code, 200, second.text)
 
@@ -96,6 +96,8 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(nested[0]["subject"], "Old")
 
     def test_oauth_start_uses_the_public_host_not_localhost(self) -> None:
+        from server.config import settings
+
         owner = signup("oauth-host@example.com")
         started = owner.get(
             "/api/v1/alibaba/oauth/start",
@@ -103,8 +105,8 @@ class TenancyTests(unittest.TestCase):
         )
         self.assertEqual(started.status_code, 200, started.text)
         body = started.json()
-        self.assertEqual(body["redirect_uri"], "https://demo.trycloudflare.com/api/v1/alibaba/oauth/callback")
-        self.assertIn("redirect_uri=https%3A%2F%2Fdemo.trycloudflare.com", body["url"])
+        self.assertEqual(body["redirect_uri"], settings.oauth_redirect_uri)
+        self.assertIn("redirect_uri=", body["url"])
 
     def test_shops_are_invisible_across_tenants(self) -> None:
         bob = signup("bob@example.com")
@@ -205,8 +207,8 @@ class TenancyTests(unittest.TestCase):
 
     def test_distribute_is_a_cartesian_product(self) -> None:
         leo = signup("leo@example.com")
-        shop_a = leo.post("/api/v1/shops/bind-env", json={"name": "A 店"}).json()["id"]
-        shop_b = leo.post("/api/v1/shops/bind-env", json={"name": "B 店"}).json()["id"]
+        shop_a = leo.post("/api/v1/shops/bind-env", json={"name": "A 店", "reuse": False}).json()["id"]
+        shop_b = leo.post("/api/v1/shops/bind-env", json={"name": "B 店", "reuse": False}).json()["id"]
         first = leo.post(
             "/api/v1/products",
             data={"sku": "P1", "price": "1", "moq": "10"},

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from gop_client import GopError  # noqa: E402
 
 from ..config import settings
-from ..crypto import encrypt_secret, read_state, sign_state
+from ..crypto import decrypt_secret, encrypt_secret, read_state, sign_state
 from ..deps import current_user, get_db, owned_shop
 from ..models import Draft, Job, Shop, User
 from ai import AiClient  # noqa: E402
@@ -54,6 +54,7 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
 
 class BindEnvIn(BaseModel):
     name: str = "环境店铺"
+    reuse: bool = True
 
 
 class DefaultsIn(BaseModel):
@@ -75,9 +76,19 @@ class CloneIn(BaseModel):
 def oauth_callback_uri(request: Request) -> str:
     """Callback Alibaba will hit. Must match authorize + token exchange.
 
-    Public tunnels send X-Forwarded-*. Using the env default (127.0.0.1)
-    would send the seller back to their own laptop after they confirm.
+    When ALIBABA_OAUTH_REDIRECT_URI is set in the environment, that value wins —
+    it must be identical to the callback URL registered in the ICBU app console.
+    Otherwise we derive it from the incoming host (local dev / ephemeral tunnels).
     """
+    configured = (settings.oauth_redirect_uri or "").strip()
+    default_local = "http://127.0.0.1:8000/api/v1/alibaba/oauth/callback"
+    if configured and configured != default_local:
+        return configured
+
+    public = (settings.public_base_url or "").strip()
+    if public:
+        return f"{public.rstrip('/')}/api/v1/alibaba/oauth/callback"
+
     proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
     host = (
         request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
@@ -167,9 +178,12 @@ def list_shops(db: Session = Depends(get_db), user: User = Depends(current_user)
 @router.get("/shops/connect-options")
 def connect_options(user: User = Depends(current_user)) -> dict[str, bool]:
     del user
+    token_ready = bool(settings.dev_access_token)
     return {
-        "bind_env_available": bool(settings.dev_access_token),
+        "bind_env_available": token_ready,
         "oauth_available": settings.has_platform_app,
+        # Testing phase: when a platform token is configured, bind it instead of OAuth.
+        "prefer_env_token": token_ready,
     }
 
 
@@ -255,16 +269,28 @@ def bind_env_shop(
     """
     if not settings.dev_access_token:
         raise HTTPException(status_code=400, detail="环境里没有 ALIBABA_ACCESS_TOKEN")
-    shop = Shop(
-        user_id=user.id,
-        name=payload.name,
-        platform="alibaba_icbu",
-        access_token=encrypt_secret(settings.dev_access_token),
-        defaults_json=json.dumps(DEFAULT_TEMPLATE),
-        status="active",
+
+    existing = (
+        db.query(Shop)
+        .filter(Shop.user_id == user.id, Shop.platform == "alibaba_icbu")
+        .order_by(Shop.created_at)
+        .all()
     )
-    db.add(shop)
-    db.commit()
+    shop = next((row for row in existing if not decrypt_secret(row.refresh_token)), None) if payload.reuse else None
+    if shop is None:
+        shop = Shop(
+            user_id=user.id,
+            name=payload.name,
+            platform="alibaba_icbu",
+            access_token=encrypt_secret(settings.dev_access_token),
+            defaults_json=json.dumps(DEFAULT_TEMPLATE),
+            status="active",
+        )
+        db.add(shop)
+        db.commit()
+    elif payload.name and shop.name in {"", "测试店铺", "环境店铺"}:
+        shop.name = payload.name
+        db.commit()
 
     try:
         products, total = listing_products(shop_api(shop).list_products(1, 1))

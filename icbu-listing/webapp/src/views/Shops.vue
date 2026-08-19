@@ -6,7 +6,7 @@
         <p class="muted">授权国际站店铺后，可在这里管理默认设置并批量上品。</p>
       </div>
       <div class="head-actions">
-        <el-button type="primary" @click="openEmbeddedOAuth">
+        <el-button type="primary" :loading="bindingEnv" @click="openEmbeddedOAuth">
           新增店铺
         </el-button>
       </div>
@@ -23,7 +23,7 @@
     />
 
     <el-empty v-if="!store.shops.length && !loading" description="还没有店铺">
-      <el-button type="primary" @click="openEmbeddedOAuth">
+      <el-button type="primary" :loading="bindingEnv" @click="openEmbeddedOAuth">
         新增店铺
       </el-button>
     </el-empty>
@@ -189,7 +189,8 @@ const oauthError = ref("");
 const optionsLoading = ref(false);
 const optionSource = ref({ category_name: "", fields: [] });
 const pickedLabels = ref({});
-const oauthAvailable = ref(false);
+const connectOptions = ref({ bind_env_available: false, oauth_available: false, prefer_env_token: false });
+const bindingEnv = ref(false);
 const oauthOpen = ref(false);
 const oauthUrl = ref("");
 const oauthLoading = ref(false);
@@ -226,18 +227,34 @@ function rememberLabel(field) {
 
 async function loadConnectOptions() {
   try {
-    const options = await api.shopConnectOptions();
-    oauthAvailable.value = Boolean(options.oauth_available);
-    return;
+    connectOptions.value = await api.shopConnectOptions();
   } catch {
-    // Older servers may not expose connect-options yet; health still tells us
-    // whether the platform OAuth app is configured.
+    try {
+      const health = await api.health();
+      connectOptions.value = {
+        bind_env_available: false,
+        oauth_available: Boolean(health.platform_ready),
+        prefer_env_token: false,
+      };
+    } catch {
+      connectOptions.value = { bind_env_available: false, oauth_available: true, prefer_env_token: false };
+    }
   }
+}
+
+async function bindEnvShop({ silent = false } = {}) {
+  bindingEnv.value = true;
   try {
-    const health = await api.health();
-    oauthAvailable.value = Boolean(health.platform_ready);
-  } catch {
-    oauthAvailable.value = true;
+    const shop = await api.bindEnvShop("测试店铺");
+    await store.loadShops();
+    store.selectShop(shop.id);
+    if (!silent) ElMessage.success("已接入环境 token 对应的测试店铺");
+    return shop;
+  } catch (error) {
+    if (!silent) ElMessage.error(error.message);
+    throw error;
+  } finally {
+    bindingEnv.value = false;
   }
 }
 
@@ -316,7 +333,11 @@ async function loadOAuthUrl() {
 }
 
 async function openEmbeddedOAuth() {
-  if (!oauthAvailable.value) {
+  if (connectOptions.value.prefer_env_token) {
+    await bindEnvShop();
+    return;
+  }
+  if (!connectOptions.value.oauth_available) {
     ElMessage.warning("平台还没有接好国际站应用，暂时不能授权店铺");
     return;
   }
@@ -355,6 +376,13 @@ onMounted(async () => {
   window.addEventListener("message", onOAuthMessage);
   await loadConnectOptions();
   await reload();
+  if (!store.shops.length && connectOptions.value.prefer_env_token) {
+    try {
+      await bindEnvShop({ silent: true });
+    } catch {
+      // Leave empty state; user can click 新增店铺 to retry.
+    }
+  }
   if (route.query.alibaba === "connected") {
     await finishOAuthSuccess();
     router.replace({ path: "/shops" });
