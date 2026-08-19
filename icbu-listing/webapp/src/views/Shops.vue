@@ -55,7 +55,7 @@
       <el-table-column label="默认设置" min-width="280">
         <template #default="{ row }">
           <span class="muted">
-            产地 {{ shown(row, "origin") }} · 单位 {{ shown(row, "priceUnit") }} · 运费 {{ shown(row, "shippingTemplateId") || "买卖双方协商" }}
+            整店政策：产地 {{ shown(row, "origin") || "—" }} · 样品 {{ shown(row, "marketSample") || "—" }}
           </span>
         </template>
       </el-table-column>
@@ -89,11 +89,14 @@
     </el-dialog>
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
-      <p class="muted" style="margin-bottom: 16px">
-        官方不是整店填一套就套所有货。店里定产地、付款、样品；包装、单位、运费、交期跟每条货走，成稿时先用这类目自己的习惯，没有才用下面的兜底。
+      <p class="muted" style="margin-bottom: 12px">
+        不能一套默认套全店所有货。下面分两层：整店政策（每条货都会引用）和跟货走的兜底（只有该类目还没有单独习惯时才用）。
       </p>
-      <p v-if="optionSource.pulled?.length" class="muted" style="margin: -8px 0 16px">
-        刚从在线商品补上：{{ pulledLabels }}。你随时可以改，改过的以后不会被再覆盖。
+      <p v-if="optionSource.category_name" class="muted" style="margin-bottom: 12px">
+        下拉选项以「{{ optionSource.category_name }}」为例展示字段有无；你主要卖别的类目时，缺的字段可能在那个类目里才有，或去「类目模板」单独设。
+      </p>
+      <p v-if="optionSource.pulled?.length" class="muted" style="margin: -4px 0 16px">
+        刚从在线商品补上的兜底值：{{ pulledLabels }}（不代表全店每一款都这样）。你改过以后不会被再覆盖。
       </p>
       <el-form v-if="editing" v-loading="optionsLoading" label-width="110px">
         <el-form-item label="店铺名">
@@ -107,9 +110,9 @@
           <div class="muted" style="margin-top: 6px">先用草稿模式跑通，确认无误再切上架。</div>
         </el-form-item>
 
-        <p class="section-label">整店通用</p>
+        <p class="section-label">整店政策</p>
         <p class="muted" style="margin: -4px 0 12px">
-          官方也是店里设好这些，发品时每条引用。选项来自{{ optionSource.category_name || "这家店的发布规则" }}。
+          产地、售卖方式、样品等——发品时每条货都会引用。选项列表来自{{ optionSource.category_name || "参考类目" }}，不同叶子类目可能多出或缺少字段。
         </p>
         <el-form-item v-for="field in shopFields" :key="field.key" :label="field.label">
           <el-select
@@ -127,7 +130,7 @@
 
         <p class="section-label">跟货走的兜底</p>
         <p class="muted" style="margin: -4px 0 12px">
-          官方批量改包装、单位、运费、交期是一条一条改的。这里只在这类目还没有自己的习惯时用。某类货不一样，去「类目模板」或草稿里改那一类。
+          单位、运费模板、物流属性、包装、交期、品牌——官方是按每条货维护的。成稿时优先用「类目模板」里该类目的习惯；没有模板才用这里。画笔的 26×10×5 cm 不会自动套到别的类目。
         </p>
         <el-form-item v-for="field in productFields" :key="field.key" :label="field.label">
           <el-select
@@ -161,7 +164,7 @@
         </el-form-item>
 
         <p v-if="unsupported.length" class="muted" style="margin: 0 0 14px">
-          这个店的类目没有{{ unsupported.map((item) => item.label).join("、") }}，官方规则里就没有这些字段，不用填。
+          在「{{ optionSource.category_name || "参考类目" }}」里没有{{ unsupported.map((item) => item.label).join("、") }}字段——不代表全店都没有；若你主要卖别的类目，去那边看或建类目模板。
         </p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap">
           <el-button type="primary" :loading="saving" @click="save">保存</el-button>
