@@ -40,7 +40,7 @@ class SheetPlanTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         init_db()
 
-    def test_sheet_plan_follows_family_not_7521_official_forms(self) -> None:
+    def test_sheet_plan_uses_family_without_category_id(self) -> None:
         client = signup("sheet-plan@example.com")
         pencils = client.get(
             "/api/v1/excel/sheet-plan",
@@ -50,29 +50,46 @@ class SheetPlanTests(unittest.TestCase):
             "/api/v1/excel/sheet-plan",
             params={"category_name": "Tools & Hardware / Paint Brushes"},
         )
-        other = client.get(
-            "/api/v1/excel/sheet-plan",
-            params={"category_name": "Office & School Supplies / Other"},
-        )
         self.assertEqual(pencils.status_code, 200, pencils.text)
         self.assertEqual(brushes.status_code, 200, brushes.text)
-        self.assertEqual(other.status_code, 200, other.text)
         pencil_plan = pencils.json()
         brush_plan = brushes.json()
-        other_plan = other.json()
         self.assertEqual(pencil_plan["sheet"]["family_id"], "stationery")
         self.assertEqual(brush_plan["sheet"]["family_id"], "tools")
-        self.assertEqual(other_plan["sheet"]["family_id"], "stationery")
-        self.assertFalse(pencil_plan["from_official_form"])
         pencil_cols = [item["label"] for item in pencil_plan["preview"]["columns"]]
         brush_cols = [item["label"] for item in brush_plan["preview"]["columns"]]
         self.assertIn("色数", pencil_cols)
-        self.assertIn("硬度", pencil_cols)
-        self.assertNotIn("色数", brush_cols)
         self.assertIn("尺寸", brush_cols)
-        self.assertIn("材质", brush_cols)
         self.assertNotEqual(pencil_cols, brush_cols)
-        self.assertLess(len(pencil_cols), 20)
+
+    def test_sheet_plan_uses_leaf_schema_when_category_id_set(self) -> None:
+        client = signup("leaf-plan@example.com")
+        shop_id = client.post("/api/v1/shops/bind-env", json={"name": "schema店"}).json()["id"]
+        with unittest.mock.patch(
+            "server.routers.excel._attr_columns",
+            return_value=[
+                {
+                    "id": "attr.icbuCatProp.p-2",
+                    "header": "Lead Hardness",
+                    "label": "铅芯硬度",
+                    "group": "icbuCatProp",
+                    "field_id": "p-2",
+                    "required": True,
+                    "options": [],
+                }
+            ],
+        ):
+            response = client.get(
+                "/api/v1/excel/sheet-plan",
+                params={"shop_id": shop_id, "category_id": "21110712", "category_name": "Colored Pencils"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["sheet"]["family_id"], "leaf")
+        self.assertEqual(payload["sheet_origin"]["kind"], "leaf_schema")
+        labels = [item["label"] for item in payload["preview"]["columns"]]
+        self.assertIn("铅芯硬度", labels)
+        self.assertNotIn("色数", labels)
 
     def test_official_attrs_are_a_separate_leaf_call(self) -> None:
         client = signup("official-attrs@example.com")

@@ -91,14 +91,16 @@ def sheet_plan(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    # Fill sheet is local (family spec columns). Official attrs come from cache
-    # if we already have schema.get; otherwise the UI loads /official-attrs.
     hint = _category_hint(db, user, shop_id, category_id, category_name)
-    profile = excel_import.sheet_profile(hint)
-    use_profile = profile if hint else None
-    extras = _attr_columns(db, user, shop_id, category_id, fetch=False)
-    policy = excel_import.fill_policy(extras, use_profile)
-    preview = excel_import.sheet_preview("simple", use_profile)
+    extras = _attr_columns(db, user, shop_id, category_id, fetch=bool(category_id and shop_id))
+    if category_id:
+        profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
+    elif hint:
+        profile = excel_import.sheet_profile(hint)
+    else:
+        profile = excel_import.sheet_profile("")
+    policy = excel_import.fill_policy(extras if not category_id else [], profile)
+    preview = excel_import.sheet_preview("simple", profile)
     return {
         "category_id": category_id,
         "category_name": hint or category_name,
@@ -112,10 +114,18 @@ def sheet_plan(
         "sheet": profile,
         "from_official_form": False,
         "sheet_origin": {
-            "kind": "platform_short",
+            "kind": "leaf_schema" if category_id else "platform_short",
             "from_official_form": False,
-            "columns_from": profile.get("title") or "平台短表：货号、单价、起订量、图片、品牌、品名、备注",
-            "official_attrs": "选了叶子类目后，官方属性出现在「AI 填」和核对页，不写进填写表。规格列按品类家族定制，不是 7521 张官方表。",
+            "columns_from": (
+                f"叶子类目 {category_id} 的 schema.get 必填属性"
+                if category_id
+                else "平台短表：先选叶子类目"
+            ),
+            "official_attrs": (
+                "填写页已含该类目官方必填列；7540 个叶子类目各有一套，不是 12 张家族表。"
+                if category_id
+                else "选了叶子类目后，按 schema 生成填写列。"
+            ),
         },
     }
 
@@ -174,14 +184,27 @@ def download_template(
                 if item.required and item.type != "label"
             ]
     hint = _category_hint(db, user, shop_id, category_id, category_name)
-    if style == "simple" and (hint or category_id):
+    if style == "simple" and category_id:
         listing = listing or {"name": hint or category_id, "category_id": category_id}
-        # Official attrs stay on 说明 if already cached. Never block the fill sheet.
+        ai_attrs = _attr_columns(db, user, shop_id, category_id, fetch=True)
+    elif style == "simple" and (hint or category_id):
+        listing = listing or {"name": hint or category_id, "category_id": category_id}
         ai_attrs = _attr_columns(db, user, shop_id, category_id, fetch=False)
+    else:
+        ai_attrs = []
     payload = excel_import.build_template(
-        style, listing, official_required, ai_attrs, category_name=hint
+        style,
+        listing,
+        official_required,
+        ai_attrs,
+        category_name=hint,
+        category_id=category_id or str((listing or {}).get("category_id") or ""),
     )
-    profile = excel_import.sheet_profile(hint) if hint else None
+    profile = (
+        excel_import.sheet_profile(hint, category_id=category_id, attr_columns=ai_attrs)
+        if category_id
+        else (excel_import.sheet_profile(hint) if hint else None)
+    )
     ascii_name = f"auto-shoper-{(profile or {}).get('filename_id') or style}-{category_id or 'generic'}.xlsx"
     utf_name = f"{(profile or {}).get('filename') or ascii_name}.xlsx" if profile and profile.get("filename") else ascii_name
     return Response(

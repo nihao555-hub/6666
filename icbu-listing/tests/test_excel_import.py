@@ -147,28 +147,31 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(brush_cols, {"Type", "Color"})
         self.assertEqual(pen_cols, {"Hair Material"})
         self.assertNotIn("Place of Origin", brush_cols)
+        extras = category_attr_columns(brushes)
+        profile = sheet_profile("Paint Brushes", category_id="21111112", attr_columns=extras)
         payload = build_template(
             "simple",
             {"name": "Paint Brushes", "category_id": "21111112"},
-            extra_columns=category_attr_columns(brushes),
+            extra_columns=extras,
+            category_id="21111112",
         )
-        result = preview(payload, "simple")
-        self.assertNotIn("Type", result["headers"])
-        self.assertNotIn("Color", result["headers"])
+        result = preview(payload, "simple", extras)
+        self.assertIn("类型", result["headers"])
+        self.assertIn("颜色", result["headers"])
         self.assertNotIn("英文标题", result["headers"])
-        from openpyxl import load_workbook
-
         book = load_workbook(io.BytesIO(payload))
         help_text = " ".join(
             str(cell or "")
             for row in book["说明"].iter_rows(values_only=True)
             for cell in row
         )
-        self.assertIn("Type", help_text)
-        self.assertIn("Color", help_text)
+        self.assertIn("类型", help_text)
+        self.assertIn("颜色", help_text)
         self.assertIn("红线", help_text)
-        policy = fill_policy(category_attr_columns(brushes))
-        self.assertIn("类型", {item["label"] for item in policy["ai_fills"]})
+        policy = fill_policy(extras, profile)
+        user_labels = {item["label"] for item in policy["user_fills"]}
+        self.assertIn("类型", user_labels)
+        self.assertIn("颜色", user_labels)
         self.assertTrue(any(item["id"] == "price" for item in policy["redline"]))
 
     def test_uploaded_official_attr_columns_still_parse(self) -> None:
@@ -338,7 +341,7 @@ class TemplateTests(unittest.TestCase):
         self.assertTrue(any("硬度" in label or "Hardness" in label for label in ai_labels))
         self.assertIn("审过", policy["guarantee"])
 
-    def test_category_sheet_adds_family_spec_columns(self) -> None:
+    def test_category_sheet_adds_family_spec_columns_without_leaf_id(self) -> None:
         pencils = sheet_profile("Office & School Supplies / Colored Pencils")
         brushes = sheet_profile("Tools & Hardware / Paint Brushes")
         self.assertEqual(pencils["family_id"], "stationery")
@@ -348,24 +351,43 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("色数", pencil_labels)
         self.assertNotIn("色数", brush_labels)
         self.assertIn("尺寸", brush_labels)
-        pencil_preview = sheet_preview("simple", pencils)
-        brush_preview = sheet_preview("simple", brushes)
-        self.assertIn("色数", [item["label"] for item in pencil_preview["columns"]])
-        self.assertIn("尺寸", [item["label"] for item in brush_preview["columns"]])
-        self.assertNotEqual(
-            [item["label"] for item in pencil_preview["columns"]],
-            [item["label"] for item in brush_preview["columns"]],
-        )
-        payload = build_template("simple", {"name": "Colored Pencils", "category_id": "1"}, category_name="Colored Pencils")
+        payload = build_template("simple", category_name="Colored Pencils")
         book = load_workbook(io.BytesIO(payload))
         fill_sheet = next(name for name in book.sheetnames if name != "说明")
         headers = [cell.value for cell in next(book[fill_sheet].iter_rows(min_row=1, max_row=1))]
         self.assertIn("色数", headers)
-        self.assertNotIn("Lead Color", headers)
-        help_text = " ".join(str(cell or "") for row in book["说明"].iter_rows(values_only=True) for cell in row)
-        self.assertIn("文具", help_text)
-        result = preview(payload, "simple")
-        self.assertEqual(result["mapping"].get("色数"), "spec.color_count")
+
+    def test_leaf_category_puts_schema_attrs_on_fill_sheet(self) -> None:
+        attrs = [
+            {
+                "id": "attr.icbuCatProp.p-2",
+                "header": "Lead Hardness",
+                "label": "铅芯硬度",
+                "group": "icbuCatProp",
+                "field_id": "p-2",
+                "required": True,
+                "options": [{"value": "HB", "label": "HB"}],
+            }
+        ]
+        profile = sheet_profile("Colored Pencils", category_id="21110712", attr_columns=attrs)
+        self.assertEqual(profile["family_id"], "leaf")
+        preview_data = sheet_preview("simple", profile)
+        labels = [item["label"] for item in preview_data["columns"]]
+        self.assertIn("铅芯硬度", labels)
+        payload = build_template(
+            "simple",
+            {"name": "Colored Pencils", "category_id": "21110712"},
+            extra_columns=attrs,
+            category_name="Colored Pencils",
+            category_id="21110712",
+        )
+        book = load_workbook(io.BytesIO(payload))
+        fill_sheet = next(name for name in book.sheetnames if name != "说明")
+        headers = [cell.value for cell in next(book[fill_sheet].iter_rows(min_row=1, max_row=1))]
+        self.assertIn("铅芯硬度", headers)
+        self.assertNotIn("色数", headers)
+        result = preview(payload, "simple", attrs)
+        self.assertEqual(result["mapping"].get("铅芯硬度"), "attr.icbuCatProp.p-2")
 
     def test_spec_columns_parse_into_seller_facts(self) -> None:
         book = Workbook()

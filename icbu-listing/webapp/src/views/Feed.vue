@@ -348,17 +348,24 @@
       <div v-if="excelStep === 0" class="step-panel">
         <h3>这批货是哪一类</h3>
         <p class="muted">
-          一次上很多、每个价不一样时用短表。整表共用一个叶子类目。选完后填写表按品类家族加规格列，大概十来种，不是七千张官方表。
+          一次上很多、每个价不一样时用短表。整表共用一个叶子类目。选完后下载的表按该类目官方 schema 生成列——7540 个叶子类目各有一套。
         </p>
         <div style="margin-top: 16px">
           <el-button @click="openCategory">{{ sheetPlan.category_name || excel.categoryName || "选择类目" }}</el-button>
-          <p v-if="sheetPlan.sheet?.family_name" class="muted" style="margin-top: 10px">
-            短表按「{{ sheetPlan.sheet.family_name }}」加规格列
+          <p v-if="sheetPlan.sheet?.family_id === 'leaf'" class="muted" style="margin-top: 10px">
+            填写表按这个叶子的官方 schema 生成
+            <template v-if="schemaColumnLabels.length">：{{ schemaColumnLabels.join("、") }}</template>。
+          </p>
+          <p v-else-if="sheetPlan.sheet?.family_name" class="muted" style="margin-top: 10px">
+            还没拉到 schema 时先用「{{ sheetPlan.sheet.family_name }}」兜底列
             <template v-if="familySpecLabels.length">：{{ familySpecLabels.join("、") }}</template>。
           </p>
-          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在按这个叶子拉取官方必填…</p>
+          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在拉这个叶子的官方 schema…</p>
+          <p v-else-if="sheetPlan.sheet?.family_id === 'leaf' && schemaColumnLabels.length" class="muted" style="margin-top: 6px">
+            上面这些列会出现在下载的填写表里，请按官方下拉选项选。
+          </p>
           <p v-else-if="officialAttrLabels.length" class="muted" style="margin-top: 6px">
-            这个叶子的官方必填会出现在「AI 填」和核对页：{{ officialAttrLabels.join("、") }}。
+            这个叶子的官方必填：{{ officialAttrLabels.join("、") }}（会出现在下载的填写表里）。
           </p>
         </div>
         <div class="step-actions">
@@ -369,8 +376,8 @@
       <div v-else-if="excelStep === 1" class="step-panel">
         <h3>下载「{{ sheetPlan.sheet?.title || "填写表" }}」</h3>
         <p class="muted">
-          {{ sheetPlan.sheet?.guide || "选了叶子类目后，这张表会按品类家族多出规格列。" }}
-          货号、单价、起订量必填；图片选填。官方必填不抄进填写页，出现在下面「AI 填」和核对页。
+          {{ sheetPlan.sheet?.guide || "选了叶子类目后，这张表会按官方 schema 生成填写列。" }}
+          货号、单价、起订量必填。官方必填属性在填写页，标题和详描仍由 AI 补。
         </p>
         <div class="sheet-preview" v-if="previewColumns.length">
           <table>
@@ -417,7 +424,7 @@
           </section>
           <section class="policy-card">
             <small>AI 填</small>
-            <b>这个叶子的官方必填</b>
+            <b>{{ sheetPlan.sheet?.family_id === 'leaf' ? '标题 / 详描' : '这个叶子的官方必填' }}</b>
             <ul>
               <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
             </ul>
@@ -441,7 +448,7 @@
           style="margin-top: 12px"
         />
         <p class="muted" style="margin-top: 10px">
-          短表只按品类家族加规格列（彩铅出色数/硬度，刷具出尺寸/材质）。官方必填按这个叶子的 schema.get 出现在「AI 填」和核对页。填完表不能撒手：导入后每条还要打开看标题和官方属性，点「审过了」才能发。
+          填写表按所选叶子类目的官方 schema 生成列（7540 类各不同）。标题和详描仍由 AI 补。填完表不能撒手：导入后每条还要打开看标题和属性，点「审过了」才能发。
         </p>
         <div class="step-actions">
           <el-button @click="excelStep = 0">上一步</el-button>
@@ -776,6 +783,13 @@ const excelPercent = computed(() => {
   return Math.min(100, Math.round((excelProgress.value.done / excel.batch.count) * 100));
 });
 const familySpecLabels = computed(() => (sheetPlan.value.sheet?.spec_columns || []).map((item) => item.label).filter(Boolean));
+const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
+const schemaColumnLabels = computed(() =>
+  (sheetPlan.value.preview?.columns || [])
+    .filter((col) => !coreFillIds.has(col.id))
+    .map((col) => col.label)
+    .filter(Boolean),
+);
 const officialAttrLabels = computed(() =>
   (sheetPlan.value.ai_attrs || [])
     .map((item) => item.header || item.label || item.name)
@@ -1301,7 +1315,7 @@ async function pickCategory(node) {
   excel.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
   try {
     await loadSheetPlan();
-    ElMessage.success(`已选「${sheetPlan.value.category_name || excel.categoryName}」，短表按「${sheetPlan.value.sheet?.family_name || "通用"}」`);
+    ElMessage.success(`已选「${sheetPlan.value.category_name || excel.categoryName}」，填写表将按该类目 schema 生成`);
     advanceExcel(1);
     loadOfficialAttrs();
   } catch (error) {

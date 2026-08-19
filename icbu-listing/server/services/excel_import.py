@@ -106,8 +106,8 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "origin": ("产地", "origin", "place of origin", "原产地"),
 }
 
-# User fills a short sheet. Official 40-column / per-category attribute
-# sheets are not copied onto 填写 — those go to AI, except the red line.
+# User fills a short sheet. When a leaf category is chosen, required official
+# attributes from schema.get become columns on 填写 — one sheet shape per leaf.
 USER_FILLS: list[dict[str, Any]] = [
     {"id": "sku", "label": "货号", "required": True, "hint": "你自己的编码"},
     {"id": "price", "label": "单价 USD", "required": True, "hint": "红线，AI 不准定价"},
@@ -627,9 +627,36 @@ FAMILY_HEADER_COLORS = {
 }
 
 
-def sheet_profile(category_name: str = "", product_hint: str = "") -> dict[str, Any]:
-    """Per-leaf fill sheet: same 7 core columns, plus family-specific spec columns."""
+def sheet_profile(
+    category_name: str = "",
+    product_hint: str = "",
+    *,
+    category_id: str = "",
+    attr_columns: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Fill sheet profile: leaf schema columns when category_id is set, else family fallback."""
     hint = " / ".join(part for part in (category_name, product_hint) if str(part or "").strip())
+    if category_id:
+        short = (hint.split("/")[-1].strip() if hint else category_id)[:32]
+        attrs = list(attr_columns or [])
+        return {
+            "family_id": "leaf",
+            "family_name": "叶子类目",
+            "category_id": category_id,
+            "title": f"填写表 · {short}" if short else f"填写表 · {category_id}",
+            "filename": f"填写表-{category_id}",
+            "filename_id": category_id,
+            "guide": (
+                "这张表按所选叶子类目从官方 schema 生成列，7540 个叶子类目各有一套。"
+                "货号、单价、起订量必填；带下拉的列必须选官方选项，不选 Other。"
+            ),
+            "spec_columns": [],
+            "attr_columns": attrs,
+            "example": dict(EXAMPLE_ROW),
+            "note_hint": "选填。官方属性列已经分开写了就不用重复。",
+            "category_name": hint or category_id,
+            "header_color": "0F766E",
+        }
     if not hint.strip():
         return {
             "family_id": "",
@@ -637,8 +664,9 @@ def sheet_profile(category_name: str = "", product_hint: str = "") -> dict[str, 
             "title": "短表批量上品",
             "filename": "短表批量上品",
             "filename_id": "generic",
-            "guide": "填写页只收依据。官方属性和交易物流不进这张表。选了叶子类目后，会按品类多出规格列。",
+            "guide": "先选叶子类目，系统会按该类目的官方 schema 生成填写列。",
             "spec_columns": [],
+            "attr_columns": [],
             "example": dict(EXAMPLE_ROW),
             "note_hint": USER_FILLS[-1]["hint"],
             "category_name": "",
@@ -658,6 +686,7 @@ def sheet_profile(category_name: str = "", product_hint: str = "") -> dict[str, 
         "filename_id": preset["filename_id"],
         "guide": preset["guide"],
         "spec_columns": [dict(item) for item in preset["spec_columns"]],
+        "attr_columns": [],
         "example": dict(preset.get("example") or EXAMPLE_ROW),
         "note_hint": preset.get("note_hint") or USER_FILLS[-1]["hint"],
         "category_name": hint,
@@ -684,13 +713,21 @@ def fill_headers(style: str, profile: dict[str, Any] | None = None) -> list[tupl
         "spec": "只写看得见的规格。没写就不编。",
     }
     spec_cols = list((profile or {}).get("spec_columns") or [])
-    core = [field_id for field_id in spec["columns"] if not spec_cols or field_id != "note"]
+    attr_cols = list((profile or {}).get("attr_columns") or [])
+    tail_cols = spec_cols or attr_cols
+    core = [field_id for field_id in spec["columns"] if not tail_cols or field_id != "note"]
     rows: list[tuple[str, str, str]] = []
     for field_id in core:
         rows.append((field_id, FIELDS[field_id], hints.get(field_id) or f"系统字段：{field_id}"))
     for col in spec_cols:
         rows.append((col["id"], col["label"], col.get("hint") or "只写你确定的规格，没写就不编"))
-    if spec_cols:
+    for col in attr_cols:
+        label = _attr_label(str(col.get("header") or col.get("label") or col.get("field_id") or ""))
+        options = col.get("options") or []
+        opt_hint = " / ".join(str(item.get("label") or item.get("value") or "") for item in options[:8])
+        hint = f"官方必填。按选项选，不选 Other。{('选项：' + opt_hint) if opt_hint else ''}"
+        rows.append((col["id"], label, hint))
+    if tail_cols:
         rows.append(("note", FIELDS["note"], hints["note"]))
     return rows
 
@@ -698,9 +735,8 @@ def fill_headers(style: str, profile: dict[str, Any] | None = None) -> list[tupl
 def sheet_preview(style: str = "simple", profile: dict[str, Any] | None = None) -> dict[str, Any]:
     """What the seller sees before they download: short headers + one example row.
 
-    This is not the official 40-column form. Category attributes come from
-    Alibaba schema.get and stay off the fill sheet. Spec columns are free text
-    for this family, not official option IDs.
+    This is not the official 40-column form. With a leaf category, required
+    attributes from schema.get appear as columns on the fill sheet.
     """
     spec = STYLES.get(style) or STYLES["simple"]
     example = dict(EXAMPLE_ROW)
@@ -715,7 +751,12 @@ def sheet_preview(style: str = "simple", profile: dict[str, Any] | None = None) 
         }
         for field_id, label, _hint in fill_headers(style, profile)
     ]
-    note = "不是阿里后台那张 40 列表。货号、单价、起订量必填；图片选填。导入时再选原图上架、补转化位或重画套图。标题和类目属性按这家店的官方发布规则由 AI 补。"
+    note = "不是阿里后台那张 40 列表。货号、单价、起订量必填；选了叶子类目后，官方必填属性会出现在填写页。"
+    if profile and profile.get("family_id") == "leaf":
+        note = (
+            "按所选叶子类目从官方 schema 生成列，7540 个叶子类目各有一套。"
+            "货号、单价、起订量必填；带下拉的列请选官方选项。"
+        )
     if profile and profile.get("guide"):
         note = f"{profile['guide']} {note}"
     return {
@@ -747,18 +788,34 @@ def fill_policy(
     profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     extras = ai_attrs or []
-    ai_fills = [item for item in AI_FILLS_BASE if item["id"] != "catAttrs" or not extras]
-    for extra in extras:
-        raw = extra.get("header") or extra.get("label") or extra.get("name") or ""
-        ai_fills.append(
-            {
-                "id": extra.get("id") or extra.get("field_id") or extra.get("header"),
-                "label": _attr_label(str(raw)),
-                "hint": "按官方选项选，不选 Other。选错但合法的只能人审拦住",
-            }
-        )
+    on_sheet = bool((profile or {}).get("attr_columns"))
+    ai_fills = [item for item in AI_FILLS_BASE if item["id"] != "catAttrs" or (not extras and not on_sheet)]
+    if not on_sheet:
+        for extra in extras:
+            raw = extra.get("header") or extra.get("label") or extra.get("name") or ""
+            ai_fills.append(
+                {
+                    "id": extra.get("id") or extra.get("field_id") or extra.get("header"),
+                    "label": _attr_label(str(raw)),
+                    "hint": "按官方选项选，不选 Other。选错但合法的只能人审拦住",
+                }
+            )
     user_fills = [dict(item) for item in USER_FILLS]
-    if profile and profile.get("spec_columns"):
+    if profile and profile.get("attr_columns"):
+        note = user_fills.pop() if user_fills and user_fills[-1]["id"] == "note" else None
+        for col in profile["attr_columns"]:
+            label = _attr_label(str(col.get("header") or col.get("label") or col.get("field_id") or ""))
+            user_fills.append(
+                {
+                    "id": col["id"],
+                    "label": label,
+                    "required": True,
+                    "hint": "官方必填，按选项选",
+                }
+            )
+        if note is not None:
+            user_fills.append(note)
+    elif profile and profile.get("spec_columns"):
         note = user_fills.pop() if user_fills and user_fills[-1]["id"] == "note" else None
         for col in profile["spec_columns"]:
             user_fills.append(
@@ -810,8 +867,10 @@ def category_attr_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
                 {
                     "id": f"attr.{group.id}.{child.id}",
                     "header": child.name or child.id,
+                    "label": _attr_label(child.name or child.id),
                     "group": group.id,
                     "field_id": child.id,
+                    "required": True,
                     "options": options,
                 }
             )
@@ -912,6 +971,7 @@ def mapping_from_headers(
     mapping: dict[str, str] = {}
     used: set[str] = set()
     extras = {_norm(item["header"]): item["id"] for item in extra_columns or [] if item.get("header")}
+    extras.update({_norm(item.get("label") or ""): item["id"] for item in extra_columns or [] if item.get("label")})
     extras.update({_norm(item.get("field_id") or ""): item["id"] for item in extra_columns or [] if item.get("field_id")})
     for header in headers:
         field_id = extras.get(_norm(header)) or guess_field(header, style)
@@ -1201,11 +1261,21 @@ def build_template(
     official_required: list[dict[str, str]] | None = None,
     extra_columns: list[dict[str, Any]] | None = None,
     category_name: str = "",
+    category_id: str = "",
 ) -> bytes:
     spec = STYLES.get(style) or STYLES["simple"]
-    profile = sheet_profile(category_name or (listing_template or {}).get("name") or "") if style == "simple" else None
-    if profile and not profile.get("family_id"):
-        profile = None
+    listing = listing_template or {}
+    resolved_category_id = category_id or str(listing.get("category_id") or "")
+    profile = None
+    if style == "simple":
+        if resolved_category_id:
+            profile = sheet_profile(
+                category_name or str(listing.get("name") or ""),
+                category_id=resolved_category_id,
+                attr_columns=list(extra_columns or []),
+            )
+        elif category_name or listing.get("name"):
+            profile = sheet_profile(category_name or str(listing.get("name") or ""))
     book = Workbook()
     sheet = book.active
     tab = ((profile or {}).get("filename") or "填写").replace("/", "")[:31] or "填写"
@@ -1215,10 +1285,11 @@ def build_template(
     font = Font(color="FFFFFF", bold=True)
     example = {
         **EXAMPLE_ROW,
-        "category_id": (listing_template or {}).get("category_id") or "",
+        "category_id": resolved_category_id,
         **((profile or {}).get("example") or {}),
     }
     headers = fill_headers(style, profile)
+    attr_by_id = {col["id"]: col for col in (extra_columns or []) if col.get("id")}
     for index, (field_id, label, hint) in enumerate(headers, start=1):
         cell = sheet.cell(1, index, label)
         cell.fill = fill
@@ -1227,9 +1298,23 @@ def build_template(
         cell.comment = Comment(hint or f"系统字段：{field_id}", "Auto Shoper")
         sample = sheet.cell(2, index, example.get(field_id, ""))
         sample.font = Font(color="9AA0A6", italic=True)
-        sheet.column_dimensions[get_column_letter(index)].width = 22 if field_id.startswith("spec.") else 28
-    # Official required attributes stay off the fill sheet. Dumping Type /
-    # Color / Hair Material here would recreate the official form.
+        width = 28
+        if field_id.startswith("spec.") or field_id.startswith("attr."):
+            width = 24
+        sheet.column_dimensions[get_column_letter(index)].width = width
+        meta = attr_by_id.get(field_id) or {}
+        options = meta.get("options") or []
+        if options:
+            from openpyxl.worksheet.datavalidation import DataValidation
+
+            labels = [str(item.get("label") or item.get("value") or "") for item in options[:40] if item]
+            if labels:
+                joined = ",".join(label.replace(",", " ") for label in labels)
+                dv = DataValidation(type="list", formula1=f'"{joined}"', allow_blank=False)
+                dv.error = "请从下拉选官方选项，不要手打 Other"
+                dv.errorTitle = "选项无效"
+                sheet.add_data_validation(dv)
+                dv.add(f"{get_column_letter(index)}3:{get_column_letter(index)}1048576")
     extras = extra_columns or []
     sheet.row_dimensions[1].height = 22
     sheet.cell(1, 1).comment = Comment(
@@ -1241,7 +1326,10 @@ def build_template(
     help_sheet["A1"] = (profile or {}).get("title") or "这不是官方表"
     help_sheet["A1"].font = Font(bold=True, size=14)
     help_sheet["A2"] = (profile or {}).get("guide") or spec["summary"]
-    help_sheet["A3"] = "填写页只给人填。官方 40 列和类目属性不抄过来。交易物流走店铺默认，不是 AI 编的。红线字段不准给 AI。AI 会选错，成稿后要人核对。"
+    help_sheet["A3"] = (
+        "填写页列来自：核心字段 + 所选叶子类目的官方 schema 必填属性。"
+        "交易物流走店铺默认。AI 会填标题和详描，成稿后要人核对。"
+    )
     help_sheet["A4"] = "一行 = 一个商品。图片选填：有图写链接或文件名，没图留空。导入时再选原图上架、补转化位或重画。第 2 行灰色是示例，导入时自动跳过。"
     help_sheet["A4"].font = Font(bold=True)
 
@@ -1262,14 +1350,15 @@ def build_template(
         help_sheet.cell(row, 2, item.get("hint") or "店铺默认，AI 不准改")
         row += 1
     row += 1
-    help_sheet.cell(row, 1, "AI 填（不要写进填写页，人要核对）")
+    help_sheet.cell(row, 1, "AI 填（标题 / 详描，不进填写页）")
     help_sheet.cell(row, 1).font = Font(bold=True)
     row += 1
-    for item in fill_policy(extras)["ai_fills"]:
+    leaf_mode = bool((profile or {}).get("family_id") == "leaf")
+    for item in fill_policy(extras, profile)["ai_fills"]:
         help_sheet.cell(row, 1, item.get("label") or "")
         help_sheet.cell(row, 2, item.get("hint") or "AI 按图和官方选项填")
         row += 1
-    if extras:
+    if extras and not leaf_mode:
         row += 1
         help_sheet.cell(row, 1, "这个类目 AI 会补的官方属性")
         help_sheet.cell(row, 1).font = Font(bold=True)
