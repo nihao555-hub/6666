@@ -48,11 +48,16 @@ def build_draft_for_shop(
     provided_sources: dict[str, str] | None = None,
     extra_defaults: dict[str, Any] | None = None,
     fact_bundle: FactBundle | None = None,
+    bank_images: list[Any] | None = None,
 ) -> Draft:
     api = shop_api(shop)
     defaults = shop_defaults(shop)
     images = catalogue.images_of(db, product)
-    bank, errors = catalogue.ensure_photobank(db, api, shop, images)
+    if bank_images is not None:
+        bank = list(bank_images)
+        errors: list[str] = []
+    else:
+        bank, errors = catalogue.ensure_photobank(db, api, shop, images)
 
     final_price = price or product.price
     final_moq = moq or product.moq

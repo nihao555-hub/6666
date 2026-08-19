@@ -78,7 +78,7 @@ export const api = {
     if (extra.categoryName) params.set("category_name", extra.categoryName);
     return `/api/v1/excel/template?${params.toString()}`;
   },
-  cloneOnline: (shopId, body) => http.post(`/shops/${shopId}/online/clone`, body),
+  photobank: (shopId, params) => http.get(`/shops/${shopId}/photobank`, { params }),
   learnDefaults: (shopId, body) => http.post(`/shops/${shopId}/online/learn-defaults`, body),
   learnTemplate: (shopId, body) => http.post(`/shops/${shopId}/online/learn-template`, body),
 

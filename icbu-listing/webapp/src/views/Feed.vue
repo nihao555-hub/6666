@@ -74,8 +74,14 @@
             <el-radio-button value="batch">按货号批量</el-radio-button>
           </el-radio-group>
         </div>
+        <div v-if="photoMode === 'single'" class="toolbar" style="margin-top: 10px">
+          <el-radio-group v-model="photoSource">
+            <el-radio-button value="upload">本地上传</el-radio-button>
+            <el-radio-button value="photobank">图片银行</el-radio-button>
+          </el-radio-group>
+        </div>
         <el-upload
-          v-if="photoMode === 'single'"
+          v-if="photoMode === 'single' && photoSource === 'upload'"
           v-model:file-list="files"
           list-type="picture-card"
           :auto-upload="false"
@@ -84,8 +90,29 @@
         >
           <span style="font-size: 22px">+</span>
         </el-upload>
+        <div v-else-if="photoMode === 'single' && photoSource === 'photobank'" class="photobank-panel">
+          <p class="muted">从这家店已上传的图片银行里选，最多 6 张。不用再传一遍。</p>
+          <div class="toolbar" style="margin: 10px 0">
+            <el-button :loading="photobankLoading" @click="loadPhotobank">刷新列表</el-button>
+            <span class="muted">已选 {{ selectedPhotobank.length }}/6</span>
+          </div>
+          <div v-if="photobankImages.length" class="photobank-grid">
+            <button
+              v-for="item in photobankImages"
+              :key="item.id"
+              type="button"
+              class="photobank-item"
+              :class="{ 'is-selected': isPhotobankSelected(item) }"
+              @click="togglePhotobank(item)"
+            >
+              <img :src="normalizePhotoUrl(item.url)" :alt="item.file_name" />
+              <span>{{ item.file_name || item.id }}</span>
+            </button>
+          </div>
+          <p v-else-if="!photobankLoading" class="muted">还没有拉到图片。先点刷新，或去阿里后台上传后再来。</p>
+        </div>
         <el-upload
-          v-else
+          v-else-if="photoMode === 'batch'"
           v-model:file-list="batchFiles"
           :auto-upload="false"
           multiple
@@ -647,6 +674,10 @@ const currentTitle = ref("");
 const restoring = ref(false);
 const tab = ref("single");
 const photoMode = ref("single");
+const photoSource = ref("upload");
+const photobankImages = ref([]);
+const selectedPhotobank = ref([]);
+const photobankLoading = ref(false);
 const photoStep = ref(0);
 const photoReached = ref(0);
 const aiStep = ref(0);
@@ -774,7 +805,11 @@ const percent = computed(() => {
   if (!batch.value?.count) return 0;
   return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
 });
-const hasPhotos = computed(() => (photoMode.value === "single" ? files.value.length : batchFiles.value.length));
+const hasPhotos = computed(() => {
+  if (photoMode.value === "batch") return batchFiles.value.length;
+  if (photoSource.value === "photobank") return selectedPhotobank.value.length;
+  return files.value.length;
+});
 const imagePercent = computed(() => {
   const total = imageJob.value?.total || 6;
   return Math.min(100, Math.round(((imageJob.value?.done || 0) / total) * 100));
@@ -1359,8 +1394,57 @@ onUnmounted(() => {
   clearInterval(imageTimer);
 });
 
+async function loadPhotobank() {
+  if (!store.shopId) return;
+  photobankLoading.value = true;
+  try {
+    const data = await api.photobank(store.shopId, { page: 1, page_size: 60 });
+    photobankImages.value = data.images || [];
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    photobankLoading.value = false;
+  }
+}
+
+function normalizePhotoUrl(url) {
+  if (!url) return "";
+  return url.startsWith("//") ? `https:${url}` : url;
+}
+
+function isPhotobankSelected(item) {
+  return selectedPhotobank.value.some((row) => row.id === item.id);
+}
+
+function togglePhotobank(item) {
+  const index = selectedPhotobank.value.findIndex((row) => row.id === item.id);
+  if (index >= 0) {
+    selectedPhotobank.value.splice(index, 1);
+    return;
+  }
+  if (selectedPhotobank.value.length >= 6) {
+    ElMessage.warning("最多选 6 张");
+    return;
+  }
+  selectedPhotobank.value.push(item);
+}
+
+watch(
+  () => [photoSource.value, store.shopId],
+  () => {
+    if (photoSource.value === "photobank" && store.shopId && !photobankImages.value.length) {
+      loadPhotobank();
+    }
+  },
+);
+
 async function submitOne() {
-  if (!files.value.length) {
+  if (photoSource.value === "photobank") {
+    if (!selectedPhotobank.value.length) {
+      ElMessage.warning("至少选一张图片银行的图");
+      return;
+    }
+  } else if (!files.value.length) {
     ElMessage.warning("至少传一张图");
     return;
   }
@@ -1371,7 +1455,21 @@ async function submitOne() {
   body.append("moq", form.moq);
   body.append("note", form.note);
   body.append("session_id", sessionId.value);
-  files.value.forEach((item) => item.raw && body.append("files", item.raw));
+  if (photoSource.value === "photobank") {
+    body.append(
+      "photobank_images",
+      JSON.stringify(
+        selectedPhotobank.value.map((item) => ({
+          id: item.id,
+          file_id: item.file_id || item.id,
+          file_name: item.file_name,
+          url: item.url,
+        })),
+      ),
+    );
+  } else {
+    files.value.forEach((item) => item.raw && body.append("files", item.raw));
+  }
   loading.value = true;
   try {
     const draft = await api.feed(body);
@@ -1678,5 +1776,46 @@ async function poll() {
   .policy-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.photobank-panel {
+  margin-top: 12px;
+}
+
+.photobank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.photobank-item {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--panel);
+  cursor: pointer;
+  text-align: left;
+}
+
+.photobank-item.is-selected {
+  border-color: var(--accent);
+}
+
+.photobank-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+
+.photobank-item span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

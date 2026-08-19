@@ -365,6 +365,7 @@ def photobank(
         "images": [
             {
                 "id": str(item.get("id") or ""),
+                "file_id": str(item.get("id") or item.get("file_id") or ""),
                 "file_name": item.get("file_name") or "",
                 "url": item.get("url") or "",
                 "size": item.get("file_size") or 0,

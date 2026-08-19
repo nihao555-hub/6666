@@ -196,6 +196,28 @@ def _store_draft(
     return draft
 
 
+def _parse_photobank_images(raw: str) -> list[image_service.BankImage]:
+    if not raw or not raw.strip():
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="图片银行选择不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="图片银行选择必须是数组")
+    bank: list[image_service.BankImage] = []
+    for item in payload[:MAX_IMAGES]:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
+        file_id = str(item.get("file_id") or item.get("id") or "").strip()
+        file_name = str(item.get("file_name") or "product.jpg").strip() or "product.jpg"
+        bank.append(image_service.BankImage(file_name=file_name, file_id=file_id, url=url))
+    return bank
+
+
 def _generate(
     db: Session,
     user: User,
@@ -208,6 +230,7 @@ def _generate(
     note: str,
     category_id: str = "",
     batch_id: str = "",
+    bank_images: list[image_service.BankImage] | None = None,
 ) -> Draft:
     """Feeding always lands a catalogue product first.
 
@@ -215,9 +238,17 @@ def _generate(
     same recognition can be reused when the seller sends it to another shop.
     """
     ai = AiClient.from_env_or_none()
-    understanding, ai_error = pipeline.understand(
-        ai, [ImageInput(filename=name, content=content) for name, content in uploads], note
-    )
+    if bank_images:
+        understanding, ai_error = pipeline.understand(
+            ai,
+            [ImageInput(filename=item.file_name, url=item.absolute_url) for item in bank_images[:MAX_IMAGES]],
+            note,
+        )
+        uploads: list[tuple[str, bytes]] = []
+    else:
+        understanding, ai_error = pipeline.understand(
+            ai, [ImageInput(filename=name, content=content) for name, content in uploads], note
+        )
 
     product = Product(
         user_id=user.id,
@@ -230,7 +261,8 @@ def _generate(
     )
     db.add(product)
     db.commit()
-    catalogue.save_images(db, user, product, uploads[:MAX_IMAGES])
+    if uploads:
+        catalogue.save_images(db, user, product, uploads[:MAX_IMAGES])
 
     draft = distribution.build_draft_for_shop(
         db,
@@ -242,6 +274,7 @@ def _generate(
         ai=ai,
         batch_id=batch_id,
         forced_category_id=category_id,
+        bank_images=bank_images,
     )
 
     if ai_error:
@@ -262,6 +295,7 @@ async def feed(
     note: str = Form(""),
     category_id: str = Form(""),
     session_id: str = Form(""),
+    photobank_images: str = Form(""),
     files: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -272,8 +306,9 @@ async def feed(
     session = feed_sessions.get_owned(db, user.id, session_id) if session_id else None
     if not uploads and session is not None:
         uploads = feed_sessions.file_bytes(session, "photos")[:MAX_IMAGES]
-    if not uploads:
-        raise HTTPException(status_code=400, detail="至少要传一张图")
+    bank_images = _parse_photobank_images(photobank_images)
+    if not uploads and not bank_images:
+        raise HTTPException(status_code=400, detail="至少要传一张图，或从图片银行选图")
 
     try:
         draft = _generate(
@@ -281,11 +316,12 @@ async def feed(
             user,
             shop,
             uploads=uploads,
-            sku=sku or _sku_from_filename(uploads[0][0]),
+            sku=sku or (_sku_from_filename(uploads[0][0]) if uploads else sku or "PHOTO"),
             price=price,
             moq=moq,
             note=note,
             category_id=category_id,
+            bank_images=bank_images or None,
         )
     except ShopNotConnected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
