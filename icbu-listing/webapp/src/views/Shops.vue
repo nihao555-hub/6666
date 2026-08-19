@@ -3,14 +3,11 @@
     <div class="page-head">
       <div>
         <h2>店铺</h2>
-        <p class="muted">前期先用环境 token 接入测试店；正式绑自己的店在本页嵌入式完成阿里官方授权。</p>
+        <p class="muted">授权国际站店铺后，可在这里管理默认设置并批量上品。</p>
       </div>
       <div class="head-actions">
-        <el-button v-if="connectOptions.bind_env_available" type="primary" :loading="bindingEnv" @click="bindTestShop">
-          接入测试店铺
-        </el-button>
-        <el-button v-if="connectOptions.oauth_available" @click="openEmbeddedOAuth">
-          授权自己的店铺
+        <el-button type="primary" :disabled="!oauthAvailable" @click="openEmbeddedOAuth">
+          新增店铺
         </el-button>
       </div>
     </div>
@@ -19,77 +16,34 @@
       v-if="oauthError"
       type="error"
       show-icon
-      title="店铺没有登录成功"
+      title="店铺授权未完成"
       :description="oauthError"
       style="margin-bottom: 14px"
       @close="oauthError = ''"
     />
 
-    <el-alert
-      v-if="hasTokenShop"
-      type="info"
-      show-icon
-      :closable="false"
-      title="当前用 token 对应的测试店铺跑通上品"
-      description="这是前期默认路径：填默认、投料、审稿、发到官方草稿箱。绑自己的店请点「授权自己的店铺」。"
-      style="margin-bottom: 14px"
-    />
-
-    <div class="connect-card" v-if="!store.shops.length">
-      <div class="connect-copy">
-        <div class="hero-kicker">先跑通，再绑真店</div>
-        <h3>测试店铺 vs 自己的店铺</h3>
-        <p class="muted">
-          前期推荐直接「接入测试店铺」，用的是环境里已配置好的国际站 token，不用跳转。
-          要绑你自己的卖家账号时，点「授权自己的店铺」——在本页弹层里完成阿里官方 OAuth，不会整页跳走。
-        </p>
-        <ul class="connect-caps">
-          <li>测试店：一键接入，立刻试批量上品</li>
-          <li>自己的店：嵌入式官方授权，不收集店铺密码</li>
-          <li>按你店里的类目规则成稿、传图、发草稿</li>
-        </ul>
-        <FishboneSteps v-model="connectStep" :steps="connectSteps" :reached="connectReached" />
-        <div class="connect-buttons">
-          <el-button
-            v-if="connectOptions.bind_env_available"
-            type="primary"
-            size="large"
-            :loading="bindingEnv"
-            @click="bindTestShop"
-          >
-            接入测试店铺
-          </el-button>
-          <el-button v-if="connectOptions.oauth_available" size="large" @click="openEmbeddedOAuth">
-            授权自己的店铺
-          </el-button>
-        </div>
-      </div>
-      <img class="hero-art" src="/art/hero.png" alt="" />
-    </div>
+    <el-empty v-if="!store.shops.length && !loading" description="还没有店铺">
+      <el-button type="primary" :disabled="!oauthAvailable" @click="openEmbeddedOAuth">
+        新增店铺
+      </el-button>
+    </el-empty>
 
     <el-table v-if="store.shops.length" :data="store.shops" v-loading="loading">
-      <el-table-column label="店铺" min-width="200">
+      <el-table-column label="店铺" min-width="220">
         <template #default="{ row }">
           <div class="record">
             <span class="record-mark">{{ (row.name || "店").slice(0, 1) }}</span>
             <div>
               <div>{{ row.name }}</div>
-              <div class="muted">{{ row.account || (row.bound_by === "debug" ? "测试店铺（环境 token）" : "OAuth 已授权") }}</div>
+              <div class="muted">{{ row.account || row.seller_id || "已授权" }}</div>
             </div>
           </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="来源" width="120">
-        <template #default="{ row }">
-          <span class="status-pill" :class="row.bound_by === 'debug' ? 'yellow' : 'green'">
-            {{ row.bound_by === "debug" ? "测试" : "OAuth" }}
-          </span>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
           <span v-if="row.status === 'active' && row.connected" class="status-pill green">可用</span>
-          <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新登录</span>
+          <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新授权</span>
           <span v-else class="status-pill red">异常</span>
         </template>
       </el-table-column>
@@ -109,7 +63,7 @@
         <template #default="{ row }">
           <el-button text type="primary" @click="edit(row)">店铺默认</el-button>
           <el-button text type="primary" @click="use(row)">设为当前</el-button>
-          <el-button v-if="row.bound_by !== 'debug' && row.status !== 'active'" text type="primary" @click="openEmbeddedOAuth">
+          <el-button v-if="row.status !== 'active'" text type="primary" @click="openEmbeddedOAuth">
             重新授权
           </el-button>
           <el-button text type="danger" @click="unbind(row)">解绑</el-button>
@@ -119,13 +73,13 @@
 
     <el-dialog
       v-model="oauthOpen"
-      title="授权国际站店铺"
+      title="新增店铺"
       width="min(920px, 96vw)"
       destroy-on-close
       @closed="closeOAuthDialog"
     >
       <p class="muted" style="margin: 0 0 12px">
-        在下方完成阿里官方登录确认。若内嵌页空白，请点「弹窗授权」——授权完成后会自动回到这里。
+        在阿里官方页面确认授权，把发品相关能力授权给我们。若内嵌页空白，请点「弹窗授权」。
       </p>
       <div class="oauth-toolbar">
         <el-button :loading="oauthLoading" @click="reloadOAuthFrame">刷新授权页</el-button>
@@ -222,7 +176,6 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import FishboneSteps from "../components/FishboneSteps.vue";
 import { api } from "../api";
 import { store } from "../store";
 
@@ -230,21 +183,13 @@ const route = useRoute();
 const router = useRouter();
 const loading = ref(false);
 const saving = ref(false);
-const bindingEnv = ref(false);
 const drawer = ref(false);
 const editing = ref(null);
 const oauthError = ref("");
 const optionsLoading = ref(false);
 const optionSource = ref({ category_name: "", fields: [] });
 const pickedLabels = ref({});
-const connectOptions = ref({ bind_env_available: false, oauth_available: false });
-const connectStep = ref(0);
-const connectReached = ref(0);
-const connectSteps = [
-  { key: "pick", label: "选测试或 OAuth" },
-  { key: "auth", label: "完成授权" },
-  { key: "defaults", label: "回来填默认" },
-];
+const oauthAvailable = ref(false);
 const oauthOpen = ref(false);
 const oauthUrl = ref("");
 const oauthLoading = ref(false);
@@ -258,7 +203,6 @@ const pulledLabels = computed(() => {
   const names = { origin: "产地", priceUnit: "单位", saleType: "售卖方式", shippingTemplateId: "运费模板", logisticsProperty: "物流属性", marketSample: "样品", paymentMethod: "付款", port: "港口", market: "市场", pkgWeight: "包装重量", pkgLength: "包装长", pkgWidth: "包装宽", pkgHeight: "包装高", brand: "品牌", ladderPeriod: "交期" };
   return (optionSource.value.pulled || []).map((key) => names[key] || key).join("、");
 });
-const hasTokenShop = computed(() => store.shops.some((item) => item.bound_by === "debug"));
 
 function shown(shop, key) {
   return shop.defaults?.labels?.[key] ?? shop.defaults?.[key] ?? "";
@@ -282,9 +226,10 @@ function rememberLabel(field) {
 
 async function loadConnectOptions() {
   try {
-    connectOptions.value = await api.shopConnectOptions();
+    const options = await api.shopConnectOptions();
+    oauthAvailable.value = Boolean(options.oauth_available);
   } catch {
-    connectOptions.value = { bind_env_available: false, oauth_available: false };
+    oauthAvailable.value = false;
   }
 }
 
@@ -330,14 +275,11 @@ async function reload() {
   }
 }
 
-function finishOAuthSuccess() {
+async function finishOAuthSuccess() {
   oauthOpen.value = false;
   oauthError.value = "";
-  connectReached.value = 2;
-  ElMessage.success("店铺已授权。能从店里拉的默认已填上，你可改。");
-  reload().then(() => {
-    if (store.shops.length) edit(store.shops[store.shops.length - 1]);
-  });
+  await reload();
+  ElMessage.success("店铺已授权");
 }
 
 function onOAuthMessage(event) {
@@ -350,22 +292,6 @@ function onOAuthMessage(event) {
   }
   oauthOpen.value = false;
   oauthError.value = payload.message || "阿里没有确认成功";
-}
-
-async function bindTestShop() {
-  bindingEnv.value = true;
-  try {
-    const shop = await api.bindEnvShop("测试店铺");
-    await store.loadShops();
-    store.selectShop(shop.id);
-    connectReached.value = 2;
-    ElMessage.success("测试店铺已接入，可以直接试批量上品");
-    edit(shop);
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    bindingEnv.value = false;
-  }
 }
 
 async function loadOAuthUrl() {
@@ -382,9 +308,11 @@ async function loadOAuthUrl() {
 }
 
 async function openEmbeddedOAuth() {
+  if (!oauthAvailable.value) {
+    ElMessage.warning("平台还没有接好国际站应用，暂时不能授权店铺");
+    return;
+  }
   oauthOpen.value = true;
-  connectStep.value = 1;
-  connectReached.value = Math.max(connectReached.value, 1);
   await loadOAuthUrl();
 }
 
@@ -419,8 +347,8 @@ onMounted(async () => {
   window.addEventListener("message", onOAuthMessage);
   await loadConnectOptions();
   await reload();
-  if (route.query.alibaba === "connected" && store.shops.length) {
-    finishOAuthSuccess();
+  if (route.query.alibaba === "connected") {
+    await finishOAuthSuccess();
     router.replace({ path: "/shops" });
   }
 });
@@ -485,35 +413,6 @@ async function unbind(shop) {
   gap: 8px;
   flex-wrap: wrap;
 }
-.connect-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 232px;
-  gap: 20px;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, var(--accent-wash), var(--surface) 70%);
-  padding: 22px 24px;
-}
-.connect-copy h3 {
-  margin: 6px 0 8px;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-.connect-caps {
-  margin: 14px 0 18px;
-  padding-left: 18px;
-  color: var(--ink-2);
-}
-.connect-caps li + li {
-  margin-top: 4px;
-}
-.connect-buttons {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
 .section-label {
   margin: 18px 0 8px;
   font-size: 13px;
@@ -531,13 +430,5 @@ async function unbind(shop) {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #fff;
-}
-@media (max-width: 900px) {
-  .connect-card {
-    grid-template-columns: 1fr;
-  }
-  .connect-card .hero-art {
-    display: none;
-  }
 }
 </style>
