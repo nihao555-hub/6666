@@ -3,9 +3,16 @@
     <div class="page-head">
       <div>
         <h2>店铺</h2>
-        <p class="muted">用你自己的国际站卖家账号登录，授权本平台代你发品、改品、传图。</p>
+        <p class="muted">前期先用环境 token 接入测试店；正式绑自己的店在本页嵌入式完成阿里官方授权。</p>
       </div>
-      <el-button type="primary" @click="authorize">{{ store.shops.length ? "登录自己的店铺" : "登录并授权店铺" }}</el-button>
+      <div class="head-actions">
+        <el-button v-if="connectOptions.bind_env_available" type="primary" :loading="bindingEnv" @click="bindTestShop">
+          接入测试店铺
+        </el-button>
+        <el-button v-if="connectOptions.oauth_available" @click="openEmbeddedOAuth">
+          授权自己的店铺
+        </el-button>
+      </div>
     </div>
 
     <el-alert
@@ -19,36 +26,43 @@
     />
 
     <el-alert
-      v-if="hasTokenShop && !hasOauthShop"
+      v-if="hasTokenShop"
       type="info"
       show-icon
       :closable="false"
-      title="当前用已接入的店铺做完整上品测试"
-      description="这家店对应环境里的授权。可以直接填默认、投料、审稿、发到官方草稿箱。"
+      title="当前用 token 对应的测试店铺跑通上品"
+      description="这是前期默认路径：填默认、投料、审稿、发到官方草稿箱。绑自己的店请点「授权自己的店铺」。"
       style="margin-bottom: 14px"
     />
 
     <div class="connect-card" v-if="!store.shops.length">
       <div class="connect-copy">
-        <div class="hero-kicker">绑定自己的店</div>
-        <h3>登录你的国际站店铺</h3>
+        <div class="hero-kicker">先跑通，再绑真店</div>
+        <h3>测试店铺 vs 自己的店铺</h3>
         <p class="muted">
-          会跳到阿里官方页。用你平时进卖家后台的账号确认即可。
-          不收集店铺密码，只拿到发品、改品、传图需要的权限。
+          前期推荐直接「接入测试店铺」，用的是环境里已配置好的国际站 token，不用跳转。
+          要绑你自己的卖家账号时，点「授权自己的店铺」——在本页弹层里完成阿里官方 OAuth，不会整页跳走。
         </p>
         <ul class="connect-caps">
-          <li>按你店里的类目规则成稿</li>
-          <li>把产品图传到这家店</li>
-          <li>发新品、改已有品</li>
-          <li>看店里现在在售的货</li>
+          <li>测试店：一键接入，立刻试批量上品</li>
+          <li>自己的店：嵌入式官方授权，不收集店铺密码</li>
+          <li>按你店里的类目规则成稿、传图、发草稿</li>
         </ul>
-        <FishboneSteps v-model="connectStep" :steps="connectSteps" :reached="2" />
-        <p class="muted" style="margin: 0 0 8px">开放平台里登记的回调地址必须和这一行完全一致，否则阿里会拒：</p>
-        <div class="callback-row">
-          <code>{{ callbackUrl }}</code>
-          <el-button text type="primary" @click="copyCallback">复制</el-button>
+        <FishboneSteps v-model="connectStep" :steps="connectSteps" :reached="connectReached" />
+        <div class="connect-buttons">
+          <el-button
+            v-if="connectOptions.bind_env_available"
+            type="primary"
+            size="large"
+            :loading="bindingEnv"
+            @click="bindTestShop"
+          >
+            接入测试店铺
+          </el-button>
+          <el-button v-if="connectOptions.oauth_available" size="large" @click="openEmbeddedOAuth">
+            授权自己的店铺
+          </el-button>
         </div>
-        <el-button type="primary" size="large" style="margin-top: 14px" @click="authorize">登录并授权店铺</el-button>
       </div>
       <img class="hero-art" src="/art/hero.png" alt="" />
     </div>
@@ -60,14 +74,21 @@
             <span class="record-mark">{{ (row.name || "店").slice(0, 1) }}</span>
             <div>
               <div>{{ row.name }}</div>
-              <div class="muted">{{ row.account || (row.bound_by === "debug" ? "已接入，可上品测试" : "已登录") }}</div>
+              <div class="muted">{{ row.account || (row.bound_by === "debug" ? "测试店铺（环境 token）" : "OAuth 已授权") }}</div>
             </div>
           </div>
         </template>
       </el-table-column>
+      <el-table-column label="来源" width="120">
+        <template #default="{ row }">
+          <span class="status-pill" :class="row.bound_by === 'debug' ? 'yellow' : 'green'">
+            {{ row.bound_by === "debug" ? "测试" : "OAuth" }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <span v-if="row.status === 'active' && row.connected" class="status-pill green">{{ row.bound_by === "debug" ? "已接入" : "已登录" }}</span>
+          <span v-if="row.status === 'active' && row.connected" class="status-pill green">可用</span>
           <span v-else-if="row.status === 'expired'" class="status-pill yellow">需重新登录</span>
           <span v-else class="status-pill red">异常</span>
         </template>
@@ -88,24 +109,30 @@
         <template #default="{ row }">
           <el-button text type="primary" @click="edit(row)">店铺默认</el-button>
           <el-button text type="primary" @click="use(row)">设为当前</el-button>
-          <el-button v-if="row.status !== 'active'" text type="primary" @click="authorize">重新登录</el-button>
+          <el-button v-if="row.bound_by !== 'debug' && row.status !== 'active'" text type="primary" @click="openEmbeddedOAuth">
+            重新授权
+          </el-button>
           <el-button text type="danger" @click="unbind(row)">解绑</el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <div v-if="store.shops.length" class="connect-caps" style="margin-top: 16px">
-      <p class="muted" style="margin: 0 0 8px">这家店已经用密钥接通的官方能力</p>
-      <ul>
-        <li>登录授权、刷新店铺登录</li>
-        <li>官方类目树，选到可发布的叶子</li>
-        <li>该类目的发布规则（标题、属性、物流选项）</li>
-        <li>图片银行：上传、列表</li>
-        <li>在售商品：列表、详情、按规则回读再改</li>
-        <li>发到官方草稿箱；确认后再切直接上架</li>
-      </ul>
-      <p class="muted">旧版「一键 add」已经不对新商家开放，发品只走现在这套规则接口。运费模板、付款、港口从该类目规则里拉，不手填编号。</p>
-    </div>
+    <el-dialog
+      v-model="oauthOpen"
+      title="授权国际站店铺"
+      width="min(920px, 96vw)"
+      destroy-on-close
+      @closed="closeOAuthDialog"
+    >
+      <p class="muted" style="margin: 0 0 12px">
+        在下方完成阿里官方登录确认。若内嵌页空白，请点「弹窗授权」——授权完成后会自动回到这里。
+      </p>
+      <div class="oauth-toolbar">
+        <el-button :loading="oauthLoading" @click="reloadOAuthFrame">刷新授权页</el-button>
+        <el-button type="primary" @click="openOAuthPopup">弹窗授权</el-button>
+      </div>
+      <iframe v-if="oauthUrl" ref="oauthFrame" :src="oauthUrl" class="oauth-frame" title="阿里官方授权" />
+    </el-dialog>
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
       <p class="muted" style="margin-bottom: 16px">
@@ -192,28 +219,36 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FishboneSteps from "../components/FishboneSteps.vue";
 import { api } from "../api";
 import { store } from "../store";
 
 const route = useRoute();
+const router = useRouter();
 const loading = ref(false);
 const saving = ref(false);
+const bindingEnv = ref(false);
 const drawer = ref(false);
 const editing = ref(null);
 const oauthError = ref("");
 const optionsLoading = ref(false);
 const optionSource = ref({ category_name: "", fields: [] });
 const pickedLabels = ref({});
+const connectOptions = ref({ bind_env_available: false, oauth_available: false });
 const connectStep = ref(0);
+const connectReached = ref(0);
 const connectSteps = [
-  { key: "go", label: "跳转阿里" },
-  { key: "login", label: "用你的账号登录" },
-  { key: "back", label: "回来填默认" },
+  { key: "pick", label: "选测试或 OAuth" },
+  { key: "auth", label: "完成授权" },
+  { key: "defaults", label: "回来填默认" },
 ];
+const oauthOpen = ref(false);
+const oauthUrl = ref("");
+const oauthLoading = ref(false);
+const oauthPopup = ref(null);
 
 const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
 const shopFields = computed(() => pickable.value.filter((item) => item.scope !== "product"));
@@ -224,8 +259,6 @@ const pulledLabels = computed(() => {
   return (optionSource.value.pulled || []).map((key) => names[key] || key).join("、");
 });
 const hasTokenShop = computed(() => store.shops.some((item) => item.bound_by === "debug"));
-const hasOauthShop = computed(() => store.shops.some((item) => item.bound_by === "oauth"));
-const callbackUrl = `${window.location.origin}/api/v1/alibaba/oauth/callback`;
 
 function shown(shop, key) {
   return shop.defaults?.labels?.[key] ?? shop.defaults?.[key] ?? "";
@@ -245,6 +278,14 @@ function rememberLabel(field) {
     .map((value) => field.options.find((option) => option.value === value)?.label)
     .filter(Boolean);
   pickedLabels.value[field.key] = picked.join("、");
+}
+
+async function loadConnectOptions() {
+  try {
+    connectOptions.value = await api.shopConnectOptions();
+  } catch {
+    connectOptions.value = { bind_env_available: false, oauth_available: false };
+  }
 }
 
 async function loadOptions(shopId, refresh = false) {
@@ -275,7 +316,7 @@ function reloadFromShop() {
 }
 
 if (route.query.alibaba === "error") {
-  oauthError.value = route.query.message || "阿里没有确认成功。请再点一次「登录并授权店铺」。";
+  oauthError.value = route.query.message || "阿里没有确认成功。请再试一次授权。";
 }
 
 async function reload() {
@@ -289,32 +330,105 @@ async function reload() {
   }
 }
 
+function finishOAuthSuccess() {
+  oauthOpen.value = false;
+  oauthError.value = "";
+  connectReached.value = 2;
+  ElMessage.success("店铺已授权。能从店里拉的默认已填上，你可改。");
+  reload().then(() => {
+    if (store.shops.length) edit(store.shops[store.shops.length - 1]);
+  });
+}
+
+function onOAuthMessage(event) {
+  if (event.origin !== window.location.origin) return;
+  const payload = event.data;
+  if (!payload || payload.type !== "alibaba-oauth") return;
+  if (payload.status === "connected") {
+    finishOAuthSuccess();
+    return;
+  }
+  oauthOpen.value = false;
+  oauthError.value = payload.message || "阿里没有确认成功";
+}
+
+async function bindTestShop() {
+  bindingEnv.value = true;
+  try {
+    const shop = await api.bindEnvShop("测试店铺");
+    await store.loadShops();
+    store.selectShop(shop.id);
+    connectReached.value = 2;
+    ElMessage.success("测试店铺已接入，可以直接试批量上品");
+    edit(shop);
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    bindingEnv.value = false;
+  }
+}
+
+async function loadOAuthUrl() {
+  oauthLoading.value = true;
+  try {
+    const data = await api.oauthStart(true);
+    oauthUrl.value = data.url;
+  } catch (error) {
+    oauthError.value = error.message;
+    oauthOpen.value = false;
+  } finally {
+    oauthLoading.value = false;
+  }
+}
+
+async function openEmbeddedOAuth() {
+  oauthOpen.value = true;
+  connectStep.value = 1;
+  connectReached.value = Math.max(connectReached.value, 1);
+  await loadOAuthUrl();
+}
+
+function reloadOAuthFrame() {
+  loadOAuthUrl();
+}
+
+function openOAuthPopup() {
+  if (!oauthUrl.value) return;
+  if (oauthPopup.value && !oauthPopup.value.closed) {
+    oauthPopup.value.focus();
+    return;
+  }
+  const width = 520;
+  const height = 720;
+  const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
+  const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
+  oauthPopup.value = window.open(
+    oauthUrl.value,
+    "alibaba-oauth",
+    `width=${width},height=${height},left=${left},top=${top},noopener,noreferrer`,
+  );
+}
+
+function closeOAuthDialog() {
+  oauthUrl.value = "";
+  if (oauthPopup.value && !oauthPopup.value.closed) oauthPopup.value.close();
+  oauthPopup.value = null;
+}
+
 onMounted(async () => {
+  window.addEventListener("message", onOAuthMessage);
+  await loadConnectOptions();
   await reload();
   if (route.query.alibaba === "connected" && store.shops.length) {
-    const newest = store.shops[store.shops.length - 1];
-    ElMessage.success("店铺已登录。能从店里拉的默认已填上，你可改。");
-    edit(newest);
+    finishOAuthSuccess();
+    router.replace({ path: "/shops" });
   }
 });
 
-async function copyCallback() {
-  try {
-    await navigator.clipboard.writeText(callbackUrl);
-    ElMessage.success("已复制回调地址");
-  } catch {
-    ElMessage.error("复制失败，请手动选中");
-  }
-}
-
-async function authorize() {
-  try {
-    const { url } = await api.oauthStart();
-    window.location.href = url;
-  } catch (error) {
-    ElMessage.error(error.message);
-  }
-}
+onUnmounted(() => {
+  window.removeEventListener("message", onOAuthMessage);
+  closeOAuthDialog();
+});
 
 function edit(shop) {
   editing.value = JSON.parse(JSON.stringify(shop));
@@ -366,6 +480,11 @@ async function unbind(shop) {
 </script>
 
 <style scoped>
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .connect-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 232px;
@@ -390,26 +509,28 @@ async function unbind(shop) {
 .connect-caps li + li {
   margin-top: 4px;
 }
+.connect-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .section-label {
   margin: 18px 0 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
 }
-.callback-row {
+.oauth-toolbar {
   display: flex;
-  align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  background: var(--gray3);
-  border-radius: var(--radius);
+  margin-bottom: 12px;
 }
-.callback-row code {
-  flex: 1;
-  min-width: 0;
-  overflow: auto;
-  font-size: 12px;
-  color: var(--ink-2);
+.oauth-frame {
+  width: 100%;
+  height: min(68vh, 640px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
 }
 @media (max-width: 900px) {
   .connect-card {

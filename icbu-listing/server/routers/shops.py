@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -85,10 +85,48 @@ def oauth_callback_uri(request: Request) -> str:
     return f"{proto}://{host}/api/v1/alibaba/oauth/callback"
 
 
-def _oauth_error(reason: str, message: str) -> RedirectResponse:
+def _oauth_error(reason: str, message: str, *, embedded: bool = False) -> RedirectResponse | HTMLResponse:
     """Stay on this host. The env success/error URLs still point at localhost."""
+    if embedded:
+        return _oauth_embedded_page("error", reason=reason, message=message)
     query = urlencode({"alibaba": "error", "reason": reason, "message": message})
     return RedirectResponse(f"/#/shops?{query}", status_code=302)
+
+
+def _oauth_embedded_page(status: str, *, reason: str = "", message: str = "") -> HTMLResponse:
+    payload = json.dumps(
+        {"type": "alibaba-oauth", "status": status, "reason": reason, "message": message},
+        ensure_ascii=False,
+    )
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>店铺授权</title>
+  <style>
+    body {{ font: 14px/1.5 sans-serif; color: #334155; padding: 24px; }}
+  </style>
+</head>
+<body>
+  <p>{'授权成功，正在回到工作台…' if status == 'connected' else '授权未完成，正在回到工作台…'}</p>
+  <script>
+    const payload = {payload};
+    const target = window.opener || (window.parent !== window ? window.parent : null);
+    if (target) {{
+      target.postMessage(payload, window.location.origin);
+      if (window.opener) window.close();
+    }} else {{
+      const query = new URLSearchParams({{
+        alibaba: status === 'connected' ? 'connected' : 'error',
+        reason: payload.reason || '',
+        message: payload.message || '',
+      }});
+      window.location.replace('/#/shops?' + query.toString());
+    }}
+  </script>
+</body>
+</html>"""
+    return HTMLResponse(html)
 
 
 def listing_products(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
@@ -126,30 +164,48 @@ def list_shops(db: Session = Depends(get_db), user: User = Depends(current_user)
     return [shop_view(shop) for shop in shops]
 
 
+@router.get("/shops/connect-options")
+def connect_options(user: User = Depends(current_user)) -> dict[str, bool]:
+    del user
+    return {
+        "bind_env_available": bool(settings.dev_access_token),
+        "oauth_available": settings.has_platform_app,
+    }
+
+
 @router.get("/alibaba/oauth/start")
-def oauth_start(request: Request, user: User = Depends(current_user)) -> dict[str, str]:
+def oauth_start(
+    request: Request,
+    embedded: bool = False,
+    user: User = Depends(current_user),
+) -> dict[str, str | bool]:
     if not settings.has_platform_app:
         raise HTTPException(status_code=400, detail="平台还没有接好国际站应用，暂时不能登录店铺")
     redirect_uri = oauth_callback_uri(request)
-    state = sign_state({"user_id": user.id, "redirect_uri": redirect_uri})
-    return {"url": authorize_url(state, redirect_uri), "redirect_uri": redirect_uri}
+    state = sign_state({"user_id": user.id, "redirect_uri": redirect_uri, "embedded": embedded})
+    return {
+        "url": authorize_url(state, redirect_uri),
+        "redirect_uri": redirect_uri,
+        "embedded": embedded,
+    }
 
 
-@router.get("/alibaba/oauth/callback")
+@router.get("/alibaba/oauth/callback", response_model=None)
 def oauth_callback(
     request: Request,
     code: str = "",
     state: str = "",
     db: Session = Depends(get_db),
-) -> RedirectResponse:
+):
     payload = read_state(state)
+    embedded = bool(payload.get("embedded")) if payload else False
     if not code or payload is None:
-        return _oauth_error("state", "授权回跳的校验参数无效或已过期，请重新点一次登录")
+        return _oauth_error("state", "授权回跳的校验参数无效或已过期，请重新点一次登录", embedded=embedded)
 
     user_id = str(payload.get("user_id") or "")
     user = db.get(User, user_id)
     if user is None:
-        return _oauth_error("user", "找不到发起授权的账号，请重新登录后再试")
+        return _oauth_error("user", "找不到发起授权的账号，请重新登录后再试", embedded=embedded)
 
     redirect_uri = str(payload.get("redirect_uri") or "") or oauth_callback_uri(request)
     try:
@@ -159,7 +215,7 @@ def oauth_callback(
             access_token=None,
         )
     except (GopError, ShopNotConnected) as exc:
-        return _oauth_error("exchange", f"换取店铺 token 失败：{exc}")
+        return _oauth_error("exchange", f"换取店铺 token 失败：{exc}", embedded=embedded)
 
     body = raw if isinstance(raw, dict) else {}
     seller_id = str(body.get("seller_id") or body.get("user_id") or body.get("userId") or "")
@@ -181,6 +237,8 @@ def oauth_callback(
         defaults_service.pull_from_shop(db, shop_api(shop), shop)
     except (GopError, ShopNotConnected, RuntimeError, TypeError, ValueError):
         pass
+    if embedded:
+        return _oauth_embedded_page("connected")
     return RedirectResponse("/#/shops?alibaba=connected", status_code=302)
 
 

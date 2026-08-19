@@ -20,7 +20,8 @@ export const api = {
   overview: () => http.get("/overview"),
 
   shops: () => http.get("/shops"),
-  oauthStart: () => http.get("/alibaba/oauth/start"),
+  shopConnectOptions: () => http.get("/shops/connect-options"),
+  oauthStart: (embedded = false) => http.get("/alibaba/oauth/start", { params: { embedded } }),
   bindEnvShop: (name) => http.post("/shops/bind-env", { name }),
   unbindShop: (shopId) => http.delete(`/shops/${shopId}`),
   saveDefaults: (shopId, body) => http.post(`/shops/${shopId}/defaults`, body),
