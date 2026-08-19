@@ -39,6 +39,13 @@
           </svg>
           <span class="nav-text">店铺</span>
         </router-link>
+        <router-link class="nav-link" :class="{ 'is-active': on('/habits') }" to="/habits" title="发品习惯">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M4 7h16M4 12h10M4 17h14" />
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+          </svg>
+          <span class="nav-text">发品习惯</span>
+        </router-link>
         <router-link class="nav-link" :class="{ 'is-active': on('/feed') }" to="/feed" title="投料">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M12 5v14M5 12h14" />

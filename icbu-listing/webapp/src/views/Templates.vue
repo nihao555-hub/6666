@@ -8,7 +8,7 @@
       <el-button type="primary" :disabled="!store.shopId" @click="openNew">新建模板</el-button>
     </div>
 
-    <div class="advanced-note">这页不在日常导航里。整店政策在店铺默认里填；只有这一类货跟店里常用的不一样才建模板。</div>
+    <div class="advanced-note">此页已合并到「发品习惯」。<router-link to="/habits">前往发品习惯</router-link></div>
     <el-table :data="rows" v-loading="loading">
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column label="类目" min-width="220">

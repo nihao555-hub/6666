@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>店铺</h2>
-        <p class="muted">授权国际站店铺后，可在这里管理默认设置并批量上品。</p>
+        <p class="muted">授权国际站店铺后，在这里管店铺政策；跟货走的字段去「发品习惯」。</p>
       </div>
       <div class="head-actions">
         <el-button type="primary" :loading="bindingEnv" @click="openEmbeddedOAuth">
@@ -59,9 +59,10 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260" align="right">
+      <el-table-column label="操作" width="320" align="right">
         <template #default="{ row }">
-          <el-button text type="primary" @click="edit(row)">店铺默认</el-button>
+          <el-button text type="primary" @click="edit(row)">店铺政策</el-button>
+          <el-button text type="primary" @click="openHabits(row)">发品习惯</el-button>
           <el-button text type="primary" @click="use(row)">设为当前</el-button>
           <el-button v-if="row.status !== 'active'" text type="primary" @click="openEmbeddedOAuth">
             重新授权
@@ -88,15 +89,12 @@
       <iframe v-if="oauthUrl" ref="oauthFrame" :src="oauthUrl" class="oauth-frame" title="阿里官方授权" />
     </el-dialog>
 
-    <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺默认`">
+    <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺政策`">
       <p class="muted" style="margin-bottom: 12px">
-        不能一套默认套全店所有货。下面分两层：整店政策（每条货都会引用）和跟货走的兜底（只有该类目还没有单独习惯时才用）。
+        只填整店政策：产地、售卖方式、样品等。跟货走的单位、包装、运费请去「发品习惯」。
       </p>
       <p v-if="optionSource.category_name" class="muted" style="margin-bottom: 12px">
-        下拉选项以「{{ optionSource.category_name }}」为例展示字段有无；你主要卖别的类目时，缺的字段可能在那个类目里才有，或去「类目模板」单独设。
-      </p>
-      <p v-if="optionSource.pulled?.length" class="muted" style="margin: -4px 0 16px">
-        刚从在线商品补上的兜底值：{{ pulledLabels }}（不代表全店每一款都这样）。你改过以后不会被再覆盖。
+        选项以「{{ optionSource.category_name }}」为例；不同类目可能多出或缺少字段。
       </p>
       <el-form v-if="editing" v-loading="optionsLoading" label-width="110px">
         <el-form-item label="店铺名">
@@ -112,7 +110,7 @@
 
         <p class="section-label">整店政策</p>
         <p class="muted" style="margin: -4px 0 12px">
-          产地、售卖方式、样品等——发品时每条货都会引用。选项列表来自{{ optionSource.category_name || "参考类目" }}，不同叶子类目可能多出或缺少字段。
+          发品时每条货都会引用。付款、港口等若在本类目不存在，不代表全店都没有。
         </p>
         <el-form-item v-for="field in shopFields" :key="field.key" :label="field.label">
           <el-select
@@ -128,47 +126,12 @@
           <div v-if="field.hint" class="muted" style="margin-top: 6px">{{ field.hint }}</div>
         </el-form-item>
 
-        <p class="section-label">跟货走的兜底</p>
-        <p class="muted" style="margin: -4px 0 12px">
-          单位、运费模板、物流属性、包装、交期、品牌——官方是按每条货维护的。成稿时优先用「类目模板」里该类目的习惯；没有模板才用这里。画笔的 26×10×5 cm 不会自动套到别的类目。
-        </p>
-        <el-form-item v-for="field in productFields" :key="field.key" :label="field.label">
-          <el-select
-            v-model="editing.defaults[field.key]"
-            :multiple="field.multiple"
-            filterable
-            clearable
-            style="width: 100%"
-            @change="rememberLabel(field)"
-          >
-            <el-option v-for="option in field.options" :key="option.value" :label="option.label" :value="option.value" />
-          </el-select>
-          <div v-if="field.hint" class="muted" style="margin-top: 6px">{{ field.hint }}</div>
-        </el-form-item>
-        <el-form-item label="常用包装">
-          <div style="display: flex; gap: 8px">
-            <el-input v-model="editing.defaults.pkgLength" placeholder="长 cm" />
-            <el-input v-model="editing.defaults.pkgWidth" placeholder="宽 cm" />
-            <el-input v-model="editing.defaults.pkgHeight" placeholder="高 cm" />
-          </div>
-        </el-form-item>
-        <el-form-item label="常用重量">
-          <el-input v-model="editing.defaults.pkgWeight" placeholder="kg" />
-        </el-form-item>
-        <el-form-item label="常用交期">
-          <el-input v-model="editing.defaults.ladderPeriod" placeholder="15" />
-          <div class="muted" style="margin-top: 6px">天数。交期必须是你定的，AI 不准编。单条货不一样就在草稿改。</div>
-        </el-form-item>
-        <el-form-item label="整店品牌">
-          <el-input v-model="editing.defaults.brand" placeholder="没有就留空" />
-        </el-form-item>
-
         <p v-if="unsupported.length" class="muted" style="margin: 0 0 14px">
-          在「{{ optionSource.category_name || "参考类目" }}」里没有{{ unsupported.map((item) => item.label).join("、") }}字段——不代表全店都没有；若你主要卖别的类目，去那边看或建类目模板。
+          参考类目「{{ optionSource.category_name || "—" }}」里没有{{ unsupported.map((item) => item.label).join("、") }}。
         </p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap">
-          <el-button type="primary" :loading="saving" @click="save">保存</el-button>
-          <el-button :loading="optionsLoading" @click="reloadFromShop">重新从店里拉</el-button>
+          <el-button type="primary" :loading="saving" @click="save">保存政策</el-button>
+          <el-button @click="openHabits(editing)">去发品习惯</el-button>
         </div>
       </el-form>
     </el-drawer>
@@ -201,12 +164,7 @@ const oauthPopup = ref(null);
 
 const pickable = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "select"));
 const shopFields = computed(() => pickable.value.filter((item) => item.scope !== "product"));
-const productFields = computed(() => pickable.value.filter((item) => item.scope === "product"));
 const unsupported = computed(() => (optionSource.value.fields || []).filter((item) => item.kind === "unsupported"));
-const pulledLabels = computed(() => {
-  const names = { origin: "产地", priceUnit: "单位", saleType: "售卖方式", shippingTemplateId: "运费模板", logisticsProperty: "物流属性", marketSample: "样品", paymentMethod: "付款", port: "港口", market: "市场", pkgWeight: "包装重量", pkgLength: "包装长", pkgWidth: "包装宽", pkgHeight: "包装高", brand: "品牌", ladderPeriod: "交期" };
-  return (optionSource.value.pulled || []).map((key) => names[key] || key).join("、");
-});
 
 function shown(shop, key) {
   return shop.defaults?.labels?.[key] ?? shop.defaults?.[key] ?? "";
@@ -261,18 +219,15 @@ async function bindEnvShop({ silent = false } = {}) {
   }
 }
 
-async function loadOptions(shopId, refresh = false) {
+async function loadOptions(shopId) {
   optionsLoading.value = true;
   try {
-    optionSource.value = await api.shopDefaultOptions(shopId, "", { refresh });
+    optionSource.value = await api.shopDefaultOptions(shopId, "", { pull: false });
     if (!editing.value.defaults) editing.value.defaults = {};
     for (const field of optionSource.value.fields || []) {
-      if (field.kind === "unsupported") continue;
+      if (field.kind === "unsupported" || field.scope === "product") continue;
       editing.value.defaults[field.key] = field.multiple ? splitValues(field.value) : field.value;
       if (field.kind === "select") rememberLabel(field);
-    }
-    if (refresh && optionSource.value.pulled?.length) {
-      ElMessage.success(`已从店里更新：${pulledLabels.value}`);
     }
     await store.loadShops();
   } catch (error) {
@@ -283,9 +238,9 @@ async function loadOptions(shopId, refresh = false) {
   }
 }
 
-function reloadFromShop() {
-  if (!editing.value?.id) return;
-  loadOptions(editing.value.id, true);
+function openHabits(shop) {
+  store.selectShop(shop.id);
+  router.push({ path: "/habits" });
 }
 
 if (route.query.alibaba === "error") {
