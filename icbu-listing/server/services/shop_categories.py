@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from icbu_api import IcbuApi  # noqa: E402
 
-from ..models import CategoryMemory, Draft, Shop, Template
+from ..models import CategoryMemory, CategoryRecentPick, Draft, Shop, Template, User, utcnow
 from . import catalog
 
 # product.list has no "distinct categories" filter. A few pages is enough to
@@ -67,6 +67,117 @@ def _online_counts(api: IcbuApi, shop_id: str) -> Counter[str]:
     return counts
 
 
+def _leaf_row(
+    db: Session,
+    api: IcbuApi,
+    cid: str,
+    *,
+    fetch: bool,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    node = catalog.get_node(db, api, cid, fetch=fetch)
+    if node is None:
+        row = {
+            "category_id": cid,
+            "name": cid,
+            "cn_name": "",
+            "label": cid,
+            "is_leaf": True,
+            "level": 0,
+        }
+    else:
+        row = catalog.as_dict(node)
+        crumbs = [catalog.label(item) for item in catalog.path_of(db, api, cid, fetch=False)]
+        row["path_label"] = " / ".join(crumbs) or row.get("label") or cid
+    row.setdefault("path_label", row.get("label") or cid)
+    if extra:
+        row.update(extra)
+    return row
+
+
+def record_recent_pick(
+    db: Session,
+    shop: Shop,
+    user: User,
+    category_id: str,
+    category_name: str = "",
+) -> None:
+    cid = str(category_id or "").strip()
+    if not cid or cid == "0":
+        return
+    row = (
+        db.query(CategoryRecentPick)
+        .filter(
+            CategoryRecentPick.shop_id == shop.id,
+            CategoryRecentPick.user_id == user.id,
+            CategoryRecentPick.category_id == cid,
+        )
+        .one_or_none()
+    )
+    label = str(category_name or "").strip()
+    now = utcnow()
+    if row is None:
+        db.add(
+            CategoryRecentPick(
+                shop_id=shop.id,
+                user_id=user.id,
+                category_id=cid,
+                category_name=label,
+                picked_at=now,
+            )
+        )
+    else:
+        if label:
+            row.category_name = label
+        row.picked_at = now
+    db.commit()
+    excess = (
+        db.query(CategoryRecentPick.id)
+        .filter(CategoryRecentPick.shop_id == shop.id, CategoryRecentPick.user_id == user.id)
+        .order_by(CategoryRecentPick.picked_at.desc())
+        .offset(24)
+        .all()
+    )
+    if excess:
+        db.query(CategoryRecentPick).filter(CategoryRecentPick.id.in_([item[0] for item in excess])).delete(
+            synchronize_session=False
+        )
+        db.commit()
+
+
+def recent_picks(
+    db: Session,
+    api: IcbuApi,
+    shop: Shop,
+    user: User,
+    *,
+    limit: int = 8,
+    fetch: bool = False,
+) -> list[dict[str, Any]]:
+    rows = (
+        db.query(CategoryRecentPick)
+        .filter(CategoryRecentPick.shop_id == shop.id, CategoryRecentPick.user_id == user.id)
+        .order_by(CategoryRecentPick.picked_at.desc())
+        .limit(limit)
+        .all()
+    )
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        cached_label = str(row.category_name or "").strip()
+        item = _leaf_row(
+            db,
+            api,
+            row.category_id,
+            fetch=fetch,
+            extra={"source": "recent", "picked_at": row.picked_at.isoformat() if row.picked_at else ""},
+        )
+        if cached_label:
+            item["path_label"] = cached_label
+            item["label"] = cached_label.split(" / ")[-1] if " / " in cached_label else cached_label
+        items.append(item)
+    return items
+
+
 def used_leaves(
     db: Session,
     api: IcbuApi,
@@ -101,22 +212,13 @@ def used_leaves(
     ranked = [cid for cid, _ in counts.most_common(limit)]
     items: list[dict[str, Any]] = []
     for cid in ranked:
-        node = catalog.get_node(db, api, cid, fetch=include_online)
-        if node is None:
-            row = {
-                "category_id": cid,
-                "name": cid,
-                "cn_name": "",
-                "label": cid,
-                "is_leaf": True,
-                "level": 0,
-            }
-        else:
-            row = catalog.as_dict(node)
-            crumbs = [catalog.label(item) for item in catalog.path_of(db, api, cid, fetch=False)]
-            row["path_label"] = " / ".join(crumbs) or row.get("label") or cid
-        row.setdefault("path_label", row.get("label") or cid)
-        row["count"] = int(counts[cid])
-        row["source"] = sources.get(cid, "online")
-        items.append(row)
+        items.append(
+            _leaf_row(
+                db,
+                api,
+                cid,
+                fetch=include_online,
+                extra={"count": int(counts[cid]), "source": sources.get(cid, "online")},
+            )
+        )
     return items

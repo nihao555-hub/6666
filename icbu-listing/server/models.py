@@ -270,3 +270,21 @@ class CategoryMemory(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (UniqueConstraint("shop_id", "signature", name="uq_memory_shop_signature"),)
+
+
+class CategoryRecentPick(Base):
+    """Explicit leaf picks in the category browser — quick re-select next time."""
+
+    __tablename__ = "category_recent_picks"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    shop_id: Mapped[str] = mapped_column(String(32), index=True)
+    user_id: Mapped[str] = mapped_column(String(32), index=True)
+    category_id: Mapped[str] = mapped_column(String(40))
+    category_name: Mapped[str] = mapped_column(String(400), default="")
+    picked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("shop_id", "user_id", "category_id", name="uq_recent_shop_user_cat"),
+        Index("ix_recent_shop_user_picked", "shop_id", "user_id", "picked_at"),
+    )

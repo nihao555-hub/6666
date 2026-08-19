@@ -18,7 +18,7 @@ os.environ["ALIBABA_APP_KEY"] = "test-key"
 os.environ["ALIBABA_APP_SECRET"] = "test-secret"
 
 from server.db import SessionLocal, init_db  # noqa: E402
-from server.models import CategoryMemory, Draft, Shop, Template, User  # noqa: E402
+from server.models import CategoryMemory, CategoryRecentPick, Draft, Shop, Template, User  # noqa: E402
 from server.services import shop_categories  # noqa: E402
 from server.services.shop_categories import _ONLINE_CACHE  # noqa: E402
 
@@ -92,6 +92,16 @@ class UsedLeafTests(unittest.TestCase):
         first = api.calls
         shop_categories.used_leaves(self.db, api, self.shop)
         self.assertEqual(api.calls, first)
+
+    def test_recent_picks_track_explicit_selections(self) -> None:
+        api = FakeApi(pages=[[]])
+        shop_categories.record_recent_pick(self.db, self.shop, self.user, "21111112", "Paint Brushes / 画笔")
+        shop_categories.record_recent_pick(self.db, self.shop, self.user, "99", "Other / 其他")
+        shop_categories.record_recent_pick(self.db, self.shop, self.user, "21111112", "Paint Brushes / 画笔")
+        recent = shop_categories.recent_picks(self.db, api, self.shop, self.user)
+        self.assertEqual([item["category_id"] for item in recent], ["21111112", "99"])
+        self.assertEqual(recent[0]["source"], "recent")
+        self.assertIn("画笔", recent[0]["path_label"])
 
 
 if __name__ == "__main__":

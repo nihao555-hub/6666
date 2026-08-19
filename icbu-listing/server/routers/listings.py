@@ -868,15 +868,40 @@ def browse_categories(
     node = catalog.get_node(db, api, parent)
     if node is None:
         raise HTTPException(status_code=404, detail="类目不存在")
-    used = shop_categories.used_leaves(db, api, shop, include_online=False) if parent == "0" else []
+    recent: list[dict[str, Any]] = []
+    used: list[dict[str, Any]] = []
+    if parent == "0":
+        recent = shop_categories.recent_picks(db, api, shop, user)
+        used = shop_categories.used_leaves(db, api, shop, include_online=False)
     return {
         "origin": "official_icbu_tree",
-        "note": "这是国际站官方类目树，和后台选类目是同一棵，所有店铺的一级都一样。没有单独的类目历史接口；下面「已经上过的」是从这家店在线商品和本地草稿里汇总的叶子。",
+        "note": "这是国际站官方类目树，和后台选类目是同一棵。上面「最近选过」是你在这家店点过的叶子；「已经上过的」来自在线商品和本地草稿。",
         "node": catalog.as_dict(node),
         "path": catalog.summarise(catalog.path_of(db, api, parent)) if parent != "0" else [],
         "children": catalog.summarise(catalog.get_children(db, api, node)),
+        "recent": recent,
         "used": used,
     }
+
+
+class CategoryPickIn(BaseModel):
+    category_id: str
+    category_name: str = ""
+
+
+@router.post("/shops/{shop_id}/categories/recent")
+def remember_category_pick(
+    shop_id: str,
+    body: CategoryPickIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    shop = shop_for(db, user, shop_id)
+    cid = str(body.category_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=400, detail="缺少类目 ID")
+    shop_categories.record_recent_pick(db, shop, user, cid, body.category_name)
+    return {"ok": True, "category_id": cid}
 
 
 @router.get("/shops/{shop_id}/categories/{category_id}/schema")
