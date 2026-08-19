@@ -1,12 +1,7 @@
 <template>
   <div class="auth">
-    <section class="auth-visual" aria-hidden="false">
+    <section class="auth-visual" aria-hidden="true">
       <img class="auth-photo" src="/art/login-hero.png" alt="" />
-      <div class="auth-glass">
-        <Brand size="xl" tone="light" />
-        <h1>Auto Shoper</h1>
-        <p>国际站批量上品工作台。按你写的规格和主图出稿，红线字段不交给模型编。</p>
-      </div>
     </section>
     <section class="auth-panel">
       <div class="auth-card">
@@ -39,7 +34,6 @@
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import Brand from "../components/Brand.vue";
 import { api } from "../api";
 import { store } from "../store";
 
@@ -92,41 +86,7 @@ async function submit() {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(20, 32, 68, 0.18), rgba(20, 32, 68, 0.42));
-}
-
-.auth-glass {
-  position: relative;
-  z-index: 1;
-  margin: auto;
-  width: min(420px, calc(100% - 64px));
-  min-height: 280px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 12px;
-  padding: 36px 32px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(22px) saturate(1.2);
-  -webkit-backdrop-filter: blur(22px) saturate(1.2);
-  color: #fff;
-}
-
-.auth-glass h1 {
-  margin: 8px 0 0;
-  font-size: 28px;
-  font-weight: 650;
-  letter-spacing: -0.03em;
-}
-
-.auth-glass p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.86);
-  line-height: 1.55;
-  font-size: 13px;
+  background: linear-gradient(90deg, rgba(20, 32, 68, 0.08), rgba(20, 32, 68, 0.22));
 }
 
 .auth-panel {
@@ -167,14 +127,6 @@ async function submit() {
   }
   .auth-visual {
     min-height: 240px;
-  }
-  .auth-glass {
-    width: min(420px, calc(100% - 32px));
-    padding: 24px 20px;
-    min-height: 0;
-  }
-  .auth-glass h1 {
-    font-size: 22px;
   }
 }
 </style>
