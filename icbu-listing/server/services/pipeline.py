@@ -518,6 +518,109 @@ def _super_text(copy: Copy | None, understanding: Understanding | None, highligh
 # --------------------------------------------------------------------------
 
 
+def _aligned_attribute_labels(
+    specs: Mapping[str, SchemaField],
+    values: Mapping[str, Any],
+) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for group_id in ATTR_GROUPS:
+        group = specs.get(group_id)
+        if group is None:
+            continue
+        bucket = values.get(group_id)
+        if not isinstance(bucket, Mapping):
+            continue
+        for child_id, raw in bucket.items():
+            if raw in (None, "", [], {}):
+                continue
+            child = group.child(str(child_id))
+            if child is None:
+                continue
+            name = child.name or child.id
+            if child.options:
+                option = child.option_by_value(str(raw))
+                labels[name] = option.display_name if option is not None else str(raw)
+            else:
+                labels[name] = str(raw)
+    return labels
+
+
+def copy_facts_for_write(
+    understanding: Understanding,
+    *,
+    category_name: str,
+    price: str,
+    moq: str,
+    specs: Mapping[str, SchemaField],
+    values: Mapping[str, Any],
+    fact_bundle: FactBundle | None = None,
+) -> dict[str, Any]:
+    facts: dict[str, Any] = {
+        "product_name": understanding.product_name,
+        "material": understanding.material,
+        "colors": understanding.colors,
+        "style": understanding.style,
+        "usage": understanding.usage,
+        "audience": understanding.audience,
+        "features": understanding.features,
+        "specs": understanding.specs,
+        "is_set": understanding.is_set,
+        "category": category_name,
+        "moq": moq,
+        "unit_price": price,
+    }
+    if fact_bundle is not None:
+        bundle_facts = fact_bundle.facts_for_ai(understanding)
+        for key in (
+            "note",
+            "brand",
+            "origin",
+            "text_blob",
+            "specs_labeled",
+            "price_tiers",
+            "sku",
+            "name",
+        ):
+            value = bundle_facts.get(key)
+            if value not in (None, "", [], {}):
+                facts[key] = value
+    aligned = _aligned_attribute_labels(specs, values)
+    if aligned:
+        facts["official_attributes"] = aligned
+    return facts
+
+
+def rescore_draft(draft: Any, xml: str) -> None:
+    """Refresh local quality estimate and issues after a manual edit."""
+    values = json.loads(getattr(draft, "values_json", None) or "{}")
+    fields = parse_schema(xml)
+    images = json.loads(getattr(draft, "images_json", None) or "[]")
+    ai_payload = json.loads(getattr(draft, "ai_json", None) or "{}")
+    if not isinstance(ai_payload, dict):
+        ai_payload = {}
+    report = quality.score_listing(
+        values=values,
+        fields=fields,
+        image_count=len(images) if isinstance(images, list) else 0,
+        price=str(getattr(draft, "price", "") or ""),
+        moq=str(getattr(draft, "moq", "") or ""),
+        category_id=str(getattr(draft, "category_id", "") or ""),
+    )
+    ai_payload["quality"] = report
+    draft.ai_json = json.dumps(ai_payload, ensure_ascii=False)
+
+    issues = [issue.as_dict() for issue in validate_values(fields, values)]
+    gap = quality.quality_issue(report)
+    if gap:
+        issues.append(gap)
+    if not getattr(draft, "price", None):
+        issues.append({"field_id": "price", "field_name": "价格", "level": "red", "message": "价格要你来定"})
+    if not getattr(draft, "moq", None):
+        issues.append({"field_id": "minOrderQuantity", "field_name": "起订量", "level": "red", "message": "起订量要你来定"})
+    draft.issues_json = json.dumps(issues, ensure_ascii=False)
+    draft.status = status_of(issues)
+
+
 def understand(ai: AiClient | None, images: Sequence[ImageInput], note: str) -> tuple[Understanding, str]:
     if ai is None:
         return Understanding(product_name=note, category_hint=note, confidence=0.0), "没有配置模型，AI 成稿已跳过"
@@ -594,6 +697,19 @@ def build_draft(
     keyword_spec = specs.get("productKeywords")
     title_limit = (title_spec.max_length if title_spec else None) or 128
     keyword_count = (keyword_spec.max_items if keyword_spec else None) or 3
+    if keyword_spec is not None and keyword_spec.min_items:
+        keyword_count = max(keyword_count, keyword_spec.min_items)
+    keyword_count = max(keyword_count, 3)
+
+    copy_facts = copy_facts_for_write(
+        understanding,
+        category_name=category_name,
+        price=price,
+        moq=moq,
+        specs=specs,
+        values=values,
+        fact_bundle=fact_bundle,
+    )
 
     copy_confidence = 0.0
     if ai is not None:
@@ -602,16 +718,26 @@ def build_draft(
                 understanding,
                 title_limit=title_limit,
                 keyword_count=keyword_count,
-                extra_facts={"category": category_name, "moq": moq, "unit_price": price},
+                extra_facts=copy_facts,
                 angle=copy_angle,
             )
             copy_confidence = copy.confidence
+            if len(copy.keywords) < keyword_count:
+                result.add_issue(
+                    "productKeywords",
+                    "关键词",
+                    "red",
+                    f"AI 只生成了 {len(copy.keywords)} 个关键词，需要 {keyword_count} 个 factual 词组，请重成稿或手改",
+                )
+            if not copy.title.strip():
+                result.add_issue("productTitle", "商品标题", "red", "AI 没生成英文标题，请重成稿或手改")
             result.ai["copy"] = {
                 "title": copy.title,
                 "keywords": copy.keywords,
                 "highlights": copy.highlights,
                 "selling_points": copy.selling_points,
                 "faqs": copy.faqs,
+                "facts_used": copy_facts,
             }
             apply_content(
                 specs, values, copy.title, copy.keywords, copy.highlights, images, copy=copy, understanding=understanding

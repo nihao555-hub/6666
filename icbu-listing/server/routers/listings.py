@@ -632,13 +632,7 @@ def patch_draft(
 
     if draft.category_id:
         xml = catalog.get_schema_xml(db, shop_api(shop), draft.category_id)
-        issues = [issue.as_dict() for issue in pipeline.revalidate(xml, values)]
-        if not draft.price:
-            issues.append({"field_id": "price", "field_name": "价格", "level": "red", "message": "价格要你来定"})
-        if not draft.moq:
-            issues.append({"field_id": "minOrderQuantity", "field_name": "起订量", "level": "red", "message": "起订量要你来定"})
-        draft.issues_json = json.dumps(issues, ensure_ascii=False)
-        draft.status = pipeline.status_of(issues)
+        pipeline.rescore_draft(draft, xml)
 
     draft.updated_at = datetime.utcnow()
     if payload.reviewed:

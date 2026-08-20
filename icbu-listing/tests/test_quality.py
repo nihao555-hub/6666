@@ -103,6 +103,14 @@ class QualityTests(unittest.TestCase):
         self.assertFalse(report["ready"])
         self.assertIn("实拍图至少 3 张", report["missing"])
 
+    def test_quality_issue_is_red(self) -> None:
+        from server.services.quality import quality_issue
+
+        issue = quality_issue({"ready": False, "score": 4.2, "missing": ["英文标题"]})
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["level"], "red")
+        self.assertIn("4.2", issue["message"])
+
     def test_trade_defaults_are_applied_from_shop_not_invented(self) -> None:
         specs = {
             "priceUnit": _option_field("priceUnit", "Piece/Pieces", "17"),

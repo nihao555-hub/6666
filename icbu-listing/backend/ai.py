@@ -143,22 +143,142 @@ Return JSON only, no prose:
 confidence is your certainty about product_name and category_hint."""
 
 
-COPY_PROMPT = """You write Alibaba.com (ICBU) listings for B2B buyers.
+COPY_PROMPT = """You write Alibaba.com (ICBU) B2B wholesale listings. Buyers search by product type,
+material, and use case — not marketing hype.
 
-Hard rules, the platform rejects anything that breaks them:
+Hard rules — the platform rejects anything that breaks them:
 - English only. No Chinese characters, no @, no ? or !, no email, no HTML tags.
-- Title: at most {title_limit} bytes, no promotional claims, no brand you were not given.
-  Shape it as: modifier + material/feature + product noun + use case. Wholesale-friendly.
-- Keywords: exactly {keyword_count}, each 2-4 words, no punctuation, no separators.
-- Highlights: one paragraph, at most 400 characters, factual.
-- selling_points: 3 short phrases.
-- faqs: 2 entries, question and answer, practical for a wholesale buyer (MOQ, samples, lead time, customisation).
+- Use ONLY facts provided below. Do not invent brand, certifications (CE/FDA/ISO),
+  measurements, colors, materials, or features that are not in the facts.
+- If brand is empty in facts, do not mention any brand name.
+- Title: at most {title_limit} UTF-8 bytes. No promotional spam such as Hot Sale,
+  Best Seller, High Quality, Top Quality, 100% New, Free Shipping, Lowest Price.
+- Title shape for ICBU search: [Product noun phrase] + [verified spec/size/count if in facts]
+  + [material or key feature if in facts] + [buyer use case if in facts].
+  Put the searchable product noun early. Do not repeat the same word twice.
+- Keywords: exactly {keyword_count} phrases, each 2-4 English words, no punctuation.
+  Slot 1: core product/category head term buyers would search.
+  Slot 2: material, spec, or use-case modifier from facts (different words from title).
+  Slot 3: buyer-intent term (bulk order, school supply, OEM gift set) only if supported by facts.
+  Do not copy the title verbatim. Do not repeat words across all three keywords.
+- Highlights: one factual paragraph, at most 400 characters, describing what the product is
+  and who it is for. No claims you cannot support from facts.
+- selling_points: 3 short phrases, each grounded in facts (material, spec, packaging, use).
+- faqs: 2 entries about wholesale (MOQ, samples, lead time, customization). Answers must
+  not invent policies — refer to MOQ/price from facts when present, otherwise stay generic.
 
-Product facts:
+Product facts (only source of truth):
 {facts}
 
 Return JSON only:
 {{"title": "", "keywords": [], "highlights": "", "selling_points": [], "faqs": [{{"question": "", "answer": ""}}], "confidence": 0.0}}"""
+
+FORBIDDEN_COPY = re.compile(r"[\u4e00-\u9fff@?!]")
+HTML_TAG = re.compile(r"<[^>]+>")
+EMAIL_LIKE = re.compile(r"\S+@\S+")
+SPAM_PHRASES = (
+    "hot sale",
+    "best seller",
+    "top quality",
+    "high quality",
+    "100% new",
+    "free shipping",
+    "lowest price",
+    "best price",
+    "factory price",
+    "limited time",
+)
+
+
+def _utf8_byte_len(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def _strip_platform_forbidden(text: str) -> str:
+    cleaned = HTML_TAG.sub("", text or "")
+    cleaned = EMAIL_LIKE.sub("", cleaned)
+    cleaned = FORBIDDEN_COPY.sub("", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _trim_title_bytes(text: str, limit: int) -> str:
+    title = _strip_platform_forbidden(text)
+    for phrase in SPAM_PHRASES:
+        title = re.sub(re.escape(phrase), "", title, flags=re.I)
+    title = re.sub(r"\s+", " ", title).strip(" -")
+    while title and _utf8_byte_len(title) > limit:
+        if " " in title:
+            title = title.rsplit(" ", 1)[0]
+        else:
+            title = title[:-1]
+    return title
+
+
+def _sanitize_keyword(raw: str) -> str:
+    text = _strip_platform_forbidden(raw)
+    text = re.sub(r"[,，;；/|]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    words = text.split()
+    if len(words) < 2:
+        return ""
+    if len(words) > 4:
+        text = " ".join(words[:4])
+    return text
+
+
+def sanitize_copy(
+    copy: Copy,
+    *,
+    title_limit: int = 128,
+    keyword_count: int = 3,
+    brand: str = "",
+) -> Copy:
+    """Normalize AI copy to platform-safe, factual B2B wording."""
+    title = _trim_title_bytes(copy.title, title_limit)
+    if brand.strip():
+        brand_lower = brand.strip().lower()
+        if brand_lower not in title.lower():
+            candidate = _trim_title_bytes(f"{brand.strip()} {title}", title_limit)
+            if candidate:
+                title = candidate
+
+    title_tokens = {token for token in re.split(r"\W+", title.lower()) if len(token) > 2}
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for raw in copy.keywords:
+        keyword = _sanitize_keyword(raw)
+        if not keyword:
+            continue
+        key = keyword.lower()
+        if key in seen:
+            continue
+        kw_tokens = {token for token in re.split(r"\W+", key) if len(token) > 2}
+        if kw_tokens and kw_tokens <= title_tokens:
+            continue
+        seen.add(key)
+        keywords.append(keyword)
+        if len(keywords) >= keyword_count:
+            break
+
+    highlights = _strip_platform_forbidden(copy.highlights)[:400]
+    selling_points = [_strip_platform_forbidden(item) for item in copy.selling_points if _strip_platform_forbidden(item)][:3]
+    faqs: list[dict[str, str]] = []
+    for item in copy.faqs:
+        question = _strip_platform_forbidden(str(item.get("question") or ""))
+        answer = _strip_platform_forbidden(str(item.get("answer") or ""))
+        if question and answer:
+            faqs.append({"question": question, "answer": answer})
+            if len(faqs) >= 2:
+                break
+
+    return Copy(
+        title=title,
+        keywords=keywords,
+        highlights=highlights,
+        selling_points=selling_points,
+        faqs=faqs,
+        confidence=copy.confidence,
+    )
 
 
 ATTR_MAP_PROMPT = """You map a wholesale product to Alibaba.com official category fields.
@@ -284,12 +404,12 @@ class AiClient:
                 f"\n\nThis listing must not read like a reworded copy of another one. "
                 f"Lead with this angle and pick different keywords accordingly: {angle}"
             )
-        payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.4)
+        payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.2)
         faqs = []
         for item in payload.get("faqs") or []:
             if isinstance(item, Mapping) and item.get("question") and item.get("answer"):
                 faqs.append({"question": str(item["question"]), "answer": str(item["answer"])})
-        return Copy(
+        raw = Copy(
             title=str(payload.get("title") or "").strip(),
             keywords=_str_list(payload.get("keywords"))[:keyword_count],
             highlights=str(payload.get("highlights") or "").strip(),
@@ -297,6 +417,8 @@ class AiClient:
             faqs=faqs,
             confidence=_confidence(payload.get("confidence")),
         )
+        brand = str((extra_facts or {}).get("brand") or "").strip()
+        return sanitize_copy(raw, title_limit=title_limit, keyword_count=keyword_count, brand=brand)
 
     def map_attributes(
         self,

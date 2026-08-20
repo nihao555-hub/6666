@@ -167,7 +167,7 @@ const counts = computed(() => {
   all.value.forEach((item) => {
     if (base[item.status] !== undefined) base[item.status] += 1;
     if (!item.reviewed && !["published", "publishing"].includes(item.status)) base.pending += 1;
-    if (item.reviewed && ["green", "yellow"].includes(item.status)) base.ready += 1;
+    if (item.reviewed && ["green", "yellow"].includes(item.status) && item.quality?.ready) base.ready += 1;
   });
   return base;
 });
@@ -187,13 +187,15 @@ function label(value) {
 }
 
 function isSelectable(row) {
-  return Boolean(row.reviewed) && ["green", "yellow", "failed"].includes(row.status);
+  return Boolean(row.reviewed) && row.quality?.ready && ["green", "yellow", "failed"].includes(row.status);
 }
 
 function matches(item) {
   if (!filter.value) return true;
   if (filter.value === "pending") return !item.reviewed && !["published", "publishing"].includes(item.status);
-  if (filter.value === "ready") return Boolean(item.reviewed) && ["green", "yellow"].includes(item.status);
+  if (filter.value === "ready") {
+    return Boolean(item.reviewed) && ["green", "yellow"].includes(item.status) && item.quality?.ready;
+  }
   return item.status === filter.value;
 }
 

@@ -89,15 +89,27 @@ class AuditGateTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("红项", reason)
 
-    def test_reviewed_yellow_can_publish(self) -> None:
+    def test_reviewed_yellow_can_publish_when_quality_is_five(self) -> None:
         draft = SimpleNamespace(
             status="yellow",
             issues_json='[{"level":"yellow","message":"生成图"}]',
             reviewed_at=datetime.utcnow(),
+            ai_json='{"quality": {"score": 5.0, "ready": true, "missing": []}}',
         )
         ok, reason = audit.can_publish(draft)
         self.assertTrue(ok)
         self.assertEqual(reason, "")
+
+    def test_reviewed_yellow_blocked_when_quality_below_five(self) -> None:
+        draft = SimpleNamespace(
+            status="yellow",
+            issues_json='[{"level":"yellow","message":"生成图"}]',
+            reviewed_at=datetime.utcnow(),
+            ai_json='{"quality": {"score": 4.2, "ready": false, "missing": ["实拍图至少 3 张"]}}',
+        )
+        ok, reason = audit.can_publish(draft)
+        self.assertFalse(ok)
+        self.assertIn("4.2", reason)
 
     def test_mark_and_clear_review(self) -> None:
         draft = SimpleNamespace(reviewed_at=None, audit_json="{}")

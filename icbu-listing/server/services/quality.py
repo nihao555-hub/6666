@@ -146,7 +146,35 @@ def quality_issue(report: Mapping[str, Any]) -> dict[str, Any] | None:
     return {
         "field_id": "productQuality",
         "field_name": "信息质量分",
-        "level": "yellow",
-        "message": f"预估 {report.get('score')} / 5.0，还差：{gaps}。店铺默认和实拍图补齐后重成稿。",
+        "level": "red",
+        "message": f"预估 {report.get('score')} / 5.0，还差：{gaps}。补齐后重成稿或改店铺默认，到 5.0 才能发。",
         "path": "productQuality",
     }
+
+
+def quality_report_from_draft(draft: Any) -> Mapping[str, Any] | None:
+    """Read the cached local quality estimate stored on a draft."""
+    raw = getattr(draft, "ai_json", None)
+    if not raw:
+        return None
+    try:
+        import json
+
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    report = payload.get("quality") if isinstance(payload, dict) else None
+    return report if isinstance(report, dict) else None
+
+
+def quality_ready(draft: Any) -> tuple[bool, str]:
+    report = quality_report_from_draft(draft)
+    if report is None:
+        return False, "信息质量分未评估，请重成稿或保存一次草稿"
+    if report.get("ready"):
+        return True, ""
+    score = report.get("score")
+    gaps = "、".join(report.get("missing") or []) or "信息还不完整"
+    if score is not None:
+        return False, f"信息质量分 {score} / 5.0，还差：{gaps}"
+    return False, f"信息质量分未到 5.0，还差：{gaps}"

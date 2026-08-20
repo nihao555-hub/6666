@@ -206,12 +206,14 @@ const auditNote = ref("");
 
 const issues = computed(() => draft.value.issues || []);
 const hasRed = computed(() => issues.value.some((item) => item.level === "red"));
-const canPublish = computed(() => !hasRed.value && Boolean(draft.value.reviewed));
+const qualityReady = computed(() => Boolean(draft.value.quality?.ready));
+const canPublish = computed(() => !hasRed.value && Boolean(draft.value.reviewed) && qualityReady.value);
 const percent = computed(() => `${Math.round((draft.value.category_confidence || 0) * 100)}%`);
 const titleTooLong = computed(() => new TextEncoder().encode(title.value || "").length > 128);
 const publishLabel = computed(() => {
   if (hasRed.value) return "先改红项";
   if (!draft.value.reviewed) return "先审过再发";
+  if (!qualityReady.value) return "质量分未到 5.0";
   return draft.value.status === "published" ? "再发到店里" : "发到店里";
 });
 

@@ -8,8 +8,8 @@ reviewed before anything can enter the publish queue.
 Review is orthogonal to red/yellow/green:
 
     red      still blocks publish, even if reviewed
-    yellow   publishable only after review
-    green    publishable only after review
+    yellow   publishable only after review and local quality 5.0
+    green    publishable only after review and local quality 5.0
 
 Regenerate and category change wipe the review, because AI rewrote fields.
 A hand edit after review keeps the stamp: the person just corrected it.
@@ -21,7 +21,7 @@ import json
 from datetime import datetime
 from typing import Any, Mapping
 
-from . import sources
+from . import quality, sources
 
 COPY_FIELDS = (
     ("productTitle", "英文标题", "textarea"),
@@ -97,6 +97,9 @@ def can_publish(draft: Any, issues: list[Mapping[str, Any]] | None = None) -> tu
         return False, "这条正在发布"
     if not is_reviewed(draft):
         return False, "AI 填的还没人核对。打开商品看一眼，改完点「审过了」再发"
+    ok, reason = quality.quality_ready(draft)
+    if not ok:
+        return False, reason
     return True, ""
 
 
