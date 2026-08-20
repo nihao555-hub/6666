@@ -20,6 +20,7 @@ from server.services.excel_import import (  # noqa: E402
     decide_image_action,
     fill_policy,
     find_header_row,
+    flatten_schema_fields,
     guess_field,
     guess_style,
     mapping_from_headers,
@@ -27,6 +28,7 @@ from server.services.excel_import import (  # noqa: E402
     parse_rows,
     preview,
     resolve_row_files,
+    schema_field_columns,
     sheet_preview,
     sheet_profile,
     split_images,
@@ -408,6 +410,56 @@ class TemplateTests(unittest.TestCase):
         result = preview(payload, "dianxiaomi")
         self.assertIn("英文标题", result["mapping"])
         self.assertNotIn("叶子类目 ID", result["headers"])
+
+
+class FullSchemaTests(unittest.TestCase):
+    SAMPLE = """<?xml version="1.0"?><itemSchema>
+      <field id="productTitle" name="Product Title" type="input">
+        <rules><rule name="requiredRule" value="true"/></rules>
+      </field>
+      <field id="icbuCatProp" type="complex"><fields>
+        <field id="p-type" name="Type" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules>
+          <options><option displayName="Oil Brush" value="1"/></options>
+        </field>
+        <field id="p-color" name="Color" type="singleCheck">
+          <options><option displayName="Black" value="9"/></options>
+        </field>
+      </fields></field>
+    </itemSchema>"""
+
+    def test_schema_field_columns_include_optional(self) -> None:
+        fields = parse_schema(self.SAMPLE)
+        cols = schema_field_columns(fields)
+        self.assertTrue(any(col["id"] == "schema.productTitle" and col["required"] for col in cols))
+        self.assertTrue(any(col["id"] == "schema.icbuCatProp.p-type" and col["required"] for col in cols))
+        self.assertTrue(any(col["id"] == "schema.icbuCatProp.p-color" and not col["required"] for col in cols))
+        flat = flatten_schema_fields(fields)
+        self.assertEqual(len(flat), len(cols))
+        self.assertEqual(sum(1 for item in flat if item["required"]), 2)
+        self.assertEqual(sum(1 for item in flat if not item["required"]), 1)
+
+    def test_full_schema_profile_and_policy(self) -> None:
+        fields = parse_schema(self.SAMPLE)
+        extras = schema_field_columns(fields)
+        profile = sheet_profile("Paint Brushes", category_id="21111112", attr_columns=extras)
+        self.assertEqual(profile["family_id"], "full_schema")
+        self.assertEqual(profile["required_count"], 2)
+        self.assertEqual(profile["optional_count"], 1)
+        policy = fill_policy(extras, profile)
+        optional = [item for item in policy["user_fills"] if not item["required"]]
+        self.assertTrue(any(item["id"] == "schema.icbuCatProp.p-color" for item in optional))
+
+    def test_parse_schema_star_columns(self) -> None:
+        extras = schema_field_columns(parse_schema(self.SAMPLE))
+        rows = [
+            ["货号", "单价 USD", "起订量", "Product Title", "icbuCatProp / Type", "icbuCatProp / Color"],
+            ["SKU-1", "1.8", "100", "Brush Set", "Oil Brush", "Black"],
+        ]
+        mapping = mapping_from_headers(rows[0], "full_schema", extras)
+        parsed = parse_rows(rows, mapping, 0, extras)
+        self.assertEqual(parsed[0].title, "Brush Set")
+        self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-type"], "1")
+        self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-color"], "9")
 
 
 if __name__ == "__main__":

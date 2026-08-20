@@ -55,6 +55,48 @@ def _attr_columns(
     return excel_import.category_attr_columns(parse_schema(xml))
 
 
+def _schema_columns(
+    db: Session,
+    user: User,
+    shop_id: str,
+    category_id: str,
+    *,
+    fetch: bool = True,
+) -> list[dict[str, Any]]:
+    if not shop_id or not category_id:
+        return []
+    from schema import parse_schema  # noqa: E402
+
+    shop = shop_for(db, user, shop_id)
+    try:
+        xml = catalog.get_schema_xml(
+            db,
+            shop_api(shop),
+            category_id,
+            str(shop_defaults(shop).get("language") or "en_US"),
+            fetch=fetch,
+        )
+    except RuntimeError:
+        return []
+    return excel_import.schema_field_columns(parse_schema(xml))
+
+
+def _columns_for_style(
+    db: Session,
+    user: User,
+    shop_id: str,
+    category_id: str,
+    style: str,
+    *,
+    fetch: bool = True,
+) -> list[dict[str, Any]]:
+    if style == "full_schema":
+        return _schema_columns(db, user, shop_id, category_id, fetch=fetch)
+    if style == "simple":
+        return _attr_columns(db, user, shop_id, category_id, fetch=fetch)
+    return []
+
+
 def _category_hint(db: Session, user: User, shop_id: str, category_id: str, category_name: str) -> str:
     bits = [str(category_name or "").strip()]
     if shop_id and category_id:
@@ -88,11 +130,12 @@ def sheet_plan(
     shop_id: str = "",
     category_id: str = "",
     category_name: str = "",
+    style: str = "simple",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     hint = _category_hint(db, user, shop_id, category_id, category_name)
-    extras = _attr_columns(db, user, shop_id, category_id, fetch=bool(category_id and shop_id))
+    extras = _columns_for_style(db, user, shop_id, category_id, style, fetch=bool(category_id and shop_id))
     if category_id:
         profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
     elif hint:
@@ -100,10 +143,16 @@ def sheet_plan(
     else:
         profile = excel_import.sheet_profile("")
     policy = excel_import.fill_policy(extras if not category_id else [], profile)
-    preview = excel_import.sheet_preview("simple", profile)
+    preview = excel_import.sheet_preview(style if style in excel_import.STYLES else "simple", profile)
+    origin_kind = "leaf_schema"
+    if profile.get("family_id") == "full_schema":
+        origin_kind = "full_schema"
+    elif not category_id:
+        origin_kind = "platform_short"
     return {
         "category_id": category_id,
         "category_name": hint or category_name,
+        "style": style,
         "user_fills": policy["user_fills"],
         "shop_fills": policy["shop_fills"],
         "ai_fills": policy["ai_fills"],
@@ -114,17 +163,25 @@ def sheet_plan(
         "sheet": profile,
         "from_official_form": False,
         "sheet_origin": {
-            "kind": "leaf_schema" if category_id else "platform_short",
+            "kind": origin_kind,
             "from_official_form": False,
             "columns_from": (
-                f"叶子类目 {category_id} 的 schema.get 必填属性"
-                if category_id
-                else "平台短表：先选叶子类目"
+                f"叶子类目 {category_id} 的 schema.get 全部字段（必填+选填）"
+                if origin_kind == "full_schema"
+                else (
+                    f"叶子类目 {category_id} 的 schema.get 必填属性"
+                    if category_id
+                    else "平台短表：先选叶子类目"
+                )
             ),
             "official_attrs": (
-                "填写页已含该类目官方必填列；7540 个叶子类目各有一套，不是 12 张家族表。"
-                if category_id
-                else "选了叶子类目后，按 schema 生成填写列。"
+                "填写页含该类目 schema 返回的全部必填与选填列；7521 类各不同。"
+                if origin_kind == "full_schema"
+                else (
+                    "填写页已含该类目官方必填列；7540 个叶子类目各有一套，不是 12 张家族表。"
+                    if category_id
+                    else "选了叶子类目后，按 schema 生成填写列。"
+                )
             ),
         },
     }
@@ -186,7 +243,10 @@ def download_template(
     hint = _category_hint(db, user, shop_id, category_id, category_name)
     if style == "simple" and category_id:
         listing = listing or {"name": hint or category_id, "category_id": category_id}
-        ai_attrs = _attr_columns(db, user, shop_id, category_id, fetch=True)
+        ai_attrs = _columns_for_style(db, user, shop_id, category_id, style, fetch=True)
+    elif style == "full_schema" and category_id:
+        listing = listing or {"name": hint or category_id, "category_id": category_id}
+        ai_attrs = _columns_for_style(db, user, shop_id, category_id, style, fetch=True)
     elif style == "simple" and (hint or category_id):
         listing = listing or {"name": hint or category_id, "category_id": category_id}
         ai_attrs = _attr_columns(db, user, shop_id, category_id, fetch=False)
@@ -229,7 +289,7 @@ async def preview_excel(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="文件是空的")
-    extras = _attr_columns(db, user, shop_id, category_id) if style == "simple" else []
+    extras = _columns_for_style(db, user, shop_id, category_id, style) if style in {"simple", "full_schema"} else []
     try:
         return excel_import.preview(content, style, extras, image_mode)
     except Exception as exc:
@@ -278,7 +338,7 @@ async def import_excel(
         mapping_payload = json.loads(mapping or "{}")
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="列映射不是合法 JSON") from exc
-    extras = _attr_columns(db, user, shop_id, category_id) if style == "simple" else []
+    extras = _columns_for_style(db, user, shop_id, category_id, style) if style in {"simple", "full_schema"} else []
     if not isinstance(mapping_payload, dict) or not mapping_payload:
         preview = excel_import.preview(content, style, extras)
         mapping_payload = preview.get("mapping") or {}

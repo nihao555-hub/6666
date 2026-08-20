@@ -16,6 +16,10 @@ PATHS = {
     "photo": {"label": "有实拍", "steps": ("上传图片", "填价格", "生成草稿")},
     "ai": {"label": "平台画图", "steps": ("写出品名", "生成套图", "填价格", "生成草稿")},
     "excel": {"label": "填表批量", "steps": ("选类目", "下载表格", "传回表格", "图怎么处理", "开始成稿")},
+    "full": {
+        "label": "完全自己填",
+        "steps": ("选类目", "看必填选填", "下载完整表", "传回表格", "图怎么处理", "开始成稿"),
+    },
 }
 
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
@@ -33,11 +37,14 @@ def _title_for(path: str, payload: dict[str, Any], files: list[dict[str, Any]]) 
     if path == "ai":
         name = str((payload.get("aiForm") or {}).get("productName") or "").strip()
         return name or "平台画图"
-    if path == "excel":
-        name = str(payload.get("categoryName") or "").strip()
+    if path in {"excel", "full"}:
+        excel = payload.get("excel") or {}
+        name = str(payload.get("categoryName") or excel.get("categoryName") or "").strip()
         count = payload.get("rowCount")
         if name and count:
             return f"{name} · {count} 个"
+        if path == "full":
+            return name or "完全自己填"
         return name or "填表批量"
     sku = str((payload.get("form") or {}).get("sku") or "").strip()
     photos = [item for item in files if item.get("kind") in {"photos", "batch"}]

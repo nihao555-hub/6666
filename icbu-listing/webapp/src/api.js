@@ -37,6 +37,8 @@ export const api = {
   onlineProducts: (shopId, params) => http.get(`/shops/${shopId}/online`, { params }),
   categories: (shopId, parent) => http.get(`/shops/${shopId}/categories`, { params: { shop_id: shopId, parent } }),
   recordCategoryPick: (shopId, body) => http.post(`/shops/${shopId}/categories/recent`, body),
+  categorySchema: (shopId, categoryId) =>
+    http.get(`/shops/${shopId}/categories/${categoryId}/schema`, { params: { shop_id: shopId } }),
 
   products: (params) => http.get("/products", { params }),
   product: (id) => http.get(`/products/${id}`),

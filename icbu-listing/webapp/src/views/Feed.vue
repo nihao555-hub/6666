@@ -20,8 +20,8 @@
     <template v-if="!sessionId">
       <div class="chooser">
         <h3>先选一种上品方式</h3>
-        <p class="muted">三条路最后都是：你出图、单价、起订量；没写的数系统不会编。</p>
-        <div class="path-grid">
+        <p class="muted">四条路最后都是：你出图、单价、起订量；没写的数系统不会编。</p>
+        <div class="path-grid path-grid-4">
           <button class="path-card" @click="startPath('photo')">
             <small>默认走这条</small>
             <b>有实拍</b>
@@ -36,6 +36,11 @@
             <small>一次很多、每个价不一样</small>
             <b>填表批量</b>
             <p class="muted">下载短表，一行一个商品。有图可原图上架、补齐转化位或重画套图；没图可画可跳过。</p>
+          </button>
+          <button class="path-card" @click="startPath('full')">
+            <small>看官方 schema 到底要填啥</small>
+            <b>完全自己填</b>
+            <p class="muted">选叶子类目后先看接口返回的必填/选填字段，再下载完整表自己填完导入。7521 类各不同。</p>
           </button>
         </div>
       </div>
@@ -341,18 +346,30 @@
       </div>
     </template>
 
-    <!-- 表格批量 -->
-    <template v-else>
-      <FishboneSteps v-model="excelStep" :steps="excelSteps" :reached="excelReached" />
+    <!-- 表格批量 / 完全自己填 -->
+    <template v-else-if="tab === 'excel' || tab === 'full'">
+      <FishboneSteps
+        v-model="excelStep"
+        :steps="tab === 'full' ? fullSteps : excelSteps"
+        :reached="excelReached"
+      />
 
       <div v-if="excelStep === 0" class="step-panel">
-        <h3>这批货是哪一类</h3>
+        <h3>{{ tab === 'full' ? '先选叶子类目' : '这批货是哪一类' }}</h3>
         <p class="muted">
-          一次上很多、每个价不一样时用短表。整表共用一个叶子类目。选完后下载的表按该类目官方 schema 生成列——7540 个叶子类目各有一套。
+          <template v-if="tab === 'full'">
+            整表共用一个叶子类目。选完后会列出 schema.get 返回的全部必填和选填字段（7521 个叶子类目各不同），再下载完整填写表。
+          </template>
+          <template v-else>
+            一次上很多、每个价不一样时用短表。整表共用一个叶子类目。选完后下载的表按该类目官方 schema 生成列——7540 个叶子类目各有一套。
+          </template>
         </p>
         <div style="margin-top: 16px">
           <el-button @click="openCategory">{{ sheetPlan.category_name || excel.categoryName || "选择类目" }}</el-button>
-          <p v-if="sheetPlan.sheet?.family_id === 'leaf'" class="muted" style="margin-top: 10px">
+          <p v-if="tab === 'full' && sheetPlan.sheet?.family_id === 'full_schema'" class="muted" style="margin-top: 10px">
+            已选类目。下一步会列出 schema.get 返回的全部字段：必填 {{ sheetPlan.sheet?.required_count || 0 }} 个、选填 {{ sheetPlan.sheet?.optional_count || 0 }} 个。
+          </p>
+          <p v-else-if="sheetPlan.sheet?.family_id === 'leaf'" class="muted" style="margin-top: 10px">
             填写表按这个叶子的官方 schema 生成
             <template v-if="schemaColumnLabels.length">：{{ schemaColumnLabels.join("、") }}</template>。
           </p>
@@ -360,7 +377,7 @@
             还没拉到 schema 时先用「{{ sheetPlan.sheet.family_name }}」兜底列
             <template v-if="familySpecLabels.length">：{{ familySpecLabels.join("、") }}</template>。
           </p>
-          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在拉这个叶子的官方 schema…</p>
+          <p v-if="officialLoading || schemaLoading" class="muted" style="margin-top: 6px">正在拉这个叶子的官方 schema…</p>
           <p v-else-if="sheetPlan.sheet?.family_id === 'leaf' && schemaColumnLabels.length" class="muted" style="margin-top: 6px">
             上面这些列会出现在下载的填写表里，请按官方下拉选项选。
           </p>
@@ -369,15 +386,64 @@
           </p>
         </div>
         <div class="step-actions">
-          <el-button type="primary" :disabled="!excel.categoryId" @click="advanceExcel(1)">下一步，下载表格</el-button>
+          <el-button type="primary" :disabled="!excel.categoryId" @click="advanceFromCategoryStep">
+            {{ tab === 'full' ? '下一步，看必填选填' : '下一步，下载表格' }}
+          </el-button>
         </div>
       </div>
 
-      <div v-else-if="excelStep === 1" class="step-panel">
-        <h3>下载「{{ sheetPlan.sheet?.title || "填写表" }}」</h3>
+      <div v-else-if="tab === 'full' && excelStep === 1" class="step-panel">
+        <h3>这个类目的官方字段（schema.get）</h3>
+        <p class="muted">
+          以下直接从接口返回，7521 个叶子类目各不同。带下拉的列请选官方选项，不要选 Other。
+        </p>
+        <div v-if="schemaLoading" class="muted" style="margin-top: 16px">正在拉 schema…</div>
+        <template v-else-if="categorySchema">
+          <div class="schema-summary">
+            <span class="schema-stat is-required">必填 {{ categorySchema.required_count }}</span>
+            <span class="schema-stat">选填 {{ categorySchema.optional_count }}</span>
+            <span class="schema-stat muted">共 {{ categorySchema.total_count }} 列会进下载表</span>
+          </div>
+          <details open class="schema-block">
+            <summary>必填字段（{{ categorySchema.required_count }}）</summary>
+            <el-table :data="categorySchema.required_fields" size="small" max-height="320" style="margin-top: 10px">
+              <el-table-column prop="label" label="字段" min-width="160" />
+              <el-table-column prop="name" label="接口名" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="field_type" label="类型" width="90" />
+              <el-table-column label="选项" width="80">
+                <template #default="{ row }">{{ row.option_count || 0 }}</template>
+              </el-table-column>
+            </el-table>
+          </details>
+          <details class="schema-block" style="margin-top: 12px">
+            <summary>选填字段（{{ categorySchema.optional_count }}）</summary>
+            <el-table :data="categorySchema.optional_fields" size="small" max-height="320" style="margin-top: 10px">
+              <el-table-column prop="label" label="字段" min-width="160" />
+              <el-table-column prop="name" label="接口名" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="field_type" label="类型" width="90" />
+              <el-table-column label="选项" width="80">
+                <template #default="{ row }">{{ row.option_count || 0 }}</template>
+              </el-table-column>
+            </el-table>
+          </details>
+        </template>
+        <p v-else class="muted" style="margin-top: 16px">还没拉到字段清单。请确认已登录店铺并重选类目。</p>
+        <div class="step-actions">
+          <el-button @click="excelStep = 0">上一步</el-button>
+          <el-button type="primary" :disabled="!categorySchema" @click="advanceExcel(2)">下一步，下载完整表</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="excelDownloadStep" class="step-panel">
+        <h3>下载「{{ sheetPlan.sheet?.title || (tab === 'full' ? '完整填写表' : '填写表') }}」</h3>
         <p class="muted">
           {{ sheetPlan.sheet?.guide || "选了叶子类目后，这张表会按官方 schema 生成填写列。" }}
-          货号、单价、起订量必填。官方必填属性在填写页，标题和详描仍由 AI 补。
+          <template v-if="tab === 'full'">
+            货号、单价、起订量必填；表里含 schema 返回的全部必填与选填列，标题/详描也在表里自己填。
+          </template>
+          <template v-else>
+            货号、单价、起订量必填。官方必填属性在填写页，标题和详描仍由 AI 补。
+          </template>
         </p>
         <div class="sheet-preview" v-if="previewColumns.length">
           <table>
@@ -424,10 +490,11 @@
           </section>
           <section class="policy-card">
             <small>AI 填</small>
-            <b>{{ sheetPlan.sheet?.family_id === 'leaf' ? '标题 / 详描' : '这个叶子的官方必填' }}</b>
-            <ul>
+            <b>{{ tab === 'full' ? '无（全在表里）' : (sheetPlan.sheet?.family_id === 'leaf' ? '标题 / 详描' : '这个叶子的官方必填') }}</b>
+            <ul v-if="tab !== 'full'">
               <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
             </ul>
+            <p v-else class="muted" style="margin-top: 8px">完整表模式：schema 字段都在填写页，不交给 AI 猜。</p>
             <p v-if="officialLoading" class="muted" style="margin-top: 8px">正在按 schema.get 拉取…</p>
           </section>
           <section class="policy-card is-redline">
@@ -448,15 +515,20 @@
           style="margin-top: 12px"
         />
         <p class="muted" style="margin-top: 10px">
-          填写表按所选叶子类目的官方 schema 生成列（7540 类各不同）。标题和详描仍由 AI 补。填完表不能撒手：导入后每条还要打开看标题和属性，点「审过了」才能发。
+          <template v-if="tab === 'full'">
+            完整表含 schema 返回的全部列（7521 类各不同）。填完导入后每条还要人审，点「审过了」才能发。
+          </template>
+          <template v-else>
+            填写表按所选叶子类目的官方 schema 生成列（7540 类各不同）。标题和详描仍由 AI 补。填完表不能撒手：导入后每条还要打开看标题和属性，点「审过了」才能发。
+          </template>
         </p>
         <div class="step-actions">
-          <el-button @click="excelStep = 0">上一步</el-button>
-          <el-button type="primary" @click="downloadAndAdvance">下载填写表</el-button>
+          <el-button @click="backFromDownloadStep">上一步</el-button>
+          <el-button type="primary" @click="downloadAndAdvance">{{ tab === 'full' ? '下载完整表' : '下载填写表' }}</el-button>
         </div>
       </div>
 
-      <div v-else-if="excelStep === 2" class="step-panel">
+      <div v-else-if="excelUploadStep" class="step-panel">
         <h3>填完传回来</h3>
         <p class="muted">灰色那行是示例，导入时会自动跳过。从下一行开始写你的货。</p>
         <el-upload
@@ -499,12 +571,12 @@
           </template>
         </p>
         <div class="step-actions">
-          <el-button @click="excelStep = 1">上一步</el-button>
-          <el-button type="primary" :disabled="!excelFile.length" @click="advanceExcel(3)">下一步，图怎么处理</el-button>
+          <el-button @click="backFromUploadStep">上一步</el-button>
+          <el-button type="primary" :disabled="!excelFile.length" @click="advanceExcel(excelImageStepIndex)">下一步，图怎么处理</el-button>
         </div>
       </div>
 
-      <div v-else-if="excelStep === 3" class="step-panel">
+      <div v-else-if="excelImageStep" class="step-panel">
         <h3>这批图怎么处理</h3>
         <p class="muted">一张表里可以有的行有图、有的没图，图多图少都按下面两句话走，不按张数分路。</p>
         <div class="policy-block">
@@ -563,19 +635,21 @@
           <div style="padding: 22px 0">有本地图就拖进来，按货号命名，例如 SKU-1001.jpg 或 SKU-1001_1.jpg</div>
         </el-upload>
         <div class="step-actions">
-          <el-button @click="excelStep = 2">上一步</el-button>
-          <el-button type="primary" @click="advanceExcel(4)">下一步，开始成稿</el-button>
+          <el-button @click="backFromImageStep">上一步</el-button>
+          <el-button type="primary" @click="advanceExcel(excelGoStepIndex)">下一步，开始成稿</el-button>
         </div>
       </div>
 
-      <div v-else class="step-panel">
+      <div v-else-if="excelGoStep" class="step-panel">
         <h3>成稿之后还要人审</h3>
         <p class="muted">
-          填完短表不能撒手不管。{{ excelGoHint }}
-          导入后 AI 会成稿，但每条还要打开看标题和官方属性，点「审过了」才能发。选错但合法的选项（HB 写成 2B）红线拦不住，只能人看出来。
+          <template v-if="tab === 'full'">填完完整表不能撒手不管。</template>
+          <template v-else>填完短表不能撒手不管。</template>
+          {{ excelGoHint }}
+          导入后每条还要打开核对标题和官方属性，点「审过了」才能发。选错但合法的选项（HB 写成 2B）红线拦不住，只能人看出来。
         </p>
         <div class="step-actions">
-          <el-button @click="excelStep = 3">上一步</el-button>
+          <el-button @click="backFromGoStep">上一步</el-button>
           <el-button
             type="primary"
             :loading="excel.loading"
@@ -609,7 +683,7 @@
         </div>
       </div>
 
-      <details class="erp-more">
+      <details v-if="tab === 'excel'" class="erp-more">
         <summary>已有领星 / 店小秘 / 马帮的现成表</summary>
         <el-radio-group v-model="excel.style" class="style-grid" @change="onStyleChange">
           <el-radio-button v-for="item in otherStyles" :key="item.id" :value="item.id">
@@ -710,6 +784,14 @@ const excelSteps = [
   { key: "img", label: "图怎么处理" },
   { key: "go", label: "成稿人审" },
 ];
+const fullSteps = [
+  { key: "cat", label: "选类目" },
+  { key: "schema", label: "看必填选填" },
+  { key: "dl", label: "下载完整表" },
+  { key: "up", label: "传回表格" },
+  { key: "img", label: "图怎么处理" },
+  { key: "go", label: "成稿人审" },
+];
 
 const templates = ref({ families: [], sources: [] });
 const imageJob = ref(null);
@@ -753,6 +835,8 @@ const excel = reactive({
 });
 const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null, sheet: null });
 const officialLoading = ref(false);
+const schemaLoading = ref(false);
+const categorySchema = ref(null);
 const categoryBrowser = ref(false);
 const excelProgress = ref({ done: 0 });
 let timer = null;
@@ -797,6 +881,21 @@ const officialAttrLabels = computed(() =>
     .slice(0, 8),
 );
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
+const isFullPath = computed(() => tab.value === "full");
+const excelDownloadStep = computed(
+  () => (isFullPath.value && excelStep.value === 2) || (!isFullPath.value && excelStep.value === 1),
+);
+const excelUploadStep = computed(
+  () => (isFullPath.value && excelStep.value === 3) || (!isFullPath.value && excelStep.value === 2),
+);
+const excelImageStep = computed(
+  () => (isFullPath.value && excelStep.value === 4) || (!isFullPath.value && excelStep.value === 3),
+);
+const excelGoStep = computed(
+  () => (isFullPath.value && excelStep.value === 5) || (!isFullPath.value && excelStep.value === 4),
+);
+const excelImageStepIndex = computed(() => (isFullPath.value ? 4 : 3));
+const excelGoStepIndex = computed(() => (isFullPath.value ? 5 : 4));
 const excelImageUploadHint = computed(() => {
   if (excel.photoPolicy === "boost") {
     return "有本地图或表里的链接都只当认货参考。没图的行看下面第二条。";
@@ -851,6 +950,7 @@ function applyExcelImageMode(raw, photo, empty) {
 
 function pathToTab(path) {
   if (path === "ai") return "ai";
+  if (path === "full") return "full";
   if (path === "excel") return "excel";
   return "single";
 }
@@ -892,13 +992,13 @@ function sessionPayload() {
 
 function currentStep() {
   if (tab.value === "ai") return aiStep.value;
-  if (tab.value === "excel") return excelStep.value;
+  if (tab.value === "excel" || tab.value === "full") return excelStep.value;
   return photoStep.value;
 }
 
 function currentReached() {
   if (tab.value === "ai") return aiReached.value;
-  if (tab.value === "excel") return excelReached.value;
+  if (tab.value === "excel" || tab.value === "full") return excelReached.value;
   return photoReached.value;
 }
 
@@ -994,9 +1094,12 @@ function applySession(session) {
   if (tab.value === "ai") {
     aiStep.value = session.step || 0;
     aiReached.value = session.reached || 0;
-  } else if (tab.value === "excel") {
+  } else if (tab.value === "excel" || tab.value === "full") {
     excelStep.value = session.step || 0;
     excelReached.value = session.reached || 0;
+    if (session.path === "full") {
+      excel.style = payload.excel?.style || "full_schema";
+    }
   } else {
     photoStep.value = session.step || 0;
     photoReached.value = session.reached || 0;
@@ -1007,6 +1110,14 @@ function applySession(session) {
 async function startPath(path) {
   try {
     const created = await api.createFeedSession({ path, shop_id: store.shopId || "" });
+    if (path === "full") {
+      excel.style = "full_schema";
+      excelStep.value = 0;
+      excelReached.value = 0;
+      categorySchema.value = null;
+    } else if (path === "excel") {
+      excel.style = "simple";
+    }
     applySession(created);
     router.replace({ query: { session: created.id } });
   } catch (error) {
@@ -1037,6 +1148,9 @@ async function resumeSession(id) {
     if (excel.categoryId) {
       await loadSheetPlan();
       loadOfficialAttrs();
+      if (tab.value === "full") {
+        await loadCategorySchema();
+      }
     }
   } catch (error) {
     ElMessage.error(error.message);
@@ -1240,7 +1354,7 @@ function onStyleChange() {
 }
 
 async function onExcelPicked() {
-  if (excel.style === "simple" && excelFile.value[0]?.raw) {
+  if ((excel.style === "simple" || excel.style === "full_schema") && excelFile.value[0]?.raw) {
     await previewExcel();
   }
 }
@@ -1256,7 +1370,53 @@ async function loadSheetPlan() {
     shop_id: store.shopId || "",
     category_id: excel.categoryId || "",
     category_name: excel.categoryName || "",
+    style: excel.style || "simple",
   });
+}
+
+async function loadCategorySchema() {
+  if (!store.shopId || !excel.categoryId) {
+    categorySchema.value = null;
+    return;
+  }
+  schemaLoading.value = true;
+  try {
+    categorySchema.value = await api.categorySchema(store.shopId, excel.categoryId);
+  } catch (error) {
+    categorySchema.value = null;
+    ElMessage.error(error.message);
+  } finally {
+    schemaLoading.value = false;
+  }
+}
+
+async function advanceFromCategoryStep() {
+  if (isFullPath.value) {
+    await loadCategorySchema();
+    advanceExcel(1);
+    return;
+  }
+  advanceExcel(1);
+}
+
+function backFromDownloadStep() {
+  excelStep.value = isFullPath.value ? 1 : 0;
+  persistSession();
+}
+
+function backFromUploadStep() {
+  excelStep.value = isFullPath.value ? 2 : 1;
+  persistSession();
+}
+
+function backFromImageStep() {
+  excelStep.value = isFullPath.value ? 3 : 2;
+  persistSession();
+}
+
+function backFromGoStep() {
+  excelStep.value = isFullPath.value ? 4 : 3;
+  persistSession();
 }
 
 async function loadOfficialAttrs() {
@@ -1281,7 +1441,7 @@ function openCategory() {
     ElMessage.warning("先登录一个店铺");
     return;
   }
-  categoryTarget.value = "excel";
+  categoryTarget.value = tab.value === "full" ? "full" : "excel";
   categoryBrowser.value = true;
 }
 
@@ -1311,10 +1471,22 @@ async function pickCategory(node) {
       .catch(() => {});
     return;
   }
+  const isFull = categoryTarget.value === "full";
+  if (isFull) {
+    excel.style = "full_schema";
+  }
   excel.categoryId = node.category_id;
   excel.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
   try {
     await loadSheetPlan();
+    if (isFull) {
+      await loadCategorySchema();
+      ElMessage.success(
+        `已选「${sheetPlan.value.category_name || excel.categoryName}」，必填 ${categorySchema.value?.required_count ?? "?"} / 选填 ${categorySchema.value?.optional_count ?? "?"}`,
+      );
+      advanceExcel(1);
+      return;
+    }
     ElMessage.success(`已选「${sheetPlan.value.category_name || excel.categoryName}」，填写表将按该类目 schema 生成`);
     advanceExcel(1);
     loadOfficialAttrs();
@@ -1333,7 +1505,7 @@ function downloadTemplate() {
 
 function downloadAndAdvance() {
   downloadTemplate();
-  advanceExcel(2);
+  advanceExcel(isFullPath.value ? 3 : 2);
 }
 
 async function previewExcel() {
@@ -1543,6 +1715,36 @@ async function poll() {
 }
 .path-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.path-grid-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 960px) {
+  .path-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.schema-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0 8px;
+}
+.schema-stat {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  font-size: 13px;
+}
+.schema-stat.is-required {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.schema-block summary {
+  cursor: pointer;
+  font-weight: 600;
 }
 .policy-block {
   margin-top: 16px;

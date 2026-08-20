@@ -27,7 +27,7 @@ from ..services import (
     publisher,
     sources,
 )
-from ..services import feed_sessions, image_jobs, shop_categories
+from ..services import feed_sessions, image_jobs, shop_categories, excel_import
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
 router = APIRouter(prefix="/api/v1", tags=["listings"])
@@ -917,6 +917,9 @@ def category_schema(
     api = shop_api(shop)
     xml = catalog.get_schema_xml(db, api, category_id, str(shop_defaults(shop).get("language") or "en_US"))
     fields = parse_schema(xml)
+    flat = excel_import.flatten_schema_fields(fields)
+    required = [item for item in flat if item["required"]]
+    optional = [item for item in flat if not item["required"]]
     return {
         "category_id": category_id,
         "fields": [
@@ -941,4 +944,10 @@ def category_schema(
             for item in fields
             if item.type != "label"
         ],
+        "fields_flat": flat,
+        "required_fields": required,
+        "optional_fields": optional,
+        "required_count": len(required),
+        "optional_count": len(optional),
+        "total_count": len(flat),
     }

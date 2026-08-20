@@ -204,6 +204,14 @@ STYLES: dict[str, dict[str, Any]] = {
         "create_drafts_default": True,
         "primary": True,
     },
+    "full_schema": {
+        "id": "full_schema",
+        "label": "官方完整表（完全自己填）",
+        "summary": "按 schema.get 返回的全部必填+选填字段生成列。7521 类各不同，自己填完再导入。",
+        "columns": ["sku", "price", "moq", "images", "brand", "name", "note"],
+        "create_drafts_default": True,
+        "needs_category": True,
+    },
     "lingxing": {
         "id": "lingxing",
         "label": "领星资料库",
@@ -262,6 +270,7 @@ class ExcelRow:
     line: int = 0
     raw: dict[str, str] = field(default_factory=dict)
     attributes: dict[str, dict[str, Any]] = field(default_factory=dict)
+    schema_top: dict[str, str] = field(default_factory=dict)
     is_sample: bool = False
 
     def fact_text(self) -> str:
@@ -300,6 +309,9 @@ class ExcelRow:
             filled = {key: item for key, item in children.items() if item not in (None, "")}
             if filled:
                 values[group] = filled
+        for key, raw in self.schema_top.items():
+            if raw not in (None, ""):
+                values[key] = raw
         return values
 
     def provided_sources(self) -> dict[str, str]:
@@ -317,6 +329,10 @@ class ExcelRow:
             sources["origin"] = "excel"
         if self.category_id:
             sources["catId"] = "excel"
+        for group in self.attributes:
+            sources[group] = "excel"
+        for key in self.schema_top:
+            sources[key] = "excel"
         return sources
 
     def extra_defaults(self) -> dict[str, str]:
@@ -639,6 +655,31 @@ def sheet_profile(
     if category_id:
         short = (hint.split("/")[-1].strip() if hint else category_id)[:32]
         attrs = list(attr_columns or [])
+        is_full = bool(attrs) and str(attrs[0].get("id", "")).startswith("schema.")
+        if is_full:
+            req = sum(1 for col in attrs if col.get("required"))
+            opt = len(attrs) - req
+            return {
+                "family_id": "full_schema",
+                "family_name": "官方完整表",
+                "category_id": category_id,
+                "title": f"完整填写表 · {short}" if short else f"完整填写表 · {category_id}",
+                "filename": f"完整表-{category_id}",
+                "filename_id": f"full-{category_id}",
+                "guide": (
+                    f"按 schema.get 生成：必填 {req} 列、选填 {opt} 列（共 {len(attrs)}）。"
+                    "7521 个叶子类目各不同。带下拉的列请选官方选项。"
+                ),
+                "spec_columns": [],
+                "attr_columns": attrs,
+                "example": dict(EXAMPLE_ROW),
+                "note_hint": "选填。官方字段列已经分开写了就不用重复。",
+                "category_name": hint or category_id,
+                "header_color": "7C3AED",
+                "required_count": req,
+                "optional_count": opt,
+            }
+        attrs = list(attr_columns or [])
         return {
             "family_id": "leaf",
             "family_name": "叶子类目",
@@ -809,8 +850,8 @@ def fill_policy(
                 {
                     "id": col["id"],
                     "label": label,
-                    "required": True,
-                    "hint": "官方必填，按选项选",
+                    "required": bool(col.get("required", True)),
+                    "hint": "官方必填，按选项选" if col.get("required", True) else "官方选填，按选项选",
                 }
             )
         if note is not None:
@@ -875,6 +916,69 @@ def category_attr_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
                 }
             )
     return columns
+
+
+def schema_field_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
+    """All fillable fields from schema.get — required and optional."""
+    columns: list[dict[str, Any]] = []
+
+    def append_field(group_id: str, group_name: str, spec: Any) -> None:
+        if getattr(spec, "type", "") == "label" or spec.id in SKIP_ATTR_IDS:
+            return
+        options = [
+            {"value": option.value, "label": option.display_name}
+            for option in (getattr(spec, "options", None) or [])[:80]
+        ]
+        label = _attr_label(str(getattr(spec, "name", "") or spec.id))
+        header = str(getattr(spec, "name", "") or spec.id)
+        if group_name and group_id != spec.id:
+            header = f"{group_name} / {header}"
+        field_path = f"{group_id}.{spec.id}" if group_id else spec.id
+        columns.append(
+            {
+                "id": f"schema.{field_path}",
+                "header": header,
+                "label": label,
+                "group": group_id or spec.id,
+                "field_id": spec.id,
+                "field_path": field_path,
+                "required": bool(getattr(spec, "required", False)),
+                "field_type": getattr(spec, "type", ""),
+                "options": options,
+            }
+        )
+
+    for group in fields:
+        if getattr(group, "type", "") == "label":
+            continue
+        children = list(getattr(group, "children", None) or [])
+        if children:
+            group_name = str(getattr(group, "name", "") or group.id)
+            for child in children:
+                append_field(group.id, group_name, child)
+        else:
+            append_field("", "", group)
+    return columns
+
+
+def flatten_schema_fields(fields: Iterable[Any]) -> list[dict[str, Any]]:
+    """Flat list for API/UI: every fillable field with required flag."""
+    rows: list[dict[str, Any]] = []
+    for col in schema_field_columns(fields):
+        rows.append(
+            {
+                "group_id": col["group"],
+                "field_id": col["field_id"],
+                "field_path": col["field_path"],
+                "name": col["header"],
+                "label": col["label"],
+                "required": col["required"],
+                "field_type": col.get("field_type") or "",
+                "option_count": len(col.get("options") or []),
+                "options": col.get("options") or [],
+            }
+        )
+    return rows
 
 
 def _match_option(raw: str, options: list[dict[str, str]]) -> str:
@@ -996,6 +1100,7 @@ def parse_rows(
         cells = {headers[index]: raw[index] if index < len(raw) else "" for index in range(len(headers))}
         values = {field_id: "" for field_id in FIELDS}
         attributes: dict[str, dict[str, Any]] = {}
+        schema_top: dict[str, str] = {}
         specs: dict[str, str] = {}
         for header, field_id in mapping.items():
             cell = cells.get(header, "")
@@ -1009,7 +1114,23 @@ def parse_rows(
                     attributes.setdefault(spec["group"], {})[spec["field_id"]] = _match_option(
                         cell, spec.get("options") or []
                     )
-        if not any(values.values()) and not attributes:
+            elif field_id.startswith("schema.") and cell:
+                spec = extra_by_id.get(field_id)
+                parts = field_id.split(".")
+                if len(parts) == 2:
+                    top_id = parts[1]
+                    if top_id == "productTitle":
+                        values["title"] = cell
+                    elif top_id.startswith("productKeywords"):
+                        values["keywords"] = cell if not values["keywords"] else f"{values['keywords']},{cell}"
+                    else:
+                        schema_top[top_id] = _match_option(cell, (spec or {}).get("options") or []) or cell
+                elif len(parts) >= 3:
+                    group, child_id = parts[1], parts[2]
+                    attributes.setdefault(group, {})[child_id] = _match_option(
+                        cell, (spec or {}).get("options") or []
+                    )
+        if not any(values.values()) and not attributes and not schema_top:
             continue
         images = [item.strip() for item in re.split(r"[;；\n]+", values["images"]) if item.strip()]
         parsed.append(
@@ -1030,6 +1151,7 @@ def parse_rows(
                 line=offset,
                 raw=cells,
                 attributes=attributes,
+                schema_top=schema_top,
                 is_sample=looks_like_sample(values["sku"], values["name"]),
             )
         )

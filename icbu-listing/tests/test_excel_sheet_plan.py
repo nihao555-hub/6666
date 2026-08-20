@@ -129,6 +129,62 @@ class SheetPlanTests(unittest.TestCase):
         self.assertNotIn("Lead Color", headers)
         self.assertNotIn("Lead Hardness", headers)
 
+    def test_sheet_plan_uses_full_schema_when_style_set(self) -> None:
+        client = signup("full-plan@example.com")
+        shop_id = client.post("/api/v1/shops/bind-env", json={"name": "完整表店"}).json()["id"]
+        mocked_cols = [
+            {
+                "id": "schema.productTitle",
+                "header": "Product Title",
+                "label": "Product Title",
+                "group": "productTitle",
+                "field_id": "productTitle",
+                "field_path": "productTitle",
+                "required": True,
+                "options": [],
+            },
+            {
+                "id": "schema.icbuCatProp.p-type",
+                "header": "icbuCatProp / Type",
+                "label": "Type",
+                "group": "icbuCatProp",
+                "field_id": "p-type",
+                "field_path": "icbuCatProp.p-type",
+                "required": True,
+                "options": [],
+            },
+            {
+                "id": "schema.icbuCatProp.p-color",
+                "header": "icbuCatProp / Color",
+                "label": "Color",
+                "group": "icbuCatProp",
+                "field_id": "p-color",
+                "field_path": "icbuCatProp.p-color",
+                "required": False,
+                "options": [],
+            },
+        ]
+        with unittest.mock.patch("server.routers.excel._schema_columns", return_value=mocked_cols):
+            response = client.get(
+                "/api/v1/excel/sheet-plan",
+                params={
+                    "shop_id": shop_id,
+                    "category_id": "21110712",
+                    "category_name": "Colored Pencils",
+                    "style": "full_schema",
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["sheet"]["family_id"], "full_schema")
+        self.assertEqual(payload["sheet_origin"]["kind"], "full_schema")
+        self.assertEqual(payload["sheet"]["required_count"], 2)
+        self.assertEqual(payload["sheet"]["optional_count"], 1)
+        labels = [item["label"] for item in payload["preview"]["columns"]]
+        self.assertIn("Product Title", labels)
+        self.assertIn("icbuCatProp / Type", labels)
+        self.assertIn("icbuCatProp / Color", labels)
+
 
 if __name__ == "__main__":
     unittest.main()
