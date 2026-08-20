@@ -1,14 +1,29 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
+from .blob_persist import enabled as blob_enabled, hydrate_sqlite, persist_sqlite
 from .config import settings
 from .models import Base
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+
+
+def _sqlite_path() -> Path | None:
+    if not settings.database_url.startswith("sqlite:///"):
+        return None
+    return Path(settings.database_url.removeprefix("sqlite:///"))
+
+
+if blob_enabled():
+    path = _sqlite_path()
+    if path is not None:
+        hydrate_sqlite(path)
+
 engine = create_engine(settings.database_url, future=True, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
@@ -16,6 +31,9 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _ensure_columns()
+    path = _sqlite_path()
+    if path is not None and blob_enabled() and path.is_file():
+        persist_sqlite(path)
 
 
 def _ensure_columns() -> None:
@@ -39,6 +57,13 @@ def _ensure_columns() -> None:
         shop_names = {row[1] for row in shop_rows}
         if shop_rows and "online_count" not in shop_names:
             conn.exec_driver_sql("ALTER TABLE shops ADD COLUMN online_count INTEGER DEFAULT -1")
+
+
+@event.listens_for(Session, "after_commit")
+def _persist_sqlite_after_commit(_session: Session) -> None:
+    path = _sqlite_path()
+    if path is not None:
+        persist_sqlite(path)
 
 
 def session_scope() -> Iterator[Session]:

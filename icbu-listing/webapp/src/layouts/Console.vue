@@ -102,7 +102,7 @@ const initials = computed(() => (store.user?.email || "U").slice(0, 1).toUpperCa
 onMounted(async () => {
   try {
     if (!store.user) await store.loadUser();
-    await store.loadShops();
+    await store.ensureShops();
     shopId.value = store.shopId;
   } catch (error) {
     ElMessage.error(error.message);

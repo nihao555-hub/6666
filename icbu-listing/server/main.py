@@ -48,6 +48,7 @@ def health() -> dict[str, object]:
         "image_enabled": settings.image_enabled,
         "text_model": settings.text_model,
         "image_model": settings.image_model,
+        "db_persist": "blob" if settings.blob_read_write_token else "local",
     }
 
 

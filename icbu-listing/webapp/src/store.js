@@ -27,6 +27,22 @@ export const store = reactive({
     return this.shops;
   },
 
+  async ensureShops() {
+    await this.loadShops();
+    if (!this.shops.length) {
+      try {
+        const options = await api.shopConnectOptions();
+        if (options.prefer_env_token) {
+          await api.bindEnvShop("测试店铺");
+          await this.loadShops();
+        }
+      } catch {
+        /* bind-env unavailable in production without token */
+      }
+    }
+    return this.shops;
+  },
+
   selectShop(shopId) {
     this.shopId = shopId || "";
     if (this.shopId) {

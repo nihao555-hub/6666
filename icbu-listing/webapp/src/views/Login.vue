@@ -6,7 +6,7 @@
     <section class="auth-panel">
       <div class="auth-card">
         <h2>{{ mode === "login" ? "欢迎回来" : "用注册码开通" }}</h2>
-        <p class="muted">先开工作台账号。店铺要在里面用你自己的卖家账号再登录一次。</p>
+        <p class="muted">先开工作台账号。若环境已配置 API 店铺 token，登录后会自动接上对应店铺。</p>
         <el-form label-position="top" @submit.prevent>
           <el-form-item label="工作邮箱">
             <el-input v-model="form.email" size="large" placeholder="you@company.com" />
@@ -50,7 +50,7 @@ async function submit() {
   loading.value = true;
   try {
     store.user = mode.value === "login" ? await api.login(form) : await api.register(form);
-    await store.loadShops();
+    await store.ensureShops();
     router.push(store.shops.length ? "/overview" : "/shops");
   } catch (error) {
     ElMessage.error(error.message);

@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..crypto import hash_password, verify_password
 from ..deps import current_user, get_db
-from ..models import AuthSession, User
+from ..models import AuthSession, Shop, User
+from ..services.shop_bootstrap import ensure_env_shop
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -69,6 +70,8 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)) -
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=400, detail="邮箱或密码不对")
     _open_session(db, response, user)
+    if not db.query(Shop).filter(Shop.user_id == user.id).count():
+        ensure_env_shop(db, user)
     return _profile(user)
 
 

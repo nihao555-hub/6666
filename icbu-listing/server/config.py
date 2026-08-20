@@ -77,6 +77,9 @@ class Settings:
     image_model: str
     image_timeout_seconds: float
     generated_dir: Path
+    blob_read_write_token: str
+    blob_db_pathname: str
+    blob_timeout_seconds: float
 
     @property
     def has_platform_app(self) -> bool:
@@ -182,6 +185,9 @@ def load_settings() -> Settings:
         image_model=os.environ.get("IMAGE_MODEL", "gpt-image-2"),
         image_timeout_seconds=float(os.environ.get("IMAGE_TIMEOUT_SECONDS", "180")),
         generated_dir=_generated_dir(),
+        blob_read_write_token=os.environ.get("BLOB_READ_WRITE_TOKEN", "").strip(),
+        blob_db_pathname=os.environ.get("BLOB_DB_PATHNAME", "sqlite/auto-shoper.db").strip() or "sqlite/auto-shoper.db",
+        blob_timeout_seconds=float(os.environ.get("BLOB_TIMEOUT_SECONDS", "30")),
     )
 
 
