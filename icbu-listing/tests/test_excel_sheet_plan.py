@@ -181,7 +181,7 @@ class SheetPlanTests(unittest.TestCase):
         self.assertEqual(payload["sheet"]["required_count"], 2)
         self.assertEqual(payload["sheet"]["optional_count"], 1)
         labels = [item["label"] for item in payload["preview"]["columns"]]
-        self.assertIn("Product Title", labels)
+        self.assertIn("英文标题", labels)
         self.assertIn("icbuCatProp / Type", labels)
         self.assertIn("icbuCatProp / Color", labels)
 

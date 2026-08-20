@@ -811,17 +811,111 @@ def sheet_preview(style: str = "simple", profile: dict[str, Any] | None = None) 
     }
 
 
-ATTR_LABELS_ZH = {
+SCHEMA_GROUP_LABELS: dict[str, str] = {
+    "icbuCatProp": "类目属性",
+    "saleProp": "销售属性",
+    "productTitle": "英文标题",
+    "productKeywords": "关键词",
+    "textDesc": "卖点描述",
+    "superText": "详情描述",
+    "scImages": "商品图片",
+    "detailImage": "详情图片",
+    "minOrderQuantity": "起订量",
+    "ladderPrice": "阶梯价",
+    "scPrice": "售价",
+    "fob": "FOB 价格",
+    "priceUnit": "价格单位",
+    "catId": "叶子类目",
+    "market": "目标市场",
+    "paymentMethod": "付款方式",
+    "port": "港口",
+    "ladderPeriod": "交期",
+    "shippingTemplateId": "运费模板",
+    "pkgMeasure": "包装尺寸",
+    "pkgWeight": "包装重量",
+    "logisticsMode": "物流方式",
+    "logisticsProperty": "物流属性",
+    "productDescType": "详情类型",
+    "brand": "品牌",
+}
+
+TOP_FIELD_LABELS: dict[str, str] = dict(SCHEMA_GROUP_LABELS)
+
+ATTR_LABELS_ZH: dict[str, str] = {
     "lead color": "铅芯颜色",
     "lead hardness": "铅芯硬度",
     "origin": "原产地",
     "type": "类型",
     "color": "颜色",
+    "material": "材质",
+    "size": "尺寸",
+    "weight": "重量",
+    "capacity": "容量",
+    "brand name": "品牌名",
+    "brand": "品牌",
+    "model number": "型号",
+    "model": "型号",
+    "feature": "特点",
+    "features": "特点",
+    "usage": "用途",
+    "application": "用途",
+    "packaging": "包装",
+    "package": "包装",
+    "shape": "形状",
+    "style": "款式",
+    "pattern": "图案",
+    "finish": "表面处理",
+    "hardness": "硬度",
+    "length": "长度",
+    "width": "宽度",
+    "height": "高度",
+    "diameter": "直径",
+    "thickness": "厚度",
+    "product name": "品名",
+    "product title": "英文标题",
+    "title": "标题",
+    "keywords": "关键词",
+    "description": "描述",
+    "certification": "认证",
+    "warranty": "质保",
+    "power": "功率",
+    "voltage": "电压",
+    "frequency": "频率",
+    "gender": "适用性别",
+    "age group": "适用年龄",
+    "season": "季节",
+    "fabric": "面料",
+    "composition": "成分",
 }
 
 
+def _has_cjk(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+
+
+def _group_label(group_id: str, group_name: str = "") -> str:
+    if group_id in SCHEMA_GROUP_LABELS:
+        return SCHEMA_GROUP_LABELS[group_id]
+    if _has_cjk(group_name):
+        return group_name.strip()
+    if _has_cjk(group_id):
+        return group_id
+    return (group_name or group_id or "").strip()
+
+
 def _attr_label(name: str) -> str:
-    return ATTR_LABELS_ZH.get((name or "").strip().lower(), name)
+    raw = (name or "").strip()
+    if not raw:
+        return raw
+    if _has_cjk(raw):
+        return raw
+    return ATTR_LABELS_ZH.get(raw.lower(), raw)
+
+
+def _field_label(field_id: str, name: str) -> str:
+    if field_id in TOP_FIELD_LABELS:
+        return TOP_FIELD_LABELS[field_id]
+    return _attr_label(name or field_id)
 
 
 def fill_policy(
@@ -929,10 +1023,14 @@ def schema_field_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
             {"value": option.value, "label": option.display_name}
             for option in (getattr(spec, "options", None) or [])[:80]
         ]
-        label = _attr_label(str(getattr(spec, "name", "") or spec.id))
-        header = str(getattr(spec, "name", "") or spec.id)
-        if group_name and group_id != spec.id:
-            header = f"{group_name} / {header}"
+        field_name = str(getattr(spec, "name", "") or spec.id)
+        field_label = _field_label(spec.id, field_name)
+        group_label = _group_label(group_id, group_name)
+        if group_id and group_id != spec.id:
+            header = f"{group_label} / {field_label}"
+        else:
+            header = _field_label(spec.id, field_name)
+        label = field_label
         field_path = f"{group_id}.{spec.id}" if group_id else spec.id
         columns.append(
             {

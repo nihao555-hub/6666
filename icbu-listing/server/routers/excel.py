@@ -73,7 +73,7 @@ def _schema_columns(
             db,
             shop_api(shop),
             category_id,
-            str(shop_defaults(shop).get("language") or "en_US"),
+            "zh",
             fetch=fetch,
         )
     except RuntimeError:

@@ -452,7 +452,7 @@ class FullSchemaTests(unittest.TestCase):
     def test_parse_schema_star_columns(self) -> None:
         extras = schema_field_columns(parse_schema(self.SAMPLE))
         rows = [
-            ["货号", "单价 USD", "起订量", "Product Title", "icbuCatProp / Type", "icbuCatProp / Color"],
+            ["货号", "单价 USD", "起订量", "英文标题", "类目属性 / 类型", "类目属性 / 颜色"],
             ["SKU-1", "1.8", "100", "Brush Set", "Oil Brush", "Black"],
         ]
         mapping = mapping_from_headers(rows[0], "full_schema", extras)

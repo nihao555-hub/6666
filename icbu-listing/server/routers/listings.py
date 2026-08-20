@@ -15,7 +15,7 @@ from gop_client import GopError  # noqa: E402
 
 from ..db import SessionLocal
 from ..deps import current_user, get_db, owned_draft, shop_for
-from ..models import Draft, Job, Product, Shop, User, new_id
+from ..models import CategoryNode, Draft, Job, Product, Shop, User, new_id
 from ..services import (
     audit,
     catalog,
@@ -867,7 +867,25 @@ def browse_categories(
     api = shop_api(shop)
     node = catalog.get_node(db, api, parent)
     if node is None:
-        raise HTTPException(status_code=404, detail="类目不存在")
+        if parent == "0":
+            raise HTTPException(status_code=404, detail="类目树暂时拉不到，请稍后重试")
+        stale = db.get(CategoryNode, parent)
+        return {
+            "origin": "official_icbu_tree",
+            "note": "这个类目节点暂时拉不到。请返回上一层，或从右侧「最近选过 / 店里上过」直接选叶子。",
+            "node": catalog.as_dict(stale) if stale is not None else {
+                "category_id": parent,
+                "name": parent,
+                "cn_name": "",
+                "level": 0,
+                "is_leaf": False,
+                "label": parent,
+            },
+            "path": catalog.summarise(catalog.path_of(db, api, parent, fetch=False)) if stale is not None else [],
+            "children": [],
+            "recent": [],
+            "used": [],
+        }
     recent: list[dict[str, Any]] = []
     used: list[dict[str, Any]] = []
     if parent == "0":
@@ -915,7 +933,7 @@ def category_schema(
 
     shop = shop_for(db, user, shop_id)
     api = shop_api(shop)
-    xml = catalog.get_schema_xml(db, api, category_id, str(shop_defaults(shop).get("language") or "en_US"))
+    xml = catalog.get_schema_xml(db, api, category_id, "zh")
     fields = parse_schema(xml)
     flat = excel_import.flatten_schema_fields(fields)
     required = [item for item in flat if item["required"]]

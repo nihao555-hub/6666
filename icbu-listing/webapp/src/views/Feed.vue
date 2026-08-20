@@ -393,34 +393,52 @@
       </div>
 
       <div v-else-if="tab === 'full' && excelStep === 1" class="step-panel">
-        <h3>这个类目的官方字段（schema.get）</h3>
+        <h3>这个类目的完整填写表（中文列名）</h3>
         <p class="muted">
-          以下直接从接口返回，7521 个叶子类目各不同。带下拉的列请选官方选项，不要选 Other。
+          下面就是下载表的全部列：必填 {{ categorySchema?.required_count ?? 0 }}、选填 {{ categorySchema?.optional_count ?? 0 }}，共 {{ fullSchemaTableColumns.length }} 列。带下拉的列请选官方选项，不要选 Other。
         </p>
         <div v-if="schemaLoading" class="muted" style="margin-top: 16px">正在拉 schema…</div>
-        <template v-else-if="categorySchema">
+        <template v-else-if="fullSchemaTableColumns.length">
           <div class="schema-summary">
-            <span class="schema-stat is-required">必填 {{ categorySchema.required_count }}</span>
-            <span class="schema-stat">选填 {{ categorySchema.optional_count }}</span>
-            <span class="schema-stat muted">共 {{ categorySchema.total_count }} 列会进下载表</span>
+            <span class="schema-stat is-required">必填 {{ categorySchema?.required_count ?? 0 }}</span>
+            <span class="schema-stat">选填 {{ categorySchema?.optional_count ?? 0 }}</span>
+            <span class="schema-stat muted">共 {{ fullSchemaTableColumns.length }} 列</span>
           </div>
-          <details open class="schema-block">
-            <summary>必填字段（{{ categorySchema.required_count }}）</summary>
-            <el-table :data="categorySchema.required_fields" size="small" max-height="320" style="margin-top: 10px">
-              <el-table-column prop="label" label="字段" min-width="160" />
+          <div class="sheet-preview sheet-preview-full">
+            <table>
+              <thead>
+                <tr>
+                  <th
+                    v-for="col in fullSchemaTableColumns"
+                    :key="col.id"
+                    :class="{ 'is-required-col': col.required }"
+                  >
+                    {{ col.label }}<span v-if="col.required" class="need">必填</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="is-sample">
+                  <td v-for="col in fullSchemaTableColumns" :key="`${col.id}-sample`">{{ col.example || "—" }}</td>
+                </tr>
+                <tr>
+                  <td v-for="col in fullSchemaTableColumns" :key="`${col.id}-empty`">
+                    <span class="muted">{{ col.id === "sku" ? "从这行开始写" : "" }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="muted" style="margin-top: 8px">灰色示例行导入时自动跳过。左右可滚动查看全部列。</p>
+          </div>
+          <details class="schema-block" style="margin-top: 14px">
+            <summary>字段明细（类型 / 选项数）</summary>
+            <el-table :data="fullSchemaFieldRows" size="small" max-height="360" style="margin-top: 10px">
+              <el-table-column prop="label" label="中文名" min-width="160" />
               <el-table-column prop="name" label="接口名" min-width="200" show-overflow-tooltip />
               <el-table-column prop="field_type" label="类型" width="90" />
-              <el-table-column label="选项" width="80">
-                <template #default="{ row }">{{ row.option_count || 0 }}</template>
+              <el-table-column label="必填" width="70">
+                <template #default="{ row }">{{ row.required ? "是" : "否" }}</template>
               </el-table-column>
-            </el-table>
-          </details>
-          <details class="schema-block" style="margin-top: 12px">
-            <summary>选填字段（{{ categorySchema.optional_count }}）</summary>
-            <el-table :data="categorySchema.optional_fields" size="small" max-height="320" style="margin-top: 10px">
-              <el-table-column prop="label" label="字段" min-width="160" />
-              <el-table-column prop="name" label="接口名" min-width="200" show-overflow-tooltip />
-              <el-table-column prop="field_type" label="类型" width="90" />
               <el-table-column label="选项" width="80">
                 <template #default="{ row }">{{ row.option_count || 0 }}</template>
               </el-table-column>
@@ -430,7 +448,7 @@
         <p v-else class="muted" style="margin-top: 16px">还没拉到字段清单。请确认已登录店铺并重选类目。</p>
         <div class="step-actions">
           <el-button @click="excelStep = 0">上一步</el-button>
-          <el-button type="primary" :disabled="!categorySchema" @click="advanceExcel(2)">下一步，下载完整表</el-button>
+          <el-button type="primary" :disabled="!fullSchemaTableColumns.length" @click="advanceExcel(2)">下一步，下载完整表</el-button>
         </div>
       </div>
 
@@ -445,7 +463,7 @@
             货号、单价、起订量必填。官方必填属性在填写页，标题和详描仍由 AI 补。
           </template>
         </p>
-        <div class="sheet-preview" v-if="previewColumns.length">
+        <div class="sheet-preview sheet-preview-full" v-if="previewColumns.length">
           <table>
             <thead>
               <tr>
@@ -861,6 +879,38 @@ const previewColumns = computed(() => sheetPlan.value.preview?.columns || policy
   required: item.required,
   example: "",
 })));
+const fullSchemaTableColumns = computed(() => {
+  if (tab.value !== "full") return previewColumns.value;
+  const preview = previewColumns.value || [];
+  if (preview.length) return preview;
+  if (!categorySchema.value) return [];
+  const rows = [
+    ...(categorySchema.value.required_fields || []),
+    ...(categorySchema.value.optional_fields || []),
+  ];
+  const core = [
+    { id: "sku", label: "货号", required: true, example: "SKU-1001" },
+    { id: "price", label: "单价 USD", required: true, example: "12.50" },
+    { id: "moq", label: "起订量", required: true, example: "100" },
+    { id: "images", label: "图片", required: false, example: "" },
+    { id: "brand", label: "品牌", required: false, example: "" },
+    { id: "name", label: "品名（中文）", required: false, example: "" },
+  ];
+  const schemaCols = rows.map((row) => ({
+    id: row.field_path || row.field_id || row.name,
+    label: row.label || row.name,
+    required: Boolean(row.required),
+    example: "",
+  }));
+  return [...core, ...schemaCols, { id: "note", label: "备注", required: false, example: "" }];
+});
+const fullSchemaFieldRows = computed(() => {
+  if (!categorySchema.value) return [];
+  return [
+    ...(categorySchema.value.required_fields || []),
+    ...(categorySchema.value.optional_fields || []),
+  ];
+});
 const mappingRows = computed(() => (excel.preview?.headers || []).map((header) => ({ header })));
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
@@ -1028,22 +1078,33 @@ async function persistSession() {
 }
 
 async function syncKind(kind, list) {
-  if (!sessionId.value || restoring.value) return;
+  if (!sessionId.value || restoring.value || !store.user) return;
   const raws = (list || []).filter((item) => item.raw);
   const keep = (list || []).filter((item) => !item.raw && item.name).map((item) => item.name);
-  if (!raws.length && !list?.length) {
+  try {
+    if (!raws.length && !list?.length) {
+      const body = new FormData();
+      body.append("kind", kind);
+      body.append("keep", "");
+      await api.uploadFeedSessionFiles(sessionId.value, body);
+      return;
+    }
+    if (!raws.length) return;
     const body = new FormData();
     body.append("kind", kind);
-    body.append("keep", "");
+    body.append("keep", keep.join(","));
+    raws.forEach((item) => body.append("files", item.raw));
     await api.uploadFeedSessionFiles(sessionId.value, body);
-    return;
+  } catch (error) {
+    const msg = String(error.message || "");
+    if (msg.includes("不在了") || msg.includes("登录")) {
+      if (sessionId.value) {
+        sessionId.value = "";
+        router.replace({ query: {} });
+        await loadOpenSessions();
+      }
+    }
   }
-  if (!raws.length) return;
-  const body = new FormData();
-  body.append("kind", kind);
-  body.append("keep", keep.join(","));
-  raws.forEach((item) => body.append("files", item.raw));
-  await api.uploadFeedSessionFiles(sessionId.value, body);
 }
 
 function filesFromSession(session, kind) {
@@ -1153,6 +1214,14 @@ async function resumeSession(id) {
       }
     }
   } catch (error) {
+    const msg = String(error.message || "");
+    if (msg.includes("不在了")) {
+      ElMessage.warning("这条做到一半的记录已失效，请重新选路");
+      sessionId.value = "";
+      router.replace({ query: {} });
+      await loadOpenSessions();
+      return;
+    }
     ElMessage.error(error.message);
   }
 }
@@ -1366,12 +1435,29 @@ async function importSimple() {
 }
 
 async function loadSheetPlan() {
-  sheetPlan.value = await api.excelSheetPlan({
-    shop_id: store.shopId || "",
-    category_id: excel.categoryId || "",
-    category_name: excel.categoryName || "",
-    style: excel.style || "simple",
-  });
+  try {
+    sheetPlan.value = await api.excelSheetPlan({
+      shop_id: store.shopId || "",
+      category_id: excel.categoryId || "",
+      category_name: excel.categoryName || "",
+      style: excel.style || "simple",
+    });
+  } catch (error) {
+    const msg = String(error.message || "");
+    if (msg.includes("店铺不存在")) {
+      await store.ensureShops();
+      if (store.shopId) {
+        sheetPlan.value = await api.excelSheetPlan({
+          shop_id: store.shopId,
+          category_id: excel.categoryId || "",
+          category_name: excel.categoryName || "",
+          style: excel.style || "simple",
+        });
+        return;
+      }
+    }
+    throw error;
+  }
 }
 
 async function loadCategorySchema() {
@@ -1985,6 +2071,12 @@ async function poll() {
   color: var(--muted);
   font-style: italic;
   background: var(--gray3);
+}
+.sheet-preview-full table {
+  min-width: max-content;
+}
+.sheet-preview th.is-required-col {
+  background: #7f1d1d;
 }
 @media (max-width: 900px) {
   .path-grid,
