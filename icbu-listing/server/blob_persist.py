@@ -30,6 +30,13 @@ def enabled() -> bool:
     return bool(settings.blob_read_write_token and settings.database_url.startswith("sqlite:///"))
 
 
+SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def _looks_like_sqlite(data: bytes) -> bool:
+    return len(data) >= 16 and data[:16] == SQLITE_MAGIC
+
+
 def hydrate_sqlite(dest: Path) -> bool:
     """Download the latest SQLite snapshot into dest, if one exists."""
     if not enabled():
@@ -54,6 +61,9 @@ def hydrate_sqlite(dest: Path) -> bool:
             timeout=settings.blob_timeout_seconds,
         )
         blob.raise_for_status()
+        if not _looks_like_sqlite(blob.content):
+            log.warning("blob hydrate skipped: snapshot is not a SQLite file")
+            return False
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(blob.content)
         return True
