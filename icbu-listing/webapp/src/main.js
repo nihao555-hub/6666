@@ -5,6 +5,10 @@ import "element-plus/dist/index.css";
 
 import App from "./App.vue";
 import router from "./router";
+import { attachApiAuth } from "./api";
+import { store } from "./store";
 import "./styles.css";
+
+attachApiAuth({ router, store });
 
 createApp(App).use(router).use(ElementPlus, { locale: zhCn }).mount("#app");

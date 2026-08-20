@@ -13,6 +13,7 @@ from fastapi import Cookie, Depends, HTTPException, Path
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .crypto import read_session
 from .db import SessionLocal
 from .models import AuthSession, Draft, Shop, User
 
@@ -31,6 +32,11 @@ def current_user(
 ) -> User:
     if not session_token:
         raise HTTPException(status_code=401, detail="请先登录")
+    user_id = read_session(session_token)
+    if user_id:
+        user = db.get(User, user_id)
+        if user is not None:
+            return user
     row = db.get(AuthSession, session_token)
     if row is None or row.expires_at < datetime.utcnow():
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")

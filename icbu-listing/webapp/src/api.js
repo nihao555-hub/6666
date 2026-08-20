@@ -2,11 +2,26 @@ import axios from "axios";
 
 const http = axios.create({ baseURL: "/api/v1", withCredentials: true });
 
+let authRouter = null;
+let authStore = null;
+
+export function attachApiAuth({ router, store }) {
+  authRouter = router;
+  authStore = store;
+}
+
 http.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    const status = error.response?.status;
     const detail = error.response?.data?.detail;
     const message = typeof detail === "string" ? detail : error.message || "请求失败";
+    if (status === 401 && authStore) {
+      authStore.reset();
+      if (authRouter && authRouter.currentRoute.value.path !== "/login") {
+        authRouter.push("/login");
+      }
+    }
     return Promise.reject(new Error(message));
   },
 );

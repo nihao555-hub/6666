@@ -1,60 +1,83 @@
 <template>
-  <el-dialog v-model="open" title="选择类目" width="640px" @open="openNode('0')">
-    <p class="muted" style="margin-bottom: 8px">
-      这是国际站官方类目树，和后台选类目是同一棵。所有店铺看到的一级都一样，不是店里自建的分类。
+  <el-dialog v-model="open" title="选择类目" width="980px" class="category-dialog" @open="onOpen">
+    <p class="muted intro">
+      左侧是国际站官方类目树；右侧是这家店常用叶子类目（最近选过、在线商品里出现过的）。
     </p>
-    <div v-if="recent.length" class="used-box is-recent">
-      <small>最近选过</small>
-      <p class="muted" style="margin: 4px 0 8px">在这家店选过的叶子类目，点一下直接选用。</p>
-      <div class="used-list">
-        <button
-          v-for="item in recent"
-          :key="`recent-${item.category_id}`"
-          type="button"
-          class="used-chip"
-          @click="chooseUsed(item)"
+    <div class="picker-layout">
+      <section class="picker-main">
+        <p class="muted crumbs">
+          <span v-for="(node, index) in path" :key="node.category_id">
+            <el-link type="primary" @click="openNode(node.category_id)">{{ node.name }}</el-link>
+            <span v-if="index < path.length - 1"> / </span>
+          </span>
+          <el-link v-if="path.length" type="info" style="margin-left: 8px" @click="openNode('0')">回到顶层</el-link>
+        </p>
+        <el-table
+          v-loading="loading"
+          :data="children"
+          height="420"
+          empty-text="还没有拉到类目。请确认已登录店铺，或点右侧常用类目。"
+          @row-click="(row) => openNode(row.category_id)"
         >
-          <b>{{ item.path_label || item.label }}</b>
-          <span class="muted">{{ usedHint(item) }}</span>
-        </button>
-      </div>
+          <el-table-column label="类目" min-width="260">
+            <template #default="{ row }">
+              {{ row.label }}
+              <span v-if="row.is_leaf" class="status-pill green" style="margin-left: 6px">可发布</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="110" align="right">
+            <template #default="{ row }">
+              <el-button v-if="row.is_leaf" text type="primary" @click.stop="pick(row)">选这个</el-button>
+              <span v-else class="muted">进入</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
+
+      <aside class="picker-side">
+        <div class="side-block">
+          <h4>商家常用类目</h4>
+          <p class="muted side-note">来自这家店在线商品、草稿和最近选过的叶子类目。</p>
+        </div>
+
+        <div v-if="recent.length" class="side-block">
+          <small>最近选过</small>
+          <div class="used-list">
+            <button
+              v-for="item in recent"
+              :key="`recent-${item.category_id}`"
+              type="button"
+              class="used-chip"
+              @click="chooseUsed(item)"
+            >
+              <b>{{ item.path_label || item.label }}</b>
+              <span class="muted">{{ usedHint(item) }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="used.length" class="side-block">
+          <small>店里上过</small>
+          <div class="used-list">
+            <button
+              v-for="item in used"
+              :key="item.category_id"
+              type="button"
+              class="used-chip"
+              @click="chooseUsed(item)"
+            >
+              <b>{{ item.path_label || item.label }}</b>
+              <span class="muted">{{ usedHint(item) }}</span>
+            </button>
+          </div>
+        </div>
+
+        <p v-if="!loadingSide && !recent.length && !used.length" class="muted side-empty">
+          还没有常用类目。先在线发几个货，或从左侧树里选一次，之后就会出现在这里。
+        </p>
+        <p v-if="loadingSide" class="muted side-empty">正在拉常用类目…</p>
+      </aside>
     </div>
-    <div v-if="used.length" class="used-box">
-      <small>这家店已经上过的</small>
-      <p class="muted" style="margin: 4px 0 8px">从在线商品和本地草稿汇总，点一下就能选到可发布的叶子。</p>
-      <div class="used-list">
-        <button
-          v-for="item in used"
-          :key="item.category_id"
-          type="button"
-          class="used-chip"
-          @click="chooseUsed(item)"
-        >
-          <b>{{ item.label }}</b>
-          <span class="muted">{{ usedHint(item) }}</span>
-        </button>
-      </div>
-    </div>
-    <p class="muted" style="margin-bottom: 10px">
-      <span v-for="(node, index) in path" :key="node.category_id">
-        <el-link type="primary" @click="openNode(node.category_id)">{{ node.name }}</el-link>
-        <span v-if="index < path.length - 1"> / </span>
-      </span>
-      <el-link v-if="path.length" type="info" style="margin-left: 8px" @click="openNode('0')">回到顶层</el-link>
-    </p>
-    <el-table :data="children" height="360" @row-click="(row) => openNode(row.category_id)">
-      <el-table-column label="类目" min-width="240">
-        <template #default="{ row }">
-          {{ row.label }}
-          <span v-if="row.is_leaf" class="status-pill green" style="margin-left: 6px">可发布</span>
-        </template>
-      </el-table-column>
-      <el-table-column width="110" align="right">
-        <template #default="{ row }">
-          <el-button v-if="row.is_leaf" text type="primary" @click.stop="pick(row)">选这个</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
   </el-dialog>
 </template>
 
@@ -70,10 +93,13 @@ const props = defineProps({
 const emit = defineEmits(["update:modelValue", "pick"]);
 
 const open = ref(props.modelValue);
+const loading = ref(false);
+const loadingSide = ref(false);
 const children = ref([]);
 const path = ref([]);
 const recent = ref([]);
 const used = ref([]);
+const sideLoaded = ref(false);
 
 watch(
   () => props.modelValue,
@@ -100,22 +126,51 @@ function chooseUsed(item) {
   openNode(item.category_id);
 }
 
+async function loadSidebar() {
+  if (!store.shopId) return;
+  loadingSide.value = true;
+  try {
+    const data = await api.categories(store.shopId, "0");
+    recent.value = data.recent || [];
+    used.value = data.used || [];
+    sideLoaded.value = true;
+  } catch (error) {
+    if (!String(error.message || "").includes("登录")) {
+      ElMessage.error(error.message);
+    }
+  } finally {
+    loadingSide.value = false;
+  }
+}
+
 async function openNode(parent) {
   if (!store.shopId) {
     ElMessage.warning("先登录一个店铺");
     return;
   }
+  loading.value = true;
   try {
     const data = await api.categories(store.shopId, parent);
     children.value = data.children || [];
     path.value = data.path || [];
-    if (parent === "0") {
+    if (parent === "0" && !sideLoaded.value) {
       recent.value = data.recent || [];
       used.value = data.used || [];
+      sideLoaded.value = true;
     }
   } catch (error) {
+    children.value = [];
     ElMessage.error(error.message);
+  } finally {
+    loading.value = false;
   }
+}
+
+async function onOpen() {
+  sideLoaded.value = false;
+  recent.value = [];
+  used.value = [];
+  await Promise.all([openNode("0"), loadSidebar()]);
 }
 
 function pathLabel(node) {
@@ -142,26 +197,57 @@ function pick(row) {
 </script>
 
 <style scoped>
-.used-box {
-  margin: 0 0 14px;
-  padding: 10px 12px;
+.intro {
+  margin: 0 0 12px;
+}
+.picker-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr);
+  gap: 14px;
+  min-height: 460px;
+}
+.picker-main {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  padding: 10px 12px 12px;
+  background: var(--surface);
+}
+.picker-side {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
   background: var(--gray3);
+  overflow: auto;
+  max-height: 460px;
 }
-.used-box.is-recent {
-  border-color: var(--accent-line);
-  background: var(--accent-wash);
+.crumbs {
+  margin: 0 0 10px;
+  min-height: 22px;
 }
-.used-box small {
+.side-block + .side-block {
+  margin-top: 14px;
+}
+.side-block h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.side-note,
+.side-empty {
+  margin: 0;
+  font-size: 12px;
+}
+.side-block small {
   display: block;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+  margin-bottom: 8px;
 }
 .used-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
 }
 .used-chip {
@@ -173,7 +259,7 @@ function pick(row) {
   cursor: pointer;
   font: inherit;
   color: inherit;
-  max-width: 100%;
+  width: 100%;
 }
 .used-chip:hover {
   border-color: var(--accent-line);
@@ -183,5 +269,13 @@ function pick(row) {
   display: block;
   font-size: 13px;
   font-weight: 600;
+}
+@media (max-width: 860px) {
+  .picker-layout {
+    grid-template-columns: 1fr;
+  }
+  .picker-side {
+    max-height: none;
+  }
 }
 </style>

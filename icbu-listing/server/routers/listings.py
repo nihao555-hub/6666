@@ -871,8 +871,8 @@ def browse_categories(
     recent: list[dict[str, Any]] = []
     used: list[dict[str, Any]] = []
     if parent == "0":
-        recent = shop_categories.recent_picks(db, api, shop, user)
-        used = shop_categories.used_leaves(db, api, shop, include_online=False)
+        recent = shop_categories.recent_picks(db, api, shop, user, fetch=True)
+        used = shop_categories.used_leaves(db, api, shop, include_online=True)
     return {
         "origin": "official_icbu_tree",
         "note": "这是国际站官方类目树，和后台选类目是同一棵。上面「最近选过」是你在这家店点过的叶子；「已经上过的」来自在线商品和本地草稿。",

@@ -15,12 +15,24 @@ export const store = reactive({
   },
 
   async loadUser() {
-    this.user = await api.me();
-    return this.user;
+    try {
+      this.user = await api.me();
+      return this.user;
+    } catch (error) {
+      this.reset();
+      throw error;
+    }
   },
 
   async loadShops() {
-    this.shops = await api.shops();
+    try {
+      this.shops = await api.shops();
+    } catch (error) {
+      if (String(error.message || "").includes("登录")) {
+        this.reset();
+      }
+      throw error;
+    }
     if (!this.shops.some((item) => item.id === this.shopId)) {
       this.selectShop(this.shops[0]?.id || "");
     }

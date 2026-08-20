@@ -89,3 +89,14 @@ def read_state(state: str) -> dict[str, object] | None:
     if not isinstance(payload, dict) or payload.get("exp", 0) < time.time():
         return None
     return payload
+
+
+def sign_session(user_id: str, ttl_seconds: int) -> str:
+    return sign_state({"user_id": user_id, "kind": "session"}, ttl_seconds)
+
+
+def read_session(token: str) -> str:
+    payload = read_state(token)
+    if not payload or payload.get("kind") != "session":
+        return ""
+    return str(payload.get("user_id") or "").strip()

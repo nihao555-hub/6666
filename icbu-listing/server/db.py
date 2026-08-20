@@ -72,3 +72,9 @@ def session_scope() -> Iterator[Session]:
         yield db
     finally:
         db.close()
+
+
+def persist_database() -> None:
+    path = _sqlite_path()
+    if path is not None:
+        persist_sqlite(path)

@@ -18,6 +18,7 @@ os.environ["REGISTRATION_CODES"] = "TEST-CODE"
 os.environ["ALIBABA_APP_KEY"] = "test-key"
 os.environ["ALIBABA_APP_SECRET"] = "test-secret"
 os.environ["ALIBABA_ACCESS_TOKEN"] = "test-token"
+os.environ["COOKIE_SECURE"] = "false"
 os.environ.pop("OPENAI_API_KEY", None)
 
 from fastapi.testclient import TestClient  # noqa: E402

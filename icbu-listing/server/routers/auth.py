@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import secrets
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -8,8 +7,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..crypto import hash_password, verify_password
+from ..crypto import hash_password, sign_session, verify_password
 from ..deps import current_user, get_db
+from ..db import persist_database
 from ..models import AuthSession, Shop, User
 from ..services.shop_bootstrap import ensure_env_shop
 
@@ -28,10 +28,11 @@ class LoginIn(BaseModel):
 
 
 def _open_session(db: Session, response: Response, user: User) -> None:
-    token = secrets.token_urlsafe(32)
+    token = sign_session(user.id, settings.session_days * 86400)
     expires = datetime.utcnow() + timedelta(days=settings.session_days)
     db.add(AuthSession(token=token, user_id=user.id, expires_at=expires))
     db.commit()
+    persist_database()
     response.set_cookie(
         settings.session_cookie,
         token,
@@ -72,6 +73,7 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)) -
     _open_session(db, response, user)
     if not db.query(Shop).filter(Shop.user_id == user.id).count():
         ensure_env_shop(db, user)
+        persist_database()
     return _profile(user)
 
 
@@ -83,6 +85,7 @@ def logout(
 ) -> dict[str, bool]:
     db.query(AuthSession).filter(AuthSession.user_id == user.id).delete()
     db.commit()
+    persist_database()
     response.delete_cookie(settings.session_cookie, path="/")
     return {"ok": True}
 

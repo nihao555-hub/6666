@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import ROOT, settings
-from .db import init_db
+from .db import init_db, persist_database
 from .routers import auth, excel, feed_sessions, image_templates, listings, overview, products, shops, templates
 
 app = FastAPI(title="Auto Shoper · 国际站批量上品", version="0.2.0")
@@ -32,6 +32,14 @@ app.include_router(overview.router)
 app.include_router(image_templates.router)
 app.include_router(image_templates.public_router)
 app.include_router(feed_sessions.router)
+
+
+@app.middleware("http")
+async def persist_sqlite_snapshot(request: Request, call_next):
+    response = await call_next(request)
+    if request.method != "GET" or request.url.path.startswith("/api/v1/auth"):
+        persist_database()
+    return response
 
 
 @app.on_event("startup")
