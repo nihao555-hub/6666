@@ -87,33 +87,50 @@ class Settings:
         return bool(self.grsai_api_key)
 
 
+def _runtime_data_root() -> Path:
+    """Writable storage root. Vercel/Lambda only allow /tmp."""
+    explicit = os.environ.get("DATA_ROOT", "").strip()
+    if explicit:
+        path = Path(explicit)
+        if not path.is_absolute():
+            path = ROOT / path
+    elif os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        path = Path("/tmp/auto-shoper")
+    else:
+        path = ROOT / "data"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _resolve_data_path(raw: str, default_name: str) -> Path:
+    if raw.strip():
+        path = Path(raw.strip())
+    else:
+        path = Path(default_name)
+    if path.is_absolute():
+        return path
+    if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        return _runtime_data_root() / path.name
+    return ROOT / path
+
+
 def _database_url() -> str:
     explicit = os.environ.get("DATABASE_URL")
     if explicit:
         return explicit
-    path = Path(os.environ.get("DATABASE_PATH", "data/auto-shoper.db"))
-    if not path.is_absolute():
-        path = ROOT / path
+    path = _resolve_data_path(os.environ.get("DATABASE_PATH", ""), "auto-shoper.db")
     path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{path}"
 
 
 def _upload_dir() -> Path:
-    path = Path(os.environ.get("UPLOAD_DIR", "data/uploads"))
-    if not path.is_absolute():
-        path = ROOT / path
+    path = _resolve_data_path(os.environ.get("UPLOAD_DIR", ""), "uploads")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _generated_dir() -> Path:
-    explicit = os.environ.get("GENERATED_DIR")
-    if explicit:
-        path = Path(explicit)
-    else:
-        path = _upload_dir().parent / "generated-images"
-    if not path.is_absolute():
-        path = ROOT / path
+    path = _resolve_data_path(os.environ.get("GENERATED_DIR", ""), "generated-images")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
