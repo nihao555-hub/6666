@@ -91,7 +91,7 @@ def _columns_for_style(
     fetch: bool = True,
 ) -> list[dict[str, Any]]:
     if style == "full_schema":
-        return _schema_columns(db, user, shop_id, category_id, fetch=fetch)
+        return _attr_columns(db, user, shop_id, category_id, fetch=fetch)
     if style == "simple":
         return _attr_columns(db, user, shop_id, category_id, fetch=fetch)
     return []

@@ -21,7 +21,7 @@
       <div class="chooser">
         <h3>先选一种上品方式</h3>
         <p class="muted">四条路最后都是：你出图、单价、起订量；没写的数系统不会编。</p>
-        <div class="path-grid path-grid-4">
+        <div class="path-grid path-grid-3">
           <button class="path-card" @click="startPath('photo')">
             <small>默认走这条</small>
             <b>有实拍</b>
@@ -35,12 +35,7 @@
           <button class="path-card" @click="startPath('excel')">
             <small>一次很多、每个价不一样</small>
             <b>填表批量</b>
-            <p class="muted">下载短表，一行一个商品。有图可原图上架、补齐转化位或重画套图；没图可画可跳过。</p>
-          </button>
-          <button class="path-card" @click="startPath('full')">
-            <small>看官方 schema 到底要填啥</small>
-            <b>完全自己填</b>
-            <p class="muted">选叶子类目后先看要填哪些项（全中文列名），再下载完整表自己填完导入。</p>
+            <p class="muted">短表一行一个货：货号、价、起订量、图。必填属性在表里，标题和详描 AI 补。</p>
           </button>
         </div>
       </div>
@@ -346,123 +341,29 @@
       </div>
     </template>
 
-    <!-- 表格批量 / 完全自己填 -->
-    <template v-else-if="tab === 'excel' || tab === 'full'">
-      <FishboneSteps
-        v-model="excelStep"
-        :steps="tab === 'full' ? fullSteps : excelSteps"
-        :reached="excelReached"
-      />
+    <!-- 表格批量 -->
+    <template v-else-if="tab === 'excel'">
+      <FishboneSteps v-model="excelStep" :steps="excelSteps" :reached="excelReached" />
 
       <div v-if="excelStep === 0" class="step-panel">
-        <h3>{{ tab === 'full' ? '先选叶子类目' : '这批货是哪一类' }}</h3>
-        <p class="muted">
-          <template v-if="tab === 'full'">
-            整表共用一个叶子类目。选完后会列出全部必填和选填列（中文表头），再下载完整填写表。
-          </template>
-          <template v-else>
-            一次上很多、每个价不一样时用短表。整表共用一个叶子类目。选完后下载的表按该类目官方 schema 生成列——7540 个叶子类目各有一套。
-          </template>
-        </p>
+        <h3>这批货是哪一类</h3>
+        <p class="muted">整表共用一个叶子类目。选完后下载短表，一行一个商品。</p>
         <div style="margin-top: 16px">
           <el-button @click="openCategory">{{ sheetPlan.category_name || excel.categoryName || "选择类目" }}</el-button>
-          <p v-if="tab === 'full' && sheetPlan.sheet?.family_id === 'full_schema'" class="muted" style="margin-top: 10px">
-            已选类目。下一步会列出全部要填的列：必填 {{ sheetPlan.sheet?.required_count || 0 }} 项、选填 {{ sheetPlan.sheet?.optional_count || 0 }} 项。
+          <p v-if="sheetPlan.sheet?.family_id === 'leaf' && schemaColumnLabels.length" class="muted" style="margin-top: 10px">
+            表里还会带上这个类目的必填属性：{{ schemaColumnLabels.join("、") }}
           </p>
-          <p v-else-if="sheetPlan.sheet?.family_id === 'leaf'" class="muted" style="margin-top: 10px">
-            填写表按这个叶子的官方 schema 生成
-            <template v-if="schemaColumnLabels.length">：{{ schemaColumnLabels.join("、") }}</template>。
-          </p>
-          <p v-else-if="sheetPlan.sheet?.family_name" class="muted" style="margin-top: 10px">
-            还没拉到 schema 时先用「{{ sheetPlan.sheet.family_name }}」兜底列
-            <template v-if="familySpecLabels.length">：{{ familySpecLabels.join("、") }}</template>。
-          </p>
-          <p v-if="officialLoading || schemaLoading" class="muted" style="margin-top: 6px">正在拉这个叶子的官方 schema…</p>
-          <p v-else-if="sheetPlan.sheet?.family_id === 'leaf' && schemaColumnLabels.length" class="muted" style="margin-top: 6px">
-            上面这些列会出现在下载的填写表里，请按官方下拉选项选。
-          </p>
-          <p v-else-if="officialAttrLabels.length" class="muted" style="margin-top: 6px">
-            这个叶子的官方必填：{{ officialAttrLabels.join("、") }}（会出现在下载的填写表里）。
-          </p>
+          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在拉类目属性…</p>
         </div>
         <div class="step-actions">
-          <el-button type="primary" :disabled="!excel.categoryId" @click="advanceFromCategoryStep">
-            {{ tab === 'full' ? '下一步，看必填选填' : '下一步，下载表格' }}
-          </el-button>
-        </div>
-      </div>
-
-      <div v-else-if="tab === 'full' && excelStep === 1" class="step-panel">
-        <h3>这个类目要填哪些项</h3>
-        <p class="muted">
-          下面每一列都是下载表里会出现的中文表头。必填 {{ categorySchema?.required_count ?? 0 }} 项、选填 {{ categorySchema?.optional_count ?? 0 }} 项，共 {{ fullSchemaTableColumns.length }} 列。有下拉的列请选官方选项，不要选「其他 / Other」。
-        </p>
-        <div v-if="schemaLoading" class="muted" style="margin-top: 16px">正在加载字段清单…</div>
-        <template v-else-if="fullSchemaTableColumns.length">
-          <div class="schema-summary">
-            <span class="schema-stat is-required">必填 {{ categorySchema?.required_count ?? 0 }}</span>
-            <span class="schema-stat">选填 {{ categorySchema?.optional_count ?? 0 }}</span>
-            <span class="schema-stat muted">共 {{ fullSchemaTableColumns.length }} 列</span>
-          </div>
-          <div class="sheet-preview sheet-preview-full">
-            <table>
-              <thead>
-                <tr>
-                  <th
-                    v-for="col in fullSchemaTableColumns"
-                    :key="col.id"
-                    :class="{ 'is-required-col': col.required }"
-                  >
-                    {{ col.label }}<span v-if="col.required" class="need">必填</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr class="is-sample">
-                  <td v-for="col in fullSchemaTableColumns" :key="`${col.id}-sample`">{{ col.example || "—" }}</td>
-                </tr>
-                <tr>
-                  <td v-for="col in fullSchemaTableColumns" :key="`${col.id}-empty`">
-                    <span class="muted">{{ col.id === "sku" ? "从这行开始写" : "" }}</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p class="muted" style="margin-top: 8px">灰色示例行导入时自动跳过。左右可滚动查看全部列。</p>
-          </div>
-          <details class="schema-block" style="margin-top: 14px">
-            <summary>字段明细（展开看填写方式）</summary>
-            <el-table :data="fullSchemaFieldRows" size="small" max-height="360" style="margin-top: 10px">
-              <el-table-column prop="label" label="列名" min-width="220" />
-              <el-table-column prop="field_type_label" label="填写方式" width="100" />
-              <el-table-column label="必填" width="70">
-                <template #default="{ row }">{{ row.required ? "是" : "否" }}</template>
-              </el-table-column>
-              <el-table-column label="下拉选项数" width="100">
-                <template #default="{ row }">{{ row.option_count || 0 }}</template>
-              </el-table-column>
-            </el-table>
-          </details>
-        </template>
-        <p v-else class="muted" style="margin-top: 16px">还没拉到字段清单。请确认已登录店铺并重选类目。</p>
-        <div class="step-actions">
-          <el-button @click="excelStep = 0">上一步</el-button>
-          <el-button type="primary" :disabled="!fullSchemaTableColumns.length" @click="advanceExcel(2)">下一步，下载完整表</el-button>
+          <el-button type="primary" :disabled="!excel.categoryId" @click="advanceFromCategoryStep">下一步，下载表格</el-button>
         </div>
       </div>
 
       <div v-else-if="excelDownloadStep" class="step-panel">
-        <h3>下载「{{ sheetPlan.sheet?.title || (tab === 'full' ? '完整填写表' : '填写表') }}」</h3>
-        <p class="muted">
-          {{ sheetPlan.sheet?.guide || "选了叶子类目后，这张表会按官方 schema 生成填写列。" }}
-          <template v-if="tab === 'full'">
-            货号、单价、起订量必填；表里含 schema 返回的全部必填与选填列，标题/详描也在表里自己填。
-          </template>
-          <template v-else>
-            货号、单价、起订量必填。官方必填属性在填写页，标题和详描仍由 AI 补。
-          </template>
-        </p>
-        <div class="sheet-preview sheet-preview-full" v-if="previewColumns.length">
+        <h3>下载「{{ sheetPlan.sheet?.title || "填写表" }}」</h3>
+        <p class="muted">只填货号、单价、起订量；有图可写文件名或链接。标题、关键词、详描和选填属性交给 AI，导入后逐条审一下。</p>
+        <div class="sheet-preview" v-if="previewColumns.length">
           <table>
             <thead>
               <tr>
@@ -481,67 +382,15 @@
               </tr>
               <tr>
                 <td v-for="col in previewColumns" :key="`${col.id}-empty`">
-                  <span class="muted">{{ col.id === "sku" ? "从这行开始写你的货" : "" }}</span>
+                  <span class="muted">{{ col.id === "sku" ? "从这行开始写" : "" }}</span>
                 </td>
               </tr>
             </tbody>
           </table>
-          <p class="muted" style="margin-top: 8px">灰色那行是示例，导入时自动跳过。一行一个商品，往下接着写。</p>
         </div>
-        <div class="policy-grid" style="margin-top: 16px">
-          <section class="policy-card">
-            <small>你填</small>
-            <b>就这几列</b>
-            <ul>
-              <li v-for="item in policy.user_fills" :key="item.id">
-                {{ item.label }}<span v-if="!item.required" class="muted"> 选填</span>
-              </li>
-            </ul>
-          </section>
-          <section class="policy-card">
-            <small>店里套</small>
-            <b>不进表，填一次</b>
-            <ul>
-              <li v-for="item in policy.shop_fills" :key="item.id">{{ item.label }}</li>
-            </ul>
-          </section>
-          <section class="policy-card">
-            <small>AI 填</small>
-            <b>{{ tab === 'full' ? '无（全在表里）' : (sheetPlan.sheet?.family_id === 'leaf' ? '标题 / 详描' : '这个叶子的官方必填') }}</b>
-            <ul v-if="tab !== 'full'">
-              <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
-            </ul>
-            <p v-else class="muted" style="margin-top: 8px">完整表模式：schema 字段都在填写页，不交给 AI 猜。</p>
-            <p v-if="officialLoading" class="muted" style="margin-top: 8px">正在拉这个类目的官方字段…</p>
-          </section>
-          <section class="policy-card is-redline">
-            <small>红线</small>
-            <b>不准交给 AI</b>
-            <ul>
-              <li v-for="item in policy.redline" :key="item.id">
-                <strong>{{ item.label }}</strong>
-              </li>
-            </ul>
-          </section>
-        </div>
-        <el-alert
-          type="warning"
-          show-icon
-          :closable="false"
-          :title="policy.guarantee"
-          style="margin-top: 12px"
-        />
-        <p class="muted" style="margin-top: 10px">
-          <template v-if="tab === 'full'">
-            完整表含该类目全部列（中文表头）。填完导入后每条还要人审，点「审过了」才能发。
-          </template>
-          <template v-else>
-            填写表按所选叶子类目的官方 schema 生成列（7540 类各不同）。标题和详描仍由 AI 补。填完表不能撒手：导入后每条还要打开看标题和属性，点「审过了」才能发。
-          </template>
-        </p>
-        <div class="step-actions">
+        <div class="step-actions" style="margin-top: 16px">
           <el-button @click="backFromDownloadStep">上一步</el-button>
-          <el-button type="primary" @click="downloadAndAdvance">{{ tab === 'full' ? '下载完整表' : '下载填写表' }}</el-button>
+          <el-button type="primary" @click="downloadAndAdvance">下载填写表</el-button>
         </div>
       </div>
 
@@ -659,12 +508,7 @@
 
       <div v-else-if="excelGoStep" class="step-panel">
         <h3>成稿之后还要人审</h3>
-        <p class="muted">
-          <template v-if="tab === 'full'">填完完整表不能撒手不管。</template>
-          <template v-else>填完短表不能撒手不管。</template>
-          {{ excelGoHint }}
-          导入后每条还要打开核对标题和官方属性，点「审过了」才能发。选错但合法的选项（HB 写成 2B）红线拦不住，只能人看出来。
-        </p>
+        <p class="muted">填完短表不能撒手。{{ excelGoHint }} 导入后逐条核对，点「审过了」才能发。</p>
         <div class="step-actions">
           <el-button @click="backFromGoStep">上一步</el-button>
           <el-button
@@ -801,15 +645,6 @@ const excelSteps = [
   { key: "img", label: "图怎么处理" },
   { key: "go", label: "成稿人审" },
 ];
-const fullSteps = [
-  { key: "cat", label: "选类目" },
-  { key: "schema", label: "看必填选填" },
-  { key: "dl", label: "下载完整表" },
-  { key: "up", label: "传回表格" },
-  { key: "img", label: "图怎么处理" },
-  { key: "go", label: "成稿人审" },
-];
-
 const templates = ref({ families: [], sources: [] });
 const imageJob = ref(null);
 const aiForm = reactive({
@@ -852,8 +687,6 @@ const excel = reactive({
 });
 const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null, sheet: null });
 const officialLoading = ref(false);
-const schemaLoading = ref(false);
-const categorySchema = ref(null);
 const categoryBrowser = ref(false);
 const excelProgress = ref({ done: 0 });
 let timer = null;
@@ -861,7 +694,7 @@ let excelTimer = null;
 let imageTimer = null;
 
 const currentStyle = computed(() => styles.value.find((item) => item.id === excel.style));
-const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple"));
+const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple" && item.id !== "full_schema"));
 const policy = computed(() => ({
   user_fills: sheetPlan.value.user_fills?.length ? sheetPlan.value.user_fills : currentStyle.value?.policy?.user_fills || [],
   shop_fills: sheetPlan.value.shop_fills?.length ? sheetPlan.value.shop_fills : currentStyle.value?.policy?.shop_fills || [],
@@ -878,38 +711,6 @@ const previewColumns = computed(() => sheetPlan.value.preview?.columns || policy
   required: item.required,
   example: "",
 })));
-const fullSchemaTableColumns = computed(() => {
-  if (tab.value !== "full") return previewColumns.value;
-  const preview = previewColumns.value || [];
-  if (preview.length) return preview;
-  if (!categorySchema.value) return [];
-  const rows = [
-    ...(categorySchema.value.required_fields || []),
-    ...(categorySchema.value.optional_fields || []),
-  ];
-  const core = [
-    { id: "sku", label: "货号", required: true, example: "SKU-1001" },
-    { id: "price", label: "单价 USD", required: true, example: "12.50" },
-    { id: "moq", label: "起订量", required: true, example: "100" },
-    { id: "images", label: "图片", required: false, example: "" },
-    { id: "brand", label: "品牌", required: false, example: "" },
-    { id: "name", label: "品名（中文）", required: false, example: "" },
-  ];
-  const schemaCols = rows.map((row) => ({
-    id: row.field_path || row.field_id || row.name,
-    label: row.label || row.name,
-    required: Boolean(row.required),
-    example: "",
-  }));
-  return [...core, ...schemaCols, { id: "note", label: "备注", required: false, example: "" }];
-});
-const fullSchemaFieldRows = computed(() => {
-  if (!categorySchema.value) return [];
-  return [
-    ...(categorySchema.value.required_fields || []),
-    ...(categorySchema.value.optional_fields || []),
-  ];
-});
 const mappingRows = computed(() => (excel.preview?.headers || []).map((header) => ({ header })));
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
@@ -930,21 +731,12 @@ const officialAttrLabels = computed(() =>
     .slice(0, 8),
 );
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
-const isFullPath = computed(() => tab.value === "full");
-const excelDownloadStep = computed(
-  () => (isFullPath.value && excelStep.value === 2) || (!isFullPath.value && excelStep.value === 1),
-);
-const excelUploadStep = computed(
-  () => (isFullPath.value && excelStep.value === 3) || (!isFullPath.value && excelStep.value === 2),
-);
-const excelImageStep = computed(
-  () => (isFullPath.value && excelStep.value === 4) || (!isFullPath.value && excelStep.value === 3),
-);
-const excelGoStep = computed(
-  () => (isFullPath.value && excelStep.value === 5) || (!isFullPath.value && excelStep.value === 4),
-);
-const excelImageStepIndex = computed(() => (isFullPath.value ? 4 : 3));
-const excelGoStepIndex = computed(() => (isFullPath.value ? 5 : 4));
+const excelDownloadStep = computed(() => excelStep.value === 1);
+const excelUploadStep = computed(() => excelStep.value === 2);
+const excelImageStep = computed(() => excelStep.value === 3);
+const excelGoStep = computed(() => excelStep.value === 4);
+const excelImageStepIndex = computed(() => 3);
+const excelGoStepIndex = computed(() => 4);
 const excelImageUploadHint = computed(() => {
   if (excel.photoPolicy === "boost") {
     return "有本地图或表里的链接都只当认货参考。没图的行看下面第二条。";
@@ -999,8 +791,7 @@ function applyExcelImageMode(raw, photo, empty) {
 
 function pathToTab(path) {
   if (path === "ai") return "ai";
-  if (path === "full") return "full";
-  if (path === "excel") return "excel";
+  if (path === "excel" || path === "full") return "excel";
   return "single";
 }
 
@@ -1041,13 +832,13 @@ function sessionPayload() {
 
 function currentStep() {
   if (tab.value === "ai") return aiStep.value;
-  if (tab.value === "excel" || tab.value === "full") return excelStep.value;
+  if (tab.value === "excel") return excelStep.value;
   return photoStep.value;
 }
 
 function currentReached() {
   if (tab.value === "ai") return aiReached.value;
-  if (tab.value === "excel" || tab.value === "full") return excelReached.value;
+  if (tab.value === "excel") return excelReached.value;
   return photoReached.value;
 }
 
@@ -1154,11 +945,12 @@ function applySession(session) {
   if (tab.value === "ai") {
     aiStep.value = session.step || 0;
     aiReached.value = session.reached || 0;
-  } else if (tab.value === "excel" || tab.value === "full") {
+  } else if (tab.value === "excel") {
     excelStep.value = session.step || 0;
     excelReached.value = session.reached || 0;
     if (session.path === "full") {
-      excel.style = payload.excel?.style || "full_schema";
+      excel.style = "simple";
+      excelStep.value = Math.min(excelStep.value, excelSteps.length - 1);
     }
   } else {
     photoStep.value = session.step || 0;
@@ -1169,14 +961,12 @@ function applySession(session) {
 
 async function startPath(path) {
   try {
-    const created = await api.createFeedSession({ path, shop_id: store.shopId || "" });
-    if (path === "full") {
-      excel.style = "full_schema";
+    const sessionPath = path === "full" ? "excel" : path;
+    const created = await api.createFeedSession({ path: sessionPath, shop_id: store.shopId || "" });
+    if (sessionPath === "excel") {
+      excel.style = "simple";
       excelStep.value = 0;
       excelReached.value = 0;
-      categorySchema.value = null;
-    } else if (path === "excel") {
-      excel.style = "simple";
     }
     applySession(created);
     router.replace({ query: { session: created.id } });
@@ -1208,9 +998,6 @@ async function resumeSession(id) {
     if (excel.categoryId) {
       await loadSheetPlan();
       loadOfficialAttrs();
-      if (tab.value === "full") {
-        await loadCategorySchema();
-      }
     }
   } catch (error) {
     const msg = String(error.message || "");
@@ -1459,48 +1246,27 @@ async function loadSheetPlan() {
   }
 }
 
-async function loadCategorySchema() {
-  if (!store.shopId || !excel.categoryId) {
-    categorySchema.value = null;
-    return;
-  }
-  schemaLoading.value = true;
-  try {
-    categorySchema.value = await api.categorySchema(store.shopId, excel.categoryId);
-  } catch (error) {
-    categorySchema.value = null;
-    ElMessage.error(error.message);
-  } finally {
-    schemaLoading.value = false;
-  }
-}
-
 async function advanceFromCategoryStep() {
-  if (isFullPath.value) {
-    await loadCategorySchema();
-    advanceExcel(1);
-    return;
-  }
   advanceExcel(1);
 }
 
 function backFromDownloadStep() {
-  excelStep.value = isFullPath.value ? 1 : 0;
+  excelStep.value = 0;
   persistSession();
 }
 
 function backFromUploadStep() {
-  excelStep.value = isFullPath.value ? 2 : 1;
+  excelStep.value = 1;
   persistSession();
 }
 
 function backFromImageStep() {
-  excelStep.value = isFullPath.value ? 3 : 2;
+  excelStep.value = 2;
   persistSession();
 }
 
 function backFromGoStep() {
-  excelStep.value = isFullPath.value ? 4 : 3;
+  excelStep.value = 3;
   persistSession();
 }
 
@@ -1526,7 +1292,7 @@ function openCategory() {
     ElMessage.warning("先登录一个店铺");
     return;
   }
-  categoryTarget.value = tab.value === "full" ? "full" : "excel";
+  categoryTarget.value = "excel";
   categoryBrowser.value = true;
 }
 
@@ -1556,23 +1322,12 @@ async function pickCategory(node) {
       .catch(() => {});
     return;
   }
-  const isFull = categoryTarget.value === "full";
-  if (isFull) {
-    excel.style = "full_schema";
-  }
+  excel.style = "simple";
   excel.categoryId = node.category_id;
   excel.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
   try {
     await loadSheetPlan();
-    if (isFull) {
-      await loadCategorySchema();
-      ElMessage.success(
-        `已选「${sheetPlan.value.category_name || excel.categoryName}」，必填 ${categorySchema.value?.required_count ?? "?"} / 选填 ${categorySchema.value?.optional_count ?? "?"}`,
-      );
-      advanceExcel(1);
-      return;
-    }
-    ElMessage.success(`已选「${sheetPlan.value.category_name || excel.categoryName}」，填写表将按该类目 schema 生成`);
+    ElMessage.success(`已选「${sheetPlan.value.category_name || excel.categoryName}」，下载表将带上该类目必填属性`);
     advanceExcel(1);
     loadOfficialAttrs();
   } catch (error) {
@@ -1590,7 +1345,7 @@ function downloadTemplate() {
 
 function downloadAndAdvance() {
   downloadTemplate();
-  advanceExcel(isFullPath.value ? 3 : 2);
+  advanceExcel(2);
 }
 
 async function previewExcel() {
@@ -1801,12 +1556,12 @@ async function poll() {
 .path-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.path-grid-4 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.path-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 @media (min-width: 960px) {
-  .path-grid-4 {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .path-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 .schema-summary {

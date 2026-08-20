@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +26,9 @@ from server.db import init_db  # noqa: E402
 from server.main import app  # noqa: E402
 
 
-def signup(email: str) -> TestClient:
+def signup(tag: str = "user") -> TestClient:
     client = TestClient(app)
+    email = f"{tag}-{uuid.uuid4().hex[:10]}@example.com"
     response = client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": "supersecret", "code": "TEST-CODE"},
@@ -41,7 +43,7 @@ class SheetPlanTests(unittest.TestCase):
         init_db()
 
     def test_sheet_plan_uses_family_without_category_id(self) -> None:
-        client = signup("sheet-plan@example.com")
+        client = signup("sheet-plan")
         pencils = client.get(
             "/api/v1/excel/sheet-plan",
             params={"category_name": "Office & School Supplies / Colored Pencils"},
@@ -63,7 +65,7 @@ class SheetPlanTests(unittest.TestCase):
         self.assertNotEqual(pencil_cols, brush_cols)
 
     def test_sheet_plan_uses_leaf_schema_when_category_id_set(self) -> None:
-        client = signup("leaf-plan@example.com")
+        client = signup("leaf-plan")
         shop_id = client.post("/api/v1/shops/bind-env", json={"name": "schema店"}).json()["id"]
         with unittest.mock.patch(
             "server.routers.excel._attr_columns",
@@ -92,7 +94,7 @@ class SheetPlanTests(unittest.TestCase):
         self.assertNotIn("色数", labels)
 
     def test_official_attrs_are_a_separate_leaf_call(self) -> None:
-        client = signup("official-attrs@example.com")
+        client = signup("official-attrs")
         shop_id = client.post("/api/v1/shops/bind-env", json={"name": "官方属性店"}).json()["id"]
         with unittest.mock.patch("server.routers.excel._attr_columns", return_value=[
             {"id": "leadHardness", "header": "Lead Hardness", "name": "Lead Hardness"}
@@ -111,7 +113,7 @@ class SheetPlanTests(unittest.TestCase):
         self.assertTrue(kwargs.get("fetch"))
 
     def test_simple_template_uses_family_columns_from_category_name(self) -> None:
-        client = signup("family-xlsx@example.com")
+        client = signup("family-xlsx")
         response = client.get(
             "/api/v1/excel/template",
             params={"style": "simple", "category_name": "Office & School Supplies / Other"},
@@ -129,42 +131,30 @@ class SheetPlanTests(unittest.TestCase):
         self.assertNotIn("Lead Color", headers)
         self.assertNotIn("Lead Hardness", headers)
 
-    def test_sheet_plan_uses_full_schema_when_style_set(self) -> None:
-        client = signup("full-plan@example.com")
+    def test_full_schema_style_uses_same_short_sheet_as_simple(self) -> None:
+        client = signup("full-plan")
         shop_id = client.post("/api/v1/shops/bind-env", json={"name": "完整表店"}).json()["id"]
         mocked_cols = [
             {
-                "id": "schema.productTitle",
-                "header": "Product Title",
-                "label": "Product Title",
-                "group": "productTitle",
-                "field_id": "productTitle",
-                "field_path": "productTitle",
-                "required": True,
-                "options": [],
-            },
-            {
-                "id": "schema.icbuCatProp.p-type",
-                "header": "icbuCatProp / Type",
-                "label": "Type",
+                "id": "attr.icbuCatProp.p-type",
+                "header": "类目属性 / 类型",
+                "label": "类型",
                 "group": "icbuCatProp",
                 "field_id": "p-type",
-                "field_path": "icbuCatProp.p-type",
                 "required": True,
                 "options": [],
             },
             {
-                "id": "schema.icbuCatProp.p-color",
-                "header": "icbuCatProp / Color",
-                "label": "Color",
+                "id": "attr.icbuCatProp.p-color",
+                "header": "类目属性 / 颜色",
+                "label": "颜色",
                 "group": "icbuCatProp",
                 "field_id": "p-color",
-                "field_path": "icbuCatProp.p-color",
                 "required": False,
                 "options": [],
             },
         ]
-        with unittest.mock.patch("server.routers.excel._schema_columns", return_value=mocked_cols):
+        with unittest.mock.patch("server.routers.excel._attr_columns", return_value=mocked_cols):
             response = client.get(
                 "/api/v1/excel/sheet-plan",
                 params={
@@ -176,14 +166,12 @@ class SheetPlanTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
-        self.assertEqual(payload["sheet"]["family_id"], "full_schema")
-        self.assertEqual(payload["sheet_origin"]["kind"], "full_schema")
-        self.assertEqual(payload["sheet"]["required_count"], 2)
-        self.assertEqual(payload["sheet"]["optional_count"], 1)
+        self.assertEqual(payload["sheet"]["family_id"], "leaf")
+        self.assertEqual(payload["sheet_origin"]["kind"], "leaf_schema")
         labels = [item["label"] for item in payload["preview"]["columns"]]
-        self.assertIn("英文标题", labels)
-        self.assertIn("icbuCatProp / Type", labels)
-        self.assertIn("icbuCatProp / Color", labels)
+        self.assertIn("类目属性 / 类型", labels)
+        self.assertIn("类目属性 / 颜色", labels)
+        self.assertNotIn("Product Title", labels)
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ class TemplateTests(unittest.TestCase):
         self.assertFalse(preview_data["from_official_form"])
         self.assertNotIn("英文标题", labels)
         self.assertNotIn("叶子类目 ID", labels)
-        self.assertIn("不是阿里后台", preview_data["note"])
+        self.assertIn("短表", preview_data["note"])
         images_col = next(item for item in preview_data["columns"] if item["id"] == "images")
         self.assertFalse(images_col["required"])
         self.assertTrue(next(item for item in preview_data["columns"] if item["id"] == "price")["required"])

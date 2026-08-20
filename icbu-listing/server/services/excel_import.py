@@ -201,18 +201,19 @@ STYLES: dict[str, dict[str, Any]] = {
     "simple": {
         "id": "simple",
         "label": "短表批量上品",
-        "summary": "填写页只收依据。价和起订量必填。图可选：原图上架、留下再补转化位、或当参考重画套图；没图可画可跳过。",
+        "summary": "货号、价、起订量必填；必填属性在表里，标题和详描 AI 补。",
         "columns": ["sku", "price", "moq", "images", "brand", "name", "note"],
         "create_drafts_default": True,
         "primary": True,
     },
     "full_schema": {
         "id": "full_schema",
-        "label": "官方完整表（完全自己填）",
-        "summary": "按 schema.get 返回的全部必填+选填字段生成列。7521 类各不同，自己填完再导入。",
+        "label": "短表（与批量相同）",
+        "summary": "已合并到短表批量：只收依据，AI 补文案和选填属性。",
         "columns": ["sku", "price", "moq", "images", "brand", "name", "note"],
         "create_drafts_default": True,
         "needs_category": True,
+        "hidden": True,
     },
     "lingxing": {
         "id": "lingxing",
@@ -690,8 +691,8 @@ def sheet_profile(
             "filename": f"填写表-{category_id}",
             "filename_id": category_id,
             "guide": (
-                "这张表按所选叶子类目从官方 schema 生成列，7540 个叶子类目各有一套。"
-                "货号、单价、起订量必填；带下拉的列必须选官方选项，不选 Other。"
+                f"短表：货号、单价、起订量必填；另含该类目 {len(attrs)} 个官方必填属性。"
+                "标题、关键词、详描和选填属性由 AI 补，导入后逐条审一下。"
             ),
             "spec_columns": [],
             "attr_columns": attrs,
@@ -707,7 +708,7 @@ def sheet_profile(
             "title": "短表批量上品",
             "filename": "短表批量上品",
             "filename_id": "generic",
-            "guide": "先选叶子类目，系统会按该类目的官方 schema 生成填写列。",
+            "guide": "先选叶子类目，再下载短表。一行一个商品。",
             "spec_columns": [],
             "attr_columns": [],
             "example": dict(EXAMPLE_ROW),
@@ -794,11 +795,11 @@ def sheet_preview(style: str = "simple", profile: dict[str, Any] | None = None) 
         }
         for field_id, label, _hint in fill_headers(style, profile)
     ]
-    note = "不是阿里后台那张 40 列表。货号、单价、起订量必填；选了叶子类目后，官方必填属性会出现在填写页。"
+    note = "短表模式：货号、单价、起订量必填；选了叶子类目后，官方必填属性会出现在填写页。"
     if profile and profile.get("family_id") == "leaf":
         note = (
-            "按所选叶子类目从官方 schema 生成列，7540 个叶子类目各有一套。"
-            "货号、单价、起订量必填；带下拉的列请选官方选项。"
+            "短表含该类目官方必填属性。"
+            "标题、关键词、详描由 AI 补；带下拉的列请选官方选项。"
         )
     if profile and profile.get("guide"):
         note = f"{profile['guide']} {note}"
@@ -873,6 +874,8 @@ def styles_view() -> list[dict[str, Any]]:
     policy = fill_policy()
     rows = []
     for item in STYLES.values():
+        if item.get("hidden"):
+            continue
         row = dict(item)
         if item["id"] == "simple":
             row["policy"] = policy
