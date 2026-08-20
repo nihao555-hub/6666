@@ -130,7 +130,7 @@ async function loadSidebar() {
   if (!store.shopId) return;
   loadingSide.value = true;
   try {
-    const data = await api.categories(store.shopId, "0");
+    const data = await api.categories(store.shopId, "0", { sidebar: true });
     recent.value = data.recent || [];
     used.value = data.used || [];
     sideLoaded.value = true;
@@ -153,11 +153,6 @@ async function openNode(parent) {
     const data = await api.categories(store.shopId, parent);
     children.value = data.children || [];
     path.value = data.path || [];
-    if (parent === "0" && !sideLoaded.value) {
-      recent.value = data.recent || [];
-      used.value = data.used || [];
-      sideLoaded.value = true;
-    }
   } catch (error) {
     children.value = [];
     ElMessage.error(error.message);
@@ -170,7 +165,8 @@ async function onOpen() {
   sideLoaded.value = false;
   recent.value = [];
   used.value = [];
-  await Promise.all([openNode("0"), loadSidebar()]);
+  await openNode("0");
+  loadSidebar();
 }
 
 function pathLabel(node) {

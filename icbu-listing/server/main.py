@@ -57,6 +57,17 @@ def health() -> dict[str, object]:
         "text_model": settings.text_model,
         "image_model": settings.image_model,
         "db_persist": "blob" if settings.blob_read_write_token else "local",
+        "config": {
+            "alibaba_app": settings.has_platform_app,
+            "alibaba_dev_token": bool(settings.dev_access_token),
+            "token_encryption": bool(settings.token_encryption_key),
+            "openai": settings.ai_enabled,
+            "grsai": settings.image_enabled,
+            "blob": bool(settings.blob_read_write_token),
+            "registration_codes": bool(settings.registration_codes),
+            "cookie_secure": settings.cookie_secure,
+            "oauth_redirect": bool(settings.oauth_redirect_uri),
+        },
     }
 
 

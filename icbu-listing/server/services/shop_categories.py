@@ -75,7 +75,9 @@ def _leaf_row(
     fetch: bool,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    node = catalog.get_node(db, api, cid, fetch=fetch)
+    node = catalog.get_node(db, api, cid, fetch=False)
+    if node is None:
+        node = catalog.get_node(db, api, cid, fetch=fetch)
     if node is None:
         row = {
             "category_id": cid,
@@ -217,7 +219,7 @@ def used_leaves(
                 db,
                 api,
                 cid,
-                fetch=include_online,
+                fetch=True,
                 extra={"count": int(counts[cid]), "source": sources.get(cid, "online")},
             )
         )

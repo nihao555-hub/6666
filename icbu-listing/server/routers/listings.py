@@ -860,6 +860,7 @@ def retry_job(
 def browse_categories(
     shop_id: str,
     parent: str = "0",
+    sidebar: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -888,8 +889,8 @@ def browse_categories(
         }
     recent: list[dict[str, Any]] = []
     used: list[dict[str, Any]] = []
-    if parent == "0":
-        recent = shop_categories.recent_picks(db, api, shop, user, fetch=True)
+    if parent == "0" and sidebar:
+        recent = shop_categories.recent_picks(db, api, shop, user, fetch=False)
         used = shop_categories.used_leaves(db, api, shop, include_online=True)
     return {
         "origin": "official_icbu_tree",
