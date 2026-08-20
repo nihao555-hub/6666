@@ -7,3 +7,5 @@ webapp/node_modules/
 webapp/dist/
 vendor/official-sdk/**
 !vendor/official-sdk/.gitkeep
+.vercel
+.env*

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,13 +43,15 @@ def _fill_sheet(template: bytes, rows: list[list[str]]) -> bytes:
     return buffer.getvalue()
 
 
-def signup(email: str) -> TestClient:
+def signup(tag: str) -> TestClient:
     client = TestClient(app)
+    email = f"{tag}-{uuid.uuid4().hex[:10]}@example.com"
     response = client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": "supersecret", "code": "TEST-CODE"},
     )
     assert response.status_code == 200, response.text
+    client.user_email = email
     return client
 
 
@@ -72,7 +75,7 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(client.get("/api/v1/drafts").status_code, 401)
 
     def test_one_tenant_can_bind_several_shops(self) -> None:
-        alice = signup("alice@example.com")
+        alice = signup("alice")
         first = alice.post("/api/v1/shops/bind-env", json={"name": "工厂店", "reuse": False})
         second = alice.post("/api/v1/shops/bind-env", json={"name": "贸易店", "reuse": False})
         self.assertEqual(first.status_code, 200, first.text)
@@ -99,7 +102,7 @@ class TenancyTests(unittest.TestCase):
     def test_oauth_start_uses_the_public_host_not_localhost(self) -> None:
         from server.config import settings
 
-        owner = signup("oauth-host@example.com")
+        owner = signup("oauth-host")
         started = owner.get(
             "/api/v1/alibaba/oauth/start",
             headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "demo.trycloudflare.com"},
@@ -110,8 +113,8 @@ class TenancyTests(unittest.TestCase):
         self.assertIn("redirect_uri=", body["url"])
 
     def test_shops_are_invisible_across_tenants(self) -> None:
-        bob = signup("bob@example.com")
-        carol = signup("carol@example.com")
+        bob = signup("bob")
+        carol = signup("carol")
         shop_id = bob.post("/api/v1/shops/bind-env", json={"name": "Bob 的店"}).json()["id"]
 
         self.assertEqual(carol.get("/api/v1/shops").json(), [])
@@ -126,7 +129,7 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(len(bob.get("/api/v1/shops").json()), 1)
 
     def test_defaults_round_trip(self) -> None:
-        dave = signup("dave@example.com")
+        dave = signup("dave")
         shop_id = dave.post("/api/v1/shops/bind-env", json={"name": "Dave"}).json()["id"]
         saved = dave.post(
             f"/api/v1/shops/{shop_id}/defaults",
@@ -137,14 +140,14 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(saved["publish_mode"], "online")
 
     def test_feed_requires_an_image(self) -> None:
-        erin = signup("erin@example.com")
+        erin = signup("erin")
         shop_id = erin.post("/api/v1/shops/bind-env", json={"name": "Erin"}).json()["id"]
         response = erin.post("/api/v1/listings/feed", data={"shop_id": shop_id, "price": "1", "moq": "10"})
         self.assertEqual(response.status_code, 400)
 
     def test_feed_rejects_a_foreign_shop(self) -> None:
-        frank = signup("frank@example.com")
-        grace = signup("grace@example.com")
+        frank = signup("frank")
+        grace = signup("grace")
         shop_id = frank.post("/api/v1/shops/bind-env", json={"name": "Frank"}).json()["id"]
         response = grace.post(
             "/api/v1/listings/feed",
@@ -154,8 +157,8 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_catalogue_is_invisible_across_tenants(self) -> None:
-        ivy = signup("ivy@example.com")
-        jane = signup("jane@example.com")
+        ivy = signup("ivy")
+        jane = signup("jane")
         created = ivy.post(
             "/api/v1/products",
             data={"sku": "BRUSH-01", "price": "1.80", "moq": "500"},
@@ -172,7 +175,7 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(len(ivy.get("/api/v1/products").json()), 1)
 
     def test_deleting_a_product_does_not_remove_its_drafts(self) -> None:
-        kate = signup("kate@example.com")
+        kate = signup("kate")
         shop_id = kate.post("/api/v1/shops/bind-env", json={"name": "Kate"}).json()["id"]
         product_id = kate.post(
             "/api/v1/products",
@@ -185,7 +188,7 @@ class TenancyTests(unittest.TestCase):
 
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.email == "kate@example.com").one()
+            user = db.query(User).filter(User.email == kate.user_email).one()
             draft = Draft(
                 user_id=user.id,
                 shop_id=shop_id,
@@ -207,7 +210,7 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(leftover.json()["sku"], "KEEP-ME")
 
     def test_distribute_is_a_cartesian_product(self) -> None:
-        leo = signup("leo@example.com")
+        leo = signup("leo")
         shop_a = leo.post("/api/v1/shops/bind-env", json={"name": "A 店", "reuse": False}).json()["id"]
         shop_b = leo.post("/api/v1/shops/bind-env", json={"name": "B 店", "reuse": False}).json()["id"]
         first = leo.post(
@@ -254,7 +257,7 @@ class TenancyTests(unittest.TestCase):
 
         with unittest.mock.patch.object(distribution, "build_draft_for_shop", side_effect=fake_build):
             products_router._run_distribute(
-                _user_id("leo@example.com"),
+                _user_id(leo.user_email),
                 queued.json()["batch_id"],
                 [(first, shop_a), (first, shop_b), (second, shop_a), (second, shop_b)],
                 None,
@@ -276,8 +279,8 @@ class TenancyTests(unittest.TestCase):
         self.assertTrue(all(item["shop_id"] == shop_a for item in only_a))
 
     def test_excel_endpoints_are_tenant_scoped(self) -> None:
-        pat = signup("pat@example.com")
-        quin = signup("quin@example.com")
+        pat = signup("pat")
+        quin = signup("quin")
         self.assertEqual(pat.get("/api/v1/excel/styles").status_code, 200)
         template = pat.get("/api/v1/excel/template", params={"style": "lingxing"})
         self.assertEqual(template.status_code, 200, template.text)
@@ -316,8 +319,8 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(foreign.status_code, 404)
 
     def test_template_is_shop_scoped_and_isolated(self) -> None:
-        mia = signup("mia@example.com")
-        ned = signup("ned@example.com")
+        mia = signup("mia")
+        ned = signup("ned")
         shop_id = mia.post("/api/v1/shops/bind-env", json={"name": "Mia"}).json()["id"]
         created = mia.post(
             "/api/v1/templates",
