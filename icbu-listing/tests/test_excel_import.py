@@ -146,8 +146,8 @@ class TemplateTests(unittest.TestCase):
         )
         brush_cols = {item["header"] for item in category_attr_columns(brushes)}
         pen_cols = {item["header"] for item in category_attr_columns(pens)}
-        self.assertEqual(brush_cols, {"Type", "Color"})
-        self.assertEqual(pen_cols, {"Hair Material"})
+        self.assertEqual(brush_cols, {"类目属性 / 类型", "销售属性 / 颜色"})
+        self.assertEqual(pen_cols, {"类目属性 / 笔毛材质"})
         self.assertNotIn("Place of Origin", brush_cols)
         extras = category_attr_columns(brushes)
         profile = sheet_profile("Paint Brushes", category_id="21111112", attr_columns=extras)
@@ -158,8 +158,8 @@ class TemplateTests(unittest.TestCase):
             category_id="21111112",
         )
         result = preview(payload, "simple", extras)
-        self.assertIn("类型", result["headers"])
-        self.assertIn("颜色", result["headers"])
+        self.assertIn("类目属性 / 类型", result["headers"])
+        self.assertIn("销售属性 / 颜色", result["headers"])
         self.assertNotIn("英文标题", result["headers"])
         book = load_workbook(io.BytesIO(payload))
         help_text = " ".join(
@@ -167,13 +167,13 @@ class TemplateTests(unittest.TestCase):
             for row in book["说明"].iter_rows(values_only=True)
             for cell in row
         )
-        self.assertIn("类型", help_text)
-        self.assertIn("颜色", help_text)
+        self.assertIn("类目属性 / 类型", help_text)
+        self.assertIn("销售属性 / 颜色", help_text)
         self.assertIn("红线", help_text)
         policy = fill_policy(extras, profile)
         user_labels = {item["label"] for item in policy["user_fills"]}
-        self.assertIn("类型", user_labels)
-        self.assertIn("颜色", user_labels)
+        self.assertIn("类目属性 / 类型", user_labels)
+        self.assertIn("销售属性 / 颜色", user_labels)
         self.assertTrue(any(item["id"] == "price" for item in policy["redline"]))
 
     def test_uploaded_official_attr_columns_still_parse(self) -> None:
@@ -433,8 +433,12 @@ class FullSchemaTests(unittest.TestCase):
         self.assertTrue(any(col["id"] == "schema.productTitle" and col["required"] for col in cols))
         self.assertTrue(any(col["id"] == "schema.icbuCatProp.p-type" and col["required"] for col in cols))
         self.assertTrue(any(col["id"] == "schema.icbuCatProp.p-color" and not col["required"] for col in cols))
+        headers = [col["header"] for col in cols]
+        self.assertIn("英文标题", headers)
+        self.assertTrue(any("类目属性" in item and "类型" in item for item in headers))
         flat = flatten_schema_fields(fields)
         self.assertEqual(len(flat), len(cols))
+        self.assertTrue(all(item["label"] == item["name"] for item in flat))
         self.assertEqual(sum(1 for item in flat if item["required"]), 2)
         self.assertEqual(sum(1 for item in flat if not item["required"]), 1)
 

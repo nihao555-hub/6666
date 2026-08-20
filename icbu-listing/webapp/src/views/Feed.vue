@@ -40,7 +40,7 @@
           <button class="path-card" @click="startPath('full')">
             <small>看官方 schema 到底要填啥</small>
             <b>完全自己填</b>
-            <p class="muted">选叶子类目后先看接口返回的必填/选填字段，再下载完整表自己填完导入。7521 类各不同。</p>
+            <p class="muted">选叶子类目后先看要填哪些项（全中文列名），再下载完整表自己填完导入。</p>
           </button>
         </div>
       </div>
@@ -358,7 +358,7 @@
         <h3>{{ tab === 'full' ? '先选叶子类目' : '这批货是哪一类' }}</h3>
         <p class="muted">
           <template v-if="tab === 'full'">
-            整表共用一个叶子类目。选完后会列出 schema.get 返回的全部必填和选填字段（7521 个叶子类目各不同），再下载完整填写表。
+            整表共用一个叶子类目。选完后会列出全部必填和选填列（中文表头），再下载完整填写表。
           </template>
           <template v-else>
             一次上很多、每个价不一样时用短表。整表共用一个叶子类目。选完后下载的表按该类目官方 schema 生成列——7540 个叶子类目各有一套。
@@ -367,7 +367,7 @@
         <div style="margin-top: 16px">
           <el-button @click="openCategory">{{ sheetPlan.category_name || excel.categoryName || "选择类目" }}</el-button>
           <p v-if="tab === 'full' && sheetPlan.sheet?.family_id === 'full_schema'" class="muted" style="margin-top: 10px">
-            已选类目。下一步会列出 schema.get 返回的全部字段：必填 {{ sheetPlan.sheet?.required_count || 0 }} 个、选填 {{ sheetPlan.sheet?.optional_count || 0 }} 个。
+            已选类目。下一步会列出全部要填的列：必填 {{ sheetPlan.sheet?.required_count || 0 }} 项、选填 {{ sheetPlan.sheet?.optional_count || 0 }} 项。
           </p>
           <p v-else-if="sheetPlan.sheet?.family_id === 'leaf'" class="muted" style="margin-top: 10px">
             填写表按这个叶子的官方 schema 生成
@@ -393,11 +393,11 @@
       </div>
 
       <div v-else-if="tab === 'full' && excelStep === 1" class="step-panel">
-        <h3>这个类目的完整填写表（中文列名）</h3>
+        <h3>这个类目要填哪些项</h3>
         <p class="muted">
-          下面就是下载表的全部列：必填 {{ categorySchema?.required_count ?? 0 }}、选填 {{ categorySchema?.optional_count ?? 0 }}，共 {{ fullSchemaTableColumns.length }} 列。带下拉的列请选官方选项，不要选 Other。
+          下面每一列都是下载表里会出现的中文表头。必填 {{ categorySchema?.required_count ?? 0 }} 项、选填 {{ categorySchema?.optional_count ?? 0 }} 项，共 {{ fullSchemaTableColumns.length }} 列。有下拉的列请选官方选项，不要选「其他 / Other」。
         </p>
-        <div v-if="schemaLoading" class="muted" style="margin-top: 16px">正在拉 schema…</div>
+        <div v-if="schemaLoading" class="muted" style="margin-top: 16px">正在加载字段清单…</div>
         <template v-else-if="fullSchemaTableColumns.length">
           <div class="schema-summary">
             <span class="schema-stat is-required">必填 {{ categorySchema?.required_count ?? 0 }}</span>
@@ -431,15 +431,14 @@
             <p class="muted" style="margin-top: 8px">灰色示例行导入时自动跳过。左右可滚动查看全部列。</p>
           </div>
           <details class="schema-block" style="margin-top: 14px">
-            <summary>字段明细（类型 / 选项数）</summary>
+            <summary>字段明细（展开看填写方式）</summary>
             <el-table :data="fullSchemaFieldRows" size="small" max-height="360" style="margin-top: 10px">
-              <el-table-column prop="label" label="中文名" min-width="160" />
-              <el-table-column prop="name" label="接口名" min-width="200" show-overflow-tooltip />
-              <el-table-column prop="field_type" label="类型" width="90" />
+              <el-table-column prop="label" label="列名" min-width="220" />
+              <el-table-column prop="field_type_label" label="填写方式" width="100" />
               <el-table-column label="必填" width="70">
                 <template #default="{ row }">{{ row.required ? "是" : "否" }}</template>
               </el-table-column>
-              <el-table-column label="选项" width="80">
+              <el-table-column label="下拉选项数" width="100">
                 <template #default="{ row }">{{ row.option_count || 0 }}</template>
               </el-table-column>
             </el-table>
@@ -513,7 +512,7 @@
               <li v-for="item in policy.ai_fills" :key="item.id">{{ item.label }}</li>
             </ul>
             <p v-else class="muted" style="margin-top: 8px">完整表模式：schema 字段都在填写页，不交给 AI 猜。</p>
-            <p v-if="officialLoading" class="muted" style="margin-top: 8px">正在按 schema.get 拉取…</p>
+            <p v-if="officialLoading" class="muted" style="margin-top: 8px">正在拉这个类目的官方字段…</p>
           </section>
           <section class="policy-card is-redline">
             <small>红线</small>
@@ -534,7 +533,7 @@
         />
         <p class="muted" style="margin-top: 10px">
           <template v-if="tab === 'full'">
-            完整表含 schema 返回的全部列（7521 类各不同）。填完导入后每条还要人审，点「审过了」才能发。
+            完整表含该类目全部列（中文表头）。填完导入后每条还要人审，点「审过了」才能发。
           </template>
           <template v-else>
             填写表按所选叶子类目的官方 schema 生成列（7540 类各不同）。标题和详描仍由 AI 补。填完表不能撒手：导入后每条还要打开看标题和属性，点「审过了」才能发。

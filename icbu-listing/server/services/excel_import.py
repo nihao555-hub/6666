@@ -18,13 +18,15 @@ import io
 import re
 from dataclasses import dataclass, field
 from collections.abc import Callable
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+from . import schema_labels
 
 # Official origin. Always a shop default, never a per-row column.
 SKIP_ATTR_IDS = {"p-1"}
@@ -763,7 +765,7 @@ def fill_headers(style: str, profile: dict[str, Any] | None = None) -> list[tupl
     for col in spec_cols:
         rows.append((col["id"], col["label"], col.get("hint") or "只写你确定的规格，没写就不编"))
     for col in attr_cols:
-        label = _attr_label(str(col.get("header") or col.get("label") or col.get("field_id") or ""))
+        label = schema_labels.column_label(col)
         options = col.get("options") or []
         opt_hint = " / ".join(str(item.get("label") or item.get("value") or "") for item in options[:8])
         hint = f"官方必填。按选项选，不选 Other。{('选项：' + opt_hint) if opt_hint else ''}"
@@ -811,113 +813,6 @@ def sheet_preview(style: str = "simple", profile: dict[str, Any] | None = None) 
     }
 
 
-SCHEMA_GROUP_LABELS: dict[str, str] = {
-    "icbuCatProp": "类目属性",
-    "saleProp": "销售属性",
-    "productTitle": "英文标题",
-    "productKeywords": "关键词",
-    "textDesc": "卖点描述",
-    "superText": "详情描述",
-    "scImages": "商品图片",
-    "detailImage": "详情图片",
-    "minOrderQuantity": "起订量",
-    "ladderPrice": "阶梯价",
-    "scPrice": "售价",
-    "fob": "FOB 价格",
-    "priceUnit": "价格单位",
-    "catId": "叶子类目",
-    "market": "目标市场",
-    "paymentMethod": "付款方式",
-    "port": "港口",
-    "ladderPeriod": "交期",
-    "shippingTemplateId": "运费模板",
-    "pkgMeasure": "包装尺寸",
-    "pkgWeight": "包装重量",
-    "logisticsMode": "物流方式",
-    "logisticsProperty": "物流属性",
-    "productDescType": "详情类型",
-    "brand": "品牌",
-}
-
-TOP_FIELD_LABELS: dict[str, str] = dict(SCHEMA_GROUP_LABELS)
-
-ATTR_LABELS_ZH: dict[str, str] = {
-    "lead color": "铅芯颜色",
-    "lead hardness": "铅芯硬度",
-    "origin": "原产地",
-    "type": "类型",
-    "color": "颜色",
-    "material": "材质",
-    "size": "尺寸",
-    "weight": "重量",
-    "capacity": "容量",
-    "brand name": "品牌名",
-    "brand": "品牌",
-    "model number": "型号",
-    "model": "型号",
-    "feature": "特点",
-    "features": "特点",
-    "usage": "用途",
-    "application": "用途",
-    "packaging": "包装",
-    "package": "包装",
-    "shape": "形状",
-    "style": "款式",
-    "pattern": "图案",
-    "finish": "表面处理",
-    "hardness": "硬度",
-    "length": "长度",
-    "width": "宽度",
-    "height": "高度",
-    "diameter": "直径",
-    "thickness": "厚度",
-    "product name": "品名",
-    "product title": "英文标题",
-    "title": "标题",
-    "keywords": "关键词",
-    "description": "描述",
-    "certification": "认证",
-    "warranty": "质保",
-    "power": "功率",
-    "voltage": "电压",
-    "frequency": "频率",
-    "gender": "适用性别",
-    "age group": "适用年龄",
-    "season": "季节",
-    "fabric": "面料",
-    "composition": "成分",
-}
-
-
-def _has_cjk(text: str) -> bool:
-    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
-
-
-def _group_label(group_id: str, group_name: str = "") -> str:
-    if group_id in SCHEMA_GROUP_LABELS:
-        return SCHEMA_GROUP_LABELS[group_id]
-    if _has_cjk(group_name):
-        return group_name.strip()
-    if _has_cjk(group_id):
-        return group_id
-    return (group_name or group_id or "").strip()
-
-
-def _attr_label(name: str) -> str:
-    raw = (name or "").strip()
-    if not raw:
-        return raw
-    if _has_cjk(raw):
-        return raw
-    return ATTR_LABELS_ZH.get(raw.lower(), raw)
-
-
-def _field_label(field_id: str, name: str) -> str:
-    if field_id in TOP_FIELD_LABELS:
-        return TOP_FIELD_LABELS[field_id]
-    return _attr_label(name or field_id)
-
-
 def fill_policy(
     ai_attrs: list[dict[str, Any]] | None = None,
     profile: dict[str, Any] | None = None,
@@ -931,7 +826,7 @@ def fill_policy(
             ai_fills.append(
                 {
                     "id": extra.get("id") or extra.get("field_id") or extra.get("header"),
-                    "label": _attr_label(str(raw)),
+                    "label": schema_labels.field_label(str(raw), str(raw)),
                     "hint": "按官方选项选，不选 Other。选错但合法的只能人审拦住",
                 }
             )
@@ -939,7 +834,7 @@ def fill_policy(
     if profile and profile.get("attr_columns"):
         note = user_fills.pop() if user_fills and user_fills[-1]["id"] == "note" else None
         for col in profile["attr_columns"]:
-            label = _attr_label(str(col.get("header") or col.get("label") or col.get("field_id") or ""))
+            label = schema_labels.column_label(col)
             user_fills.append(
                 {
                     "id": col["id"],
@@ -1001,8 +896,8 @@ def category_attr_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
             columns.append(
                 {
                     "id": f"attr.{group.id}.{child.id}",
-                    "header": child.name or child.id,
-                    "label": _attr_label(child.name or child.id),
+                    "header": schema_labels.header_label(group.id, group.name or group.id, child.id, child.name or child.id),
+                    "label": schema_labels.field_label(child.id, child.name or child.id),
                     "group": group.id,
                     "field_id": child.id,
                     "required": True,
@@ -1024,13 +919,8 @@ def schema_field_columns(fields: Iterable[Any]) -> list[dict[str, Any]]:
             for option in (getattr(spec, "options", None) or [])[:80]
         ]
         field_name = str(getattr(spec, "name", "") or spec.id)
-        field_label = _field_label(spec.id, field_name)
-        group_label = _group_label(group_id, group_name)
-        if group_id and group_id != spec.id:
-            header = f"{group_label} / {field_label}"
-        else:
-            header = _field_label(spec.id, field_name)
-        label = field_label
+        header = schema_labels.header_label(group_id, group_name, spec.id, field_name)
+        label = header
         field_path = f"{group_id}.{spec.id}" if group_id else spec.id
         columns.append(
             {
@@ -1069,9 +959,10 @@ def flatten_schema_fields(fields: Iterable[Any]) -> list[dict[str, Any]]:
                 "field_id": col["field_id"],
                 "field_path": col["field_path"],
                 "name": col["header"],
-                "label": col["label"],
+                "label": col["header"],
                 "required": col["required"],
                 "field_type": col.get("field_type") or "",
+                "field_type_label": schema_labels.field_type_label(col.get("field_type") or ""),
                 "option_count": len(col.get("options") or []),
                 "options": col.get("options") or [],
             }
