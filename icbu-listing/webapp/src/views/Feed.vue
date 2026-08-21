@@ -346,17 +346,27 @@
       <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
-        <h3>选类目并导入资料</h3>
-        <p class="muted">先选叶子类目，再上传表格或报价单。解析后直接进商品表，每行 6 张图可批量生成。</p>
+        <h3>选类目，生成智能填写表</h3>
+        <p class="muted">系统拉官方必填项，结合店铺默认和类目模板，由 AI 决定你需要填哪些列，下载 xlsx 填完再上传。</p>
         <div style="margin-top: 16px">
-          <el-button @click="openDocCategory">{{ doc.categoryName || sheetPlan.category_name || "选择类目" }}</el-button>
-          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在拉类目属性…</p>
-          <p v-else-if="schemaColumnLabels.length" class="muted" style="margin-top: 10px">
-            必填属性：{{ schemaColumnLabels.join("、") }}
-          </p>
+          <el-button @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
+          <p v-if="smartPlanLoading" class="muted" style="margin-top: 6px">正在分析该类目要填什么…</p>
+          <template v-else-if="doc.categoryId && smartPlan.column_count">
+            <p class="muted" style="margin-top: 10px">
+              需填 {{ smartPlan.column_count }} 列
+              <span v-if="smartPlan.required_attr_count">（含 {{ smartPlan.required_attr_count }} 个官方必填属性）</span>
+              · {{ smartPlan.planner === "llm" ? "AI 规划" : "规则规划" }}
+            </p>
+            <p v-if="smartPlan.reasoning" class="muted">{{ smartPlan.reasoning }}</p>
+            <p v-if="smartColumnLabels.length" class="muted">列：{{ smartColumnLabels.join("、") }}</p>
+            <p v-if="smartPlan.tips" class="muted">{{ smartPlan.tips }}</p>
+          </template>
         </div>
         <div class="toolbar" style="margin: 16px 0 12px">
-          <el-button :disabled="!doc.categoryId" @click="downloadDocTemplate">下载空白短表</el-button>
+          <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading" @click="downloadDocTemplate">
+            下载智能填写表
+          </el-button>
+          <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
         </div>
         <el-upload
           v-model:file-list="docFiles"
@@ -366,11 +376,11 @@
           accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
           drag
         >
-          <div style="padding: 22px 0">把表格 / 报价单 / 目录拖到这里（可多文件）</div>
+          <div style="padding: 22px 0">把填好的 xlsx / 报价单 / 目录拖到这里（可多文件）</div>
         </el-upload>
         <div class="step-actions" style="margin-top: 16px">
           <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.length" @click="parseDocuments">
-            解析并打开商品表
+            解析并进入审核
           </el-button>
         </div>
       </div>
@@ -378,7 +388,7 @@
       <div v-else class="step-panel">
         <div class="workspace-head">
           <div>
-            <h3>商品表</h3>
+            <h3>商品表 · 审核与出图</h3>
             <p class="muted">
               {{ docGrid.row_count || docGrid.rows.length }} 个商品 · 价量齐 {{ docGrid.ready_count || 0 }} 个
               <span v-if="docGrid.source"> · {{ docGrid.source }}</span>
@@ -559,8 +569,8 @@ const aiSteps = [
   { key: "draft", label: "生成草稿" },
 ];
 const docSteps = [
-  { key: "setup", label: "选类目并导入" },
-  { key: "grid", label: "商品表" },
+  { key: "setup", label: "智能表下载填写" },
+  { key: "grid", label: "审核出图成稿" },
 ];
 const DEFAULT_IMAGE_SLOTS = [
   { index: 1, id: "slot-1", name: "白底主图", status: "empty", url: "" },
@@ -621,18 +631,15 @@ const excel = reactive({
   emptyPolicy: "draw",
 });
 const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null, sheet: null });
+const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] });
+const smartPlanLoading = ref(false);
 const officialLoading = ref(false);
 const categoryBrowser = ref(false);
 let timer = null;
 let imageTimer = null;
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
-const schemaColumnLabels = computed(() =>
-  (sheetPlan.value.preview?.columns || [])
-    .filter((col) => !coreFillIds.has(col.id))
-    .map((col) => col.label)
-    .filter(Boolean),
-);
+const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const excelImageUploadHint = computed(() => {
   if (excel.photoPolicy === "boost") {
@@ -747,6 +754,7 @@ function sessionPayload() {
       ready_count: docGrid.ready_count,
       source: docGrid.source,
       batch: doc.batch,
+      smartPlan: smartPlan.value,
       imageMode: excelImageMode.value,
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
@@ -873,6 +881,9 @@ function applySession(session) {
     docGrid.row_count = payload.doc.row_count || docGrid.rows.length;
     docGrid.ready_count = payload.doc.ready_count || 0;
     docGrid.source = payload.doc.source || "";
+    if (payload.doc.smartPlan?.columns?.length) {
+      smartPlan.value = payload.doc.smartPlan;
+    }
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
   }
   files.value = filesFromSession(session, "photos");
@@ -917,6 +928,7 @@ async function startPath(path) {
       docGrid.ready_count = 0;
       docGrid.source = "";
       docFiles.value = [];
+      smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] };
     }
     applySession(created);
     router.replace({ query: { session: created.id } });
@@ -1144,6 +1156,52 @@ async function submitGenerated() {
   }
 }
 
+async function loadSmartPlan(override = null) {
+  const categoryId = override?.categoryId ?? doc.categoryId ?? "";
+  const categoryName = override?.categoryName ?? doc.categoryName ?? "";
+  if (!store.shopId || !categoryId) return;
+  smartPlanLoading.value = true;
+  try {
+    smartPlan.value = await api.excelSmartPlan({
+      shop_id: store.shopId,
+      category_id: categoryId,
+      category_name: categoryName,
+    });
+    docGrid.columns = smartPlan.value.columns || [];
+  } catch (error) {
+    const msg = String(error.message || "");
+    if (msg.includes("店铺不存在")) {
+      await store.ensureShops();
+      if (store.shopId) {
+        smartPlan.value = await api.excelSmartPlan({
+          shop_id: store.shopId,
+          category_id: categoryId,
+          category_name: categoryName,
+        });
+        docGrid.columns = smartPlan.value.columns || [];
+        return;
+      }
+    }
+    throw error;
+  } finally {
+    smartPlanLoading.value = false;
+  }
+}
+
+async function refreshSmartPlan() {
+  if (!doc.categoryId) {
+    ElMessage.warning("先选叶子类目");
+    return;
+  }
+  try {
+    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    ElMessage.success(`已更新：需填 ${smartPlan.value.column_count || 0} 列`);
+    await persistSession();
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
 async function loadSheetPlan(override = null) {
   const categoryId = override?.categoryId ?? doc.categoryId ?? "";
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
@@ -1341,13 +1399,16 @@ async function parseDocuments() {
   const body = new FormData();
   body.append("shop_id", store.shopId || "");
   body.append("category_id", doc.categoryId);
-  body.append("category_name", doc.categoryName || sheetPlan.value.category_name || "");
+  body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
   body.append("image_mode", "complete_draw");
+  if (smartPlan.value.columns?.length) {
+    body.append("columns", JSON.stringify(smartPlan.value.columns));
+  }
   docFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
   docGrid.loading = true;
   try {
     const result = await api.excelDocParse(body);
-    docGrid.columns = result.columns || [];
+    docGrid.columns = result.columns || smartPlan.value.columns || [];
     docGrid.rows = normalizeDocRows(result.rows || []);
     docGrid.row_issues = result.row_issues || [];
     docGrid.warnings = result.warnings || [];
@@ -1356,7 +1417,7 @@ async function parseDocuments() {
     docGrid.source = result.source || "";
     await persistSession();
     advanceDoc(1);
-    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，可直接在表里改`);
+    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，请审核后出图成稿`);
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -1370,6 +1431,9 @@ async function recheckDocGrid() {
   body.append("shop_id", store.shopId || "");
   body.append("category_id", doc.categoryId);
   body.append("image_mode", "complete_draw");
+  if (smartPlan.value.columns?.length) {
+    body.append("columns", JSON.stringify(smartPlan.value.columns));
+  }
   body.append("rows", JSON.stringify(docGrid.rows));
   docGrid.checking = true;
   try {
@@ -1412,6 +1476,9 @@ async function importDocRows() {
   body.append("category_id", doc.categoryId);
   body.append("session_id", sessionId.value);
   body.append("image_mode", "complete_draw");
+  if (smartPlan.value.columns?.length) {
+    body.append("columns", JSON.stringify(smartPlan.value.columns));
+  }
   body.append("rows", JSON.stringify(docGrid.rows));
   excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
   docGrid.loading = true;
@@ -1448,10 +1515,14 @@ function downloadDocTemplate() {
     ElMessage.warning("先选叶子类目");
     return;
   }
-  window.location.href = api.excelTemplateUrl("simple", "", {
+  if (!store.shopId) {
+    ElMessage.warning("先登录一个店铺");
+    return;
+  }
+  window.location.href = api.excelSmartTemplateUrl({
     categoryId: doc.categoryId,
     shopId: store.shopId,
-    categoryName: doc.categoryName || sheetPlan.value.category_name,
+    categoryName: doc.categoryName || smartPlan.value.category_name,
   });
 }
 
@@ -1469,10 +1540,9 @@ async function pickCategory(node) {
     doc.categoryId = node.category_id;
     doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
     try {
-      await loadSheetPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-      syncDocColumnsFromPlan();
-      ElMessage.success(`已选「${sheetPlan.value.category_name || doc.categoryName}」，上传资料后 AI 会按这些列填表`);
-      loadOfficialAttrs();
+      await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+      ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」，可下载智能填写表`);
+      await persistSession();
     } catch (error) {
       ElMessage.error(error.message);
     }
