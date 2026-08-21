@@ -1,0 +1,22 @@
+{
+  "id": "size-spec",
+  "name": "尺寸规格+使用步骤图",
+  "source": "buluslan/gpt-image2-ecommerce",
+  "prompt_template": {
+    "type": "product specification and usage guide infographic",
+    "subject": "{product_description}",
+    "dimensions": "{size_annotations}",
+    "style": "clean professional layout",
+    "quality": "professional e-commerce infographic"
+  },
+  "defaults": {
+    "dimensions": "height, width with measurement lines only if a real size is known",
+    "style": "clean white, professional typography"
+  },
+  "category_tips": {
+    "beauty": "dimension callout badge only if size is known",
+    "electronics": "precise dimensions with a reference object for scale",
+    "food": "serving size only if given",
+    "fashion": "size reference with a hand or hanger, no invented chart"
+  }
+}

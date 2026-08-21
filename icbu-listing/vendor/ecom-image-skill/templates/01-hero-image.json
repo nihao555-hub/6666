@@ -1,0 +1,26 @@
+{
+  "id": "hero-image",
+  "name": "白底/纯色底产品主图",
+  "source": "buluslan/gpt-image2-ecommerce",
+  "prompt_template": {
+    "type": "product photography",
+    "subject": "{product_description}",
+    "background": "clean white background",
+    "lighting": "soft diffused studio lighting, even illumination",
+    "composition": "centered, front view",
+    "quality": "8K, commercial e-commerce photography"
+  },
+  "defaults": {
+    "background": "clean white background",
+    "lighting": "soft diffused studio lighting",
+    "composition": "centered, front view"
+  },
+  "category_tips": {
+    "beauty": "emphasize texture and glow, show formula details",
+    "electronics": "highlight metallic finish, screen details, port precision",
+    "food": "vibrant colors, fresh appearance, show texture",
+    "fashion": "show fabric texture, drape quality, stitching details",
+    "home": "show material quality, craftsmanship, lifestyle appeal",
+    "jewelry": "macro detail, sparkle and cut quality, luxurious lighting"
+  }
+}

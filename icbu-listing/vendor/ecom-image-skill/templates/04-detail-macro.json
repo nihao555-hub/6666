@@ -1,0 +1,25 @@
+{
+  "id": "detail-macro",
+  "name": "细节微距图",
+  "source": "buluslan/gpt-image2-ecommerce",
+  "prompt_template": {
+    "type": "macro product photography",
+    "subject": "{product_description}, extreme close-up on {focus_area}",
+    "detail": "visible {texture_description}",
+    "lighting": "soft directional lighting highlighting texture",
+    "camera": "shot with studio macro setup",
+    "quality": "ultra macro detail, 8K, professional product photography"
+  },
+  "defaults": {
+    "focus_area": "texture and material quality",
+    "detail": "fine texture, material grain, surface quality",
+    "lighting": "soft directional lighting highlighting texture"
+  },
+  "category_tips": {
+    "beauty": "show cream formula texture, shimmer particles, light reflection",
+    "electronics": "show port precision, material finish, button detail",
+    "food": "show ingredient texture, cross-section, freshness",
+    "fashion": "show fabric weave, stitching quality, hardware detail",
+    "jewelry": "show gemstone cut, metal finish, clasp detail"
+  }
+}

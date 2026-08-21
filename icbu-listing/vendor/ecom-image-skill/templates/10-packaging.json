@@ -1,0 +1,24 @@
+{
+  "id": "packaging",
+  "name": "包装设计展示",
+  "source": "buluslan/gpt-image2-ecommerce",
+  "prompt_template": {
+    "type": "packaging design visualization",
+    "subject": "{product_description}",
+    "display": "{packaging_components}",
+    "surface": "clean studio floor",
+    "lighting": "even studio light",
+    "quality": "premium design presentation, 8K"
+  },
+  "defaults": {
+    "display": "export carton and inner box",
+    "surface": "clean studio floor"
+  },
+  "category_tips": {
+    "beauty": "label design, ingredient preview, formula through transparent elements",
+    "food": "ingredient imagery, freshness seals, no fake nutrition claims",
+    "fashion": "branded tissue only if it ships, garment tag, shopping bag",
+    "electronics": "box design, inner foam, cable organization, quick-start guide",
+    "home": "honest master carton, pack count if known"
+  }
+}

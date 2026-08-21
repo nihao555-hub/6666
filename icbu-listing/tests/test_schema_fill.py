@@ -1,0 +1,269 @@
+"""Evidence-gated schema fill — deterministic path without live AI."""
+
+import sys
+import unittest
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "backend"))
+
+from ai import Understanding  # noqa: E402
+from schema import parse_schema  # noqa: E402
+
+from server.services.fact_bundle import FactBundle, from_excel_row  # noqa: E402
+from server.services.schema_fill import (  # noqa: E402
+    FillResult,
+    _is_certain_fill,
+    align_attributes,
+    fill_category_draft,
+    sample_fill_report,
+)
+
+SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<itemSchema>
+  <field id="productTitle" name="Product name" type="input">
+    <rules><rule name="requiredRule" value="true"/></rules>
+  </field>
+  <field id="priceUnit" name="Unit" type="singleCheck">
+    <rules><rule name="requiredRule" value="true"/></rules>
+    <options>
+      <option displayName="Piece/Pieces" value="17"/>
+    </options>
+  </field>
+  <field id="scPrice" name="Price setting" type="singleCheck">
+    <options><option displayName="Tiered pricing by quantity" value="1"/></options>
+  </field>
+  <field id="ladderPrice" name="Quantity price" type="complex">
+    <fields>
+      <field id="ladderPrice_0" type="complex">
+        <fields>
+          <field id="quantity" name="MOQ" type="input">
+            <rules><rule name="requiredRule" value="true"/></rules>
+          </field>
+          <field id="price" name="Price" type="input">
+            <rules><rule name="requiredRule" value="true"/></rules>
+          </field>
+        </fields>
+      </field>
+    </fields>
+  </field>
+  <field id="minOrderQuantity" name="MOQ" type="input"/>
+  <field id="icbuCatProp" name="Product feature" type="complex">
+    <fields>
+      <field id="p-1" name="Place of Origin" type="singleCheck">
+        <rules><rule name="requiredRule" value="true"/></rules>
+        <options>
+          <option displayName="China" value="100000458"/>
+          <option displayName="Vietnam" value="100000630"/>
+        </options>
+      </field>
+      <field id="p-3" name="Model Number" type="input">
+        <rules><rule name="requiredRule" value="true"/></rules>
+      </field>
+      <field id="p-9" name="Lead Color" type="multiCheck">
+        <rules><rule name="requiredRule" value="true"/></rules>
+        <options>
+          <option displayName="colored" value="12970290"/>
+          <option displayName="other" value="-1"/>
+        </options>
+      </field>
+    </fields>
+  </field>
+</itemSchema>
+"""
+
+
+class MockAi:
+    def chat_json(self, messages: list[dict[str, Any]], temperature: float = 0.0) -> dict[str, Any]:
+        return {"p-77": "matte", "p-9": "colored"}
+
+    def map_attributes(self, *, images, facts, attributes) -> dict[str, str]:
+        return {"p-88": "Snap"}
+
+
+DUAL_SIDE_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<itemSchema>
+  <field id="icbuCatProp" name="Product feature" type="complex">
+    <fields>
+      <field id="p-200001254" name="Dual-side Writing" type="singleCheck">
+        <rules><rule name="requiredRule" value="true"/></rules>
+        <options>
+          <option displayName="No" value="1954507641"/>
+          <option displayName="Yes" value="1954509723"/>
+        </options>
+      </field>
+    </fields>
+  </field>
+</itemSchema>
+"""
+
+
+class SchemaFillTests(unittest.TestCase):
+    def test_local_origin_from_bundle_without_ai(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(origin="China")
+        u = Understanding(product_name="Pencil set")
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertEqual(values["p-1"], "100000458")
+        self.assertIn("icbuCatProp.p-1", result.evidence)
+
+    def test_color_count_with_product_name_is_certain(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        facts = {
+            "name": "12色木杆彩色铅笔",
+            "product_name": "12色木杆彩色铅笔",
+            "specs": {"color_count": "12"},
+            "specs_labeled": {"色数": "12"},
+            "note": "",
+            "brand": "",
+            "colors": [],
+            "vision": {},
+        }
+        bundle = FactBundle(name="12色木杆彩色铅笔", specs={"color_count": "12"})
+        u = bundle.enrich(Understanding(product_name="12色木杆彩色铅笔"))
+        certain, _, _ = _is_certain_fill(group.child("p-9"), "colored", facts, u, bundle)
+        self.assertTrue(certain)
+
+    def test_color_count_alone_without_context_not_certain(self) -> None:
+        from server.services.schema_fill import _is_certain_fill
+
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(specs={"color_count": "12"})
+        u = bundle.enrich(Understanding(product_name="学生绘画铅笔套装"))
+        facts = bundle.facts_for_ai(u)
+        certain, _, _ = _is_certain_fill(group.child("p-9"), "colored", facts, u, bundle)
+        self.assertFalse(certain)
+
+    def test_color_count_alone_does_not_infer_colored(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(name="绘画铅笔", specs={"color_count": "12"})
+        u = bundle.enrich(Understanding(product_name="学生绘画铅笔套装"))
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertNotIn("p-9", values)
+
+    def test_vision_color_fills_lead_color(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(name="Colored pencil set")
+        u = bundle.enrich(Understanding(product_name="Colored pencil set", colors=["colored"]))
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertEqual(values.get("p-9"), ["12970290"])
+
+    def test_color_spec_maps_to_option_without_ai(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(specs={"color": "colored"})
+        u = bundle.enrich(Understanding(product_name="Colored pencil set", colors=["colored"]))
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertEqual(values.get("p-9"), ["12970290"])
+        self.assertEqual(result.stats.ai_calls, 0)
+
+    def test_ai_fills_unresolved_required_when_supported(self) -> None:
+        xml = SAMPLE.replace(
+            '      <field id="p-9" name="Lead Color" type="multiCheck">',
+            '      <field id="p-77" name="Special finish" type="singleCheck">\n'
+            '        <rules><rule name="requiredRule" value="true"/></rules>\n'
+            '        <options><option displayName="matte" value="1"/></options>\n'
+            "      </field>\n"
+            '      <field id="p-9" name="Lead Color" type="multiCheck">',
+        )
+        fields = parse_schema(xml)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(note="Special finish matte for retail packs")
+        u = Understanding(product_name="Pencil set")
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, MockAi(), bundle, result)
+        self.assertEqual(values.get("p-77"), "1")
+        self.assertEqual(result.stats.ai_calls, 1)
+
+    def test_sample_fill_report_sets_trade_terms(self) -> None:
+        bundle = FactBundle(
+            name="Colored pencils",
+            price="1.80",
+            moq="500",
+            origin="China",
+            specs={"material": "Wood", "color": "12 colors"},
+        )
+        report = sample_fill_report(SAMPLE, bundle)
+        self.assertEqual(report.values["ladderPrice"]["ladderPrice_0"]["quantity"], "500")
+        self.assertEqual(report.values["icbuCatProp"]["p-1"], "100000458")
+        self.assertTrue(report.stats.filled >= 1)
+
+    def test_blocked_required_without_evidence(self) -> None:
+        bundle = FactBundle(price="1.00", moq="100")
+        report = fill_category_draft(
+            SAMPLE,
+            understanding=Understanding(product_name="Mystery item"),
+            bundle=bundle,
+            defaults={"origin": "China", "priceUnit": "Piece/Pieces", "saleType": "Unit"},
+            category_values={},
+            price="1.00",
+            moq="100",
+            ai=None,
+            images_applied=True,
+            title="Wholesale product",
+        )
+        self.assertTrue(any("无法百分百确定" in issue["message"] for issue in report.issues))
+
+    def test_model_text_input_from_specs(self) -> None:
+        fields = parse_schema(SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(specs={"model": "GP-100"}, origin="China")
+        u = bundle.enrich(Understanding(product_name="Pencil set"))
+        result = FillResult()
+        values = align_attributes(group, u, {"origin": "China"}, None, bundle, result)
+        self.assertEqual(values.get("p-3"), "GP-100")
+
+    def test_dual_tip_fills_dual_side_writing_without_ai(self) -> None:
+        fields = parse_schema(DUAL_SIDE_SAMPLE)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(
+            name="双头美术马克笔24色",
+            note="alcohol based; dual tip fine and chisel",
+            specs={"tip": "Dual tip", "color_count": "24"},
+        )
+        u = bundle.enrich(Understanding(product_name="双头美术马克笔24色"))
+        result = FillResult()
+        values = align_attributes(group, u, {}, None, bundle, result)
+        self.assertEqual(values.get("p-200001254"), "1954509723")
+        self.assertEqual(result.stats.ai_calls, 0)
+
+    def test_ai_trusts_valid_option_without_verbatim_corpus(self) -> None:
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<itemSchema>
+  <field id="icbuCatProp" name="Product feature" type="complex">
+    <fields>
+      <field id="p-88" name="Closure Type" type="singleCheck">
+        <rules><rule name="requiredRule" value="true"/></rules>
+        <options>
+          <option displayName="Zip" value="1"/>
+          <option displayName="Snap" value="2"/>
+        </options>
+      </field>
+    </fields>
+  </field>
+</itemSchema>"""
+        fields = parse_schema(xml)
+        group = next(field for field in fields if field.id == "icbuCatProp")
+        bundle = FactBundle(note="retail blister pack")
+        u = Understanding(product_name="Marker set")
+        result = FillResult()
+        values = align_attributes(group, u, {}, MockAi(), bundle, result, images=[MagicMock()])
+        self.assertEqual(values.get("p-88"), "2")
+        self.assertEqual(result.evidence["icbuCatProp.p-88"].source, "ai")
+        self.assertEqual(result.stats.ai_calls, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

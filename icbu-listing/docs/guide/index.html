@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto Shoper 使用说明 · 国际站上品</title>
+  <style>
+    :root {
+      --ink: #171717;
+      --ink-2: #3d3d3d;
+      --muted: #716f6c;
+      --sidebar: #f3f3f2;
+      --line: #ededed;
+      --fill: #f5f5f5;
+      --bg: #fff;
+      --red: #c4564a;
+      --red-soft: #f8eceb;
+      --yellow: #c48a00;
+      --green: #3a7d44;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font: 15px/1.6 Inter, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+      color: var(--ink);
+      background: var(--sidebar);
+    }
+    a { color: var(--ink); }
+    .top {
+      position: sticky; top: 0; z-index: 10;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+    .top-inner {
+      max-width: 980px; margin: 0 auto; padding: 12px 20px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .mark {
+      width: 22px; height: 22px; border-radius: 6px; background: var(--ink); color: #fff;
+      display: grid; place-items: center; font-size: 12px; font-weight: 600;
+    }
+    .brand b { display: block; font-size: 14px; }
+    .brand small { display: block; color: var(--muted); font-size: 11px; }
+    nav { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+    nav a {
+      text-decoration: none; color: var(--muted); font-size: 13px;
+      padding: 4px 8px; border-radius: 6px;
+    }
+    nav a:hover { background: var(--fill); color: var(--ink); }
+    main { max-width: 980px; margin: 0 auto; padding: 28px 20px 80px; }
+    .hero {
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 28px 28px 22px; margin-bottom: 22px;
+    }
+    .hero h1 { margin: 0 0 8px; font-size: 32px; font-weight: 550; letter-spacing: -0.03em; }
+    .hero p { margin: 0 0 14px; color: var(--ink-2); }
+    .flow {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px; background: var(--fill); border-radius: 8px; padding: 14px 16px;
+      white-space: pre-wrap; color: var(--ink-2);
+    }
+    section {
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 22px 24px 26px; margin-bottom: 16px;
+    }
+    section h2 { margin: 0 0 8px; font-size: 22px; font-weight: 550; }
+    section h3 { margin: 22px 0 8px; font-size: 16px; font-weight: 550; }
+    section p { color: var(--ink-2); }
+    .shot {
+      display: block; width: 100%; border: 1px solid var(--line); border-radius: 8px;
+      margin: 14px 0 12px; background: var(--fill);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 550; font-size: 12px; }
+    .n {
+      display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--ink); color: #fff; font-size: 11px; font-weight: 600;
+    }
+    .n.dash { background: var(--fill); color: var(--muted); }
+    ul { color: var(--ink-2); padding-left: 18px; }
+    .redline { background: var(--red-soft); border-color: #efd8d5; }
+    .redline h2 { color: var(--red); }
+    .faq dt { font-weight: 550; margin-top: 12px; }
+    .faq dd { margin: 4px 0 0; color: var(--ink-2); }
+    footer { text-align: center; color: var(--muted); font-size: 12px; padding: 8px 0 0; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="#top">
+        <span class="mark">A</span>
+        <span><b>Auto Shoper</b><small>使用说明</small></span>
+      </a>
+      <nav>
+        <a href="#s0">开通</a>
+        <a href="#s1">店铺</a>
+        <a href="#s2">默认</a>
+        <a href="#s3">概览</a>
+        <a href="#s4">投料</a>
+        <a href="#s5">草稿</a>
+        <a href="#s6">队列</a>
+        <a href="#who">红线</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="hero">
+      <h1>跟着黑圈数字点就行</h1>
+      <p>人只出依据，其余字段交给 AI，目标上架信息质量分 <b>5.0</b>。侧栏永远只有 5 项：概览 → 店铺 → 投料 → 草稿箱 → 队列。不要去阿里后台填 40 个红星字段。</p>
+      <div class="flow">开通账号 → 授权自己的店 → 填一次店铺默认
+        → 投料（实拍图 / 短表 / 没图生成套图）
+        → 草稿箱只审红黄项，看质量分
+        → 队列发布（失败原因是人话，改完重发）</div>
+    </div>
+
+    <section id="s0">
+      <h2>0. 开通账号</h2>
+      <p>打开工作台后先登录。没有账号就用管理员给的注册码开通。</p>
+      <h3>已有账号</h3>
+      <img class="shot" src="shots/01-login-ann.png" alt="登录页，圈出邮箱、密码、开通入口和 OAuth 说明" />
+      <table>
+        <tr><th>圈</th><th>点哪里</th><th>做什么</th></tr>
+        <tr><td><span class="n">1</span></td><td>工作邮箱</td><td>填你的工作邮箱</td></tr>
+        <tr><td><span class="n">2</span></td><td>密码</td><td>至少 8 位</td></tr>
+        <tr><td><span class="n dash">—</span></td><td>进入工作台</td><td>黑按钮，进侧栏</td></tr>
+        <tr><td><span class="n">3</span></td><td>还没有账号？</td><td>切到注册</td></tr>
+        <tr><td><span class="n">4</span></td><td>底部说明</td><td>店铺用官方 OAuth，不收集阿里密码</td></tr>
+      </table>
+      <h3>第一次开通</h3>
+      <img class="shot" src="shots/02-register-ann.png" alt="注册页，圈出邮箱、密码、注册码" />
+      <table>
+        <tr><th>圈</th><th>点哪里</th><th>做什么</th></tr>
+        <tr><td><span class="n">1</span></td><td>工作邮箱</td><td>以后登录用这个</td></tr>
+        <tr><td><span class="n">2</span></td><td>密码</td><td>至少 8 位</td></tr>
+        <tr><td><span class="n">3</span></td><td>注册码</td><td>向管理员索取，填错进不去</td></tr>
+        <tr><td><span class="n">4</span></td><td>已经有账号</td><td>回到登录</td></tr>
+      </table>
+      <p>开通后如果还没有店，会先落到「店铺」页。</p>
+    </section>
+
+    <section id="s1">
+      <h2>1. 授权自己的店铺</h2>
+      <p>国际站上品必须用你自己店的 token。平台只拿 AppKey，店和店之间隔离。</p>
+      <img class="shot" src="shots/04-shops-ann.png" alt="店铺列表，圈出授权、店铺默认、已授权状态" />
+      <table>
+        <tr><th>圈</th><th>点哪里</th><th>做什么</th></tr>
+        <tr><td><span class="n">1</span></td><td>授权新店铺</td><td>跳转阿里官方页确认，回来就是「已授权」</td></tr>
+        <tr><td><span class="n">2</span></td><td>店铺默认</td><td>填一次产地、包装、付款，后面每条货自动套</td></tr>
+        <tr><td><span class="n">3</span></td><td>已授权</td><td>绿标表示 token 可用。异常就重新授权</td></tr>
+      </table>
+      <p>正式环境走官方授权。左上角店铺下拉切换当前店；投料、草稿、队列都只看当前店。</p>
+    </section>
+
+    <section id="s2">
+      <h2>2. 填一次店铺默认（5.0 的依据）</h2>
+      <p>这些是经营决策，AI 不准猜。填一次，后面每条商品自动套，也是信息质量分里「交易 / 物流」两桶的来源。</p>
+      <img class="shot" src="shots/05-shop-defaults-ann.png" alt="店铺默认抽屉，圈出发布模式、产地、包装、付款港口交期" />
+      <table>
+        <tr><th>圈</th><th>填什么</th><th>为什么</th></tr>
+        <tr><td><span class="n">1</span></td><td>发布模式</td><td>先「只发草稿」跑通，确认后再切「直接上架」</td></tr>
+        <tr><td><span class="n">2</span></td><td>产地、计量单位、物流、样品</td><td>官方红星。产地不要让 AI 改</td></tr>
+        <tr><td><span class="n">3</span></td><td>运费模板、包装重量和尺寸</td><td>缺了物流分到不了 5.0。没有运费模板就留空，走买卖双方协商</td></tr>
+        <tr><td><span class="n">4</span></td><td>付款、港口、发货期、品牌</td><td>付款/港口/交期不准编。没有品牌就留空 = 无品牌</td></tr>
+      </table>
+    </section>
+
+    <section id="s3">
+      <h2>3. 概览：只推一条路</h2>
+      <p>登录后日常从「概览」进。它按你现在的情况只推一个按钮，不要自己选流程。</p>
+      <img class="shot" src="shots/03-overview-ann.png" alt="概览页，圈出导航、切店、推荐路径、去投料" />
+      <table>
+        <tr><th>圈</th><th>是什么</th><th>怎么用</th></tr>
+        <tr><td><span class="n">1</span></td><td>五步导航</td><td>日常只走这 5 个，不要找商品库</td></tr>
+        <tr><td><span class="n">2</span></td><td>当前店铺</td><td>先选对店再投料</td></tr>
+        <tr><td><span class="n">3</span></td><td>更快的起点 / 数字</td><td>有红项先审；有可发布的去草稿箱</td></tr>
+        <tr><td><span class="n">4</span></td><td>去投料上品</td><td>新店最常见：丢图 + 价格就能成稿</td></tr>
+      </table>
+    </section>
+
+    <section id="s4">
+      <h2>4. 投料：你填依据，AI 补其余</h2>
+      <p>投料页有三条路，点顶部卡片切换。</p>
+
+      <h3>4.1 有实拍图（最常见）</h3>
+      <img class="shot" src="shots/06-feed-photos-ann.png" alt="单条投料，圈出三条路、图片、货号价格、补充" />
+      <table>
+        <tr><th>圈</th><th>点哪里</th><th>做什么</th></tr>
+        <tr><td><span class="n">1</span></td><td>三条路</td><td>有图走这条；没图平台生成套图；批量走短表</td></tr>
+        <tr><td><span class="n">2</span></td><td>产品图</td><td>1～6 张实拍。第一张是主图。至少 3 张才容易到 5.0</td></tr>
+        <tr><td><span class="n">3</span></td><td>货号 / 单价 / 起订量</td><td>货号可留空。价和起订量是红线，AI 不定价</td></tr>
+        <tr><td><span class="n">4</span></td><td>补充</td><td>可选。中文也行，例如「加厚款，可定制 logo」</td></tr>
+      </table>
+      <p>点「生成草稿」。批量按货号命名：<code>SKU-1001_1.jpg</code>。</p>
+
+      <h3>4.2 下载表格，填完传回</h3>
+      <p>表在这一页下载，不是阿里后台那张 40 列表。填写页不加 Type / Color。</p>
+      <img class="shot" src="shots/07-feed-excel-ann.png" alt="短表批量，圈出谁填、选类目、下载、拖图" />
+      <table>
+        <tr><th>圈</th><th>点哪里</th><th>做什么</th></tr>
+        <tr><td><span class="n">1</span></td><td>你填 / AI 填 / 红线</td><td>先看清谁写什么。粉的是红线</td></tr>
+        <tr><td><span class="n">2</span></td><td>选择叶子类目</td><td>整表选一次。猜错发不出去、属性全废</td></tr>
+        <tr><td><span class="n">3</span></td><td>下载填写表</td><td>短表：货号、单价、起订量、图片、品牌（选填）</td></tr>
+        <tr><td><span class="n">4</span></td><td>拖入图片</td><td>按货号命名，或在表里填链接，再点批量成稿</td></tr>
+      </table>
+
+      <h3>4.3 没实拍：平台生成套图</h3>
+      <p>写出品名，平台按国际站 6 个坑位画套图，再填价格成稿。生成图会标黄，不能冒充实拍。</p>
+      <img class="shot" src="shots/08-feed-prompts.png" alt="套图提示词页" />
+      <ul>
+        <li>可选类目模板；不选则按品名匹配</li>
+        <li>写品名 / 货号，补充能看见的事实</li>
+        <li>出 6 条：白底主图、尺寸、细节、场景、外箱、OEM</li>
+        <li>不要让模型编 CE / FDA，不要往主图加字，不要加价格</li>
+      </ul>
+    </section>
+
+    <section id="s5">
+      <h2>5. 草稿箱：只审红黄，看 5.0</h2>
+      <p>绿的可以勾上直接进队列。红、黄必须点开。</p>
+      <img class="shot" src="shots/09-drafts-ann.png" alt="草稿箱，圈出红黄绿、质量分、发布" />
+      <table>
+        <tr><th>圈</th><th>点哪里</th><th>做什么</th></tr>
+        <tr><td><span class="n">1</span></td><td>红 / 黄 / 绿</td><td>红拦发布；黄建议看（不到 5.0）；绿已过本地校验</td></tr>
+        <tr><td><span class="n">2</span></td><td>质量分</td><td>官方六桶预估。5.0 才算齐</td></tr>
+        <tr><td><span class="n">3</span></td><td>一键选中 / 批量发布</td><td>先勾绿的，再进队列</td></tr>
+      </table>
+      <ul>
+        <li>红项：在官方选项里点一下，不要选 Other</li>
+        <li>核单价和起订量；手改过的标题，重新成稿不会覆盖</li>
+        <li>不到 5.0：按黄条补店铺默认或再补实拍</li>
+      </ul>
+    </section>
+
+    <section id="s6">
+      <h2>6. 队列：失败是人话，改完重发</h2>
+      <img class="shot" src="shots/10-queue.png" alt="发布队列空表" />
+      <ul>
+        <li>关掉页面不影响后台发布</li>
+        <li>模式：官方草稿 或 直接上架（看店铺默认）</li>
+        <li>失败原因已翻成中文。点「看草稿」改，再「重发」</li>
+        <li>官方建议先用不超过 15 条测试，再大批量</li>
+      </ul>
+    </section>
+
+    <section id="who">
+      <h2>你填什么，AI 填什么</h2>
+      <table>
+        <tr><th>谁</th><th>字段</th><th>说明</th></tr>
+        <tr><td>你，每条货</td><td>实拍图、单价、起订量</td><td>依据。没有图无法识别，也无法发品</td></tr>
+        <tr><td>你，建议</td><td>货号、中文备注</td><td>备注给 AI 当提示，不进官方标题</td></tr>
+        <tr><td>你，选填</td><td>品牌</td><td>空着 = 无品牌。AI 不准编品牌名</td></tr>
+        <tr><td>你，整表一次</td><td>叶子类目</td><td>红线。猜错发不出去</td></tr>
+        <tr><td>你，每个店一次</td><td>产地、单位、付款、港口、交期、运费、包装、样品</td><td>5.0 的交易/物流桶</td></tr>
+        <tr><td>AI</td><td>英文标题、关键词、类目属性、详描、FAQ</td><td>按图和官方选项。不选 Other，不编认证</td></tr>
+        <tr><td>系统</td><td>图片银行、schema 校验、重铺预检</td><td>外链图发不了</td></tr>
+      </table>
+    </section>
+
+    <section class="redline">
+      <h2>红线：这些不准交给 AI</h2>
+      <ul>
+        <li><b>售价、起订量</b> — 生意决策，不准定价</li>
+        <li><b>实拍图</b> — 不准用生成图冒充实拍</li>
+        <li><b>品牌</b> — 空着=无品牌，不准编</li>
+        <li><b>叶子类目</b> — 猜错发不出去，属性全废</li>
+        <li><b>原产地、证书 / CE / FDA、运费、付款、港口</b> — 店铺默认或你自己填</li>
+      </ul>
+      <p>要到 5.0：类目对、标题和 3 个关键词、必填属性对齐、价和起订量、付款和交期、包装尺寸重量、至少 3 张已入图片银行的实拍 + 详描。缺了会标黄，不会假装满分。</p>
+    </section>
+
+    <section>
+      <h2>常见问题</h2>
+      <dl class="faq">
+        <dt>授权报 Redirect uri does not match</dt>
+        <dd>开放平台登记的回调，必须和本服务的 <code>/api/v1/alibaba/oauth/callback</code> 完全一致。</dd>
+        <dt>投料提示先授权店铺</dt>
+        <dd>左上角先选一个「已授权」的店。</dd>
+        <dt>成稿后属性是红的</dt>
+        <dd>审稿时在下拉里选官方选项，不要选 Other。类目选错就先换类目。</dd>
+        <dt>质量分不是 5.0</dt>
+        <dd>包装和交期回店铺默认补；图不够再投实拍，不要用生成图凑数。</dd>
+        <dt>可不可以下官方 40 列表</dt>
+        <dd>可以，在投料页最下面「已有现成表」。默认请用我们的短表。</dd>
+        <dt>没图怎么办</dt>
+        <dd>投料 → 平台生成套图 → 填价格 → 生成草稿。生成图不是实拍。</dd>
+      </dl>
+    </section>
+    <footer>Auto Shoper · 国际站上品 · 使用说明</footer>
+  </main>
+</body>
+</html>

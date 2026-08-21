@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>国际站 AI 上品 · 用户流程</title>
+  <style>
+    :root {
+      --bg: #f6f3ee;
+      --ink: #1c1916;
+      --muted: #6b6258;
+      --card: #fffdf8;
+      --line: #e6ddd0;
+      --user: #c45c26;
+      --ai: #2f6f5e;
+      --sys: #3d5a80;
+      --shop: #7a5c2e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+    main { max-width: 980px; margin: 0 auto; padding: 40px 20px 80px; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    .lead { color: var(--muted); margin: 0 0 28px; }
+    .screens { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 32px; }
+    .screen {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .screen h2 { margin: 0 0 8px; font-size: 16px; }
+    .screen p { margin: 0; color: var(--muted); font-size: 13px; }
+    .step {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+      margin-bottom: 10px;
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 14px;
+    }
+    .who {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding-top: 4px;
+    }
+    .who.user { color: var(--user); }
+    .who.ai { color: var(--ai); }
+    .who.system { color: var(--sys); }
+    .who.shop { color: var(--shop); }
+    .step h3 { margin: 0 0 6px; font-size: 16px; }
+    .step p { margin: 0 0 6px; color: var(--muted); font-size: 14px; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      background: #efe8dc;
+      padding: 1px 6px;
+      border-radius: 6px;
+    }
+    .min-box {
+      margin-top: 28px;
+      padding: 18px;
+      border-radius: 14px;
+      background: #1c1916;
+      color: #f6f3ee;
+    }
+    .min-box h2 { margin: 0 0 8px; font-size: 16px; }
+    .min-box p { margin: 0; color: #d7cfc3; }
+    @media (max-width: 720px) {
+      .screens { grid-template-columns: 1fr; }
+      .step { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>用户只做三件事</h1>
+    <p class="lead">授权一次，投料（图 + 价格），审红项。类目、属性、英文标题、图片银行、发布队列都不是用户的工作。</p>
+
+    <section class="screens">
+      <article class="screen">
+        <h2>1. 投料</h2>
+        <p>拖 1～6 张图。建议再写货号、FOB、MOQ。店铺默认只在第一次问。</p>
+      </article>
+      <article class="screen">
+        <h2>2. 审稿</h2>
+        <p>只展开红黄项。绿的折叠。价格和 MOQ 必须人看一眼。</p>
+      </article>
+      <article class="screen">
+        <h2>3. 队列</h2>
+        <p>点发布即可离开。失败按字段回草稿，改完重发。</p>
+      </article>
+    </section>
+
+    <article class="step">
+      <div class="who user">用户</div>
+      <div>
+        <h3>授权店铺</h3>
+        <p>跳转官方 OAuth，不收集密码。</p>
+        <p><code>openapi-auth.alibaba.com</code> → <code>/auth/token/create</code></p>
+      </div>
+    </article>
+    <article class="step">
+      <div class="who shop">店铺</div>
+      <div>
+        <h3>默认交易 / 物流（只填一次）</h3>
+        <p>询盘或一口价、币种、港口、付款、交期、运费模板、包装。</p>
+        <p><code>product.group.get</code> <code>shippingline.template.list</code></p>
+      </div>
+    </article>
+    <article class="step">
+      <div class="who user">用户</div>
+      <div>
+        <h3>投料</h3>
+        <p>每条商品真正要给的：图。建议给货号、价格、MOQ。</p>
+      </div>
+    </article>
+    <article class="step">
+      <div class="who ai">AI</div>
+      <div>
+        <h3>看图 → 类目 → 属性 → 英文内容</h3>
+        <p>先理解，再在类目树里检索叶子类目，再按 schema 对齐属性，最后写标题和详情。</p>
+        <p>叶子类目 → <code>/alibaba/icbu/product/schema/get</code>（顶层 cat_id）</p>
+      </div>
+    </article>
+    <article class="step">
+      <div class="who system">系统</div>
+      <div>
+        <h3>图片银行 + 质检</h3>
+        <p>原图上传拿 url/fileId。标题长度、违禁、必填空在提交前拦掉。</p>
+        <p><code>/alibaba/icbu/photobank/upload</code></p>
+      </div>
+    </article>
+    <article class="step">
+      <div class="who user">用户</div>
+      <div>
+        <h3>审红黄项</h3>
+        <p>类目不确定、属性对不上、价格/MOQ。绿项不用点开。</p>
+      </div>
+    </article>
+    <article class="step">
+      <div class="who system">系统</div>
+      <div>
+        <h3>排队发布</h3>
+        <p>把填好的 XML 交给官方。限流、重试、记下 product_id。</p>
+        <p><code>/icbu/product/schema/add</code>（publish_request）</p>
+      </div>
+    </article>
+
+    <section class="min-box">
+      <h2>第一期就做到发布询盘品</h2>
+      <p>一口价 SKU、多店复制、在线改品放到第二期。先把「传图出价 → 自动成稿 → 审红项 → 发出去」跑通。</p>
+    </section>
+  </main>
+</body>
+</html>

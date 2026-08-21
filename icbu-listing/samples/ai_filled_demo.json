@@ -1,0 +1,1587 @@
+{
+  "generated_at": "2026-08-18T19:04:08.226659+00:00",
+  "model": "gemini-3.1-flash-lite",
+  "rows": [
+    {
+      "sample": {
+        "sku": "PEN-CP-12",
+        "name": "12色木杆彩色铅笔",
+        "category_id": "21110712",
+        "price": "1.80",
+        "moq": "500",
+        "brand": "Giorgione",
+        "note": "500@1.80; 1000@1.50; OEM logo welcome",
+        "specs": {
+          "color_count": "12",
+          "material": "Wood",
+          "hardness": "HB",
+          "size": "17.5cm",
+          "color": "colored"
+        },
+        "image_paths": [
+          "/workspace/icbu-listing/data/generated-images/refs/25148ec012584dc1a3bc5fa9600b7703.jpg",
+          "/workspace/icbu-listing/data/generated-images/refs/4f68286c79d940cb8267375a4d5d9ad0.jpg",
+          "/workspace/icbu-listing/data/generated-images/refs/68fdd90850ce43e1b8892ea0dfdb8cd9.jpg",
+          "/workspace/icbu-listing/data/generated-images/refs/783c1784e727448f8b4d662a6493c81d.jpg"
+        ]
+      },
+      "category_label": "Colored Pencils / 彩色铅笔",
+      "values": {
+        "catId": "21110712",
+        "icbuCatProp": {
+          "p-2": "Giorgione",
+          "p-1": "100000458",
+          "p-191288433": [
+            "12970290"
+          ]
+        },
+        "saleProp": {
+          "p-191288435": [
+            "3460182"
+          ],
+          "p-200307261": [
+            "68739970"
+          ]
+        },
+        "priceUnit": "4",
+        "saleType": "normal",
+        "scPrice": "1",
+        "ladderPrice": {
+          "ladderPrice_0": {
+            "quantity": "500",
+            "price": "1.80"
+          }
+        },
+        "minOrderQuantity": "500",
+        "shippingTemplate": {
+          "templateType": "freightNegotiation"
+        },
+        "logisticsProperty": [
+          "general_cargo_0"
+        ],
+        "marketSample": "2",
+        "ladderPeriod": {
+          "ladderPeriod_0": {
+            "quantity": "500",
+            "day": "15"
+          }
+        },
+        "productTitle": "Wholesale colored pencil set",
+        "productKeywords": {
+          "productKeywords_0": "wholesale"
+        },
+        "textDesc": "12色木杆彩色铅笔 500@1.80; 1000@1.50; OEM logo welcome 色数 12 材质 Wood 硬度 HB 尺寸 17.5cm 颜色 colored",
+        "productDescType": "2"
+      },
+      "evidence": {
+        "icbuCatProp.p-2": {
+          "source": "excel",
+          "quote": "Giorgione"
+        },
+        "icbuCatProp.p-1": {
+          "source": "excel",
+          "quote": "China"
+        },
+        "icbuCatProp.p-191288433": {
+          "source": "excel",
+          "quote": "multicolored"
+        },
+        "saleProp.p-191288435": {
+          "source": "excel",
+          "quote": "HB"
+        },
+        "saleProp.p-200307261": {
+          "source": "excel",
+          "quote": "8 Colors"
+        },
+        "ladderPrice.ladderPrice_0": {
+          "source": "excel",
+          "quote": "500@1.80"
+        },
+        "price": {
+          "source": "excel",
+          "quote": "1.80"
+        },
+        "moq": {
+          "source": "excel",
+          "quote": "500"
+        },
+        "productTitle": {
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        "productKeywords": {
+          "source": "ai",
+          "quote": "wholesale,factory,bulk"
+        }
+      },
+      "issues": [],
+      "fields": [
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-2",
+          "field_name": "Brand Name",
+          "value_raw": "Giorgione",
+          "value_label": "Giorgione",
+          "required": "否",
+          "source": "excel",
+          "quote": "Giorgione"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-1",
+          "field_name": "Place of Origin",
+          "value_raw": "100000458",
+          "value_label": "China",
+          "required": "是",
+          "source": "excel",
+          "quote": "China"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-191288433",
+          "field_name": "Lead Color",
+          "value_raw": "[\"12970290\"]",
+          "value_label": "colored",
+          "required": "是",
+          "source": "excel",
+          "quote": "multicolored"
+        },
+        {
+          "group": "saleProp",
+          "field_id": "p-191288435",
+          "field_name": "Lead Hardness",
+          "value_raw": "[\"3460182\"]",
+          "value_label": "HB",
+          "required": "是",
+          "source": "excel",
+          "quote": "HB"
+        },
+        {
+          "group": "saleProp",
+          "field_id": "p-200307261",
+          "field_name": "Number of Colors",
+          "value_raw": "[\"68739970\"]",
+          "value_label": "8 Colors",
+          "required": "否",
+          "source": "excel",
+          "quote": "8 Colors"
+        },
+        {
+          "group": "trade",
+          "field_id": "productTitle",
+          "field_name": "Product name",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
+          "required": "是",
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        {
+          "group": "trade",
+          "field_id": "minOrderQuantity",
+          "field_name": "Minimum order quantity (MOQ)",
+          "value_raw": "500",
+          "value_label": "500",
+          "required": "否",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "priceUnit",
+          "field_name": "Unit",
+          "value_raw": "4",
+          "value_label": "Piece/Pieces",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "scPrice",
+          "field_name": "Price setting",
+          "value_raw": "1",
+          "value_label": "Tiered pricing by quantity",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "ladderPrice_0",
+          "field_name": "阶梯价",
+          "value_raw": "{\"quantity\": \"500\", \"price\": \"1.80\"}",
+          "value_label": "500 @ 1.80",
+          "required": "是",
+          "source": "excel",
+          "quote": "500@1.80"
+        }
+      ],
+      "stats": {
+        "required_total": 3,
+        "filled": 1,
+        "blocked_no_evidence": 0,
+        "ai_calls": 0,
+        "rounds": 2,
+        "filled_ai": 0,
+        "filled_local": 3,
+        "required_option_fields": 3,
+        "filled_required_options": 3,
+        "missing_required_options": 0,
+        "red_issues": 0
+      },
+      "model": "gemini-3.1-flash-lite",
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
+    },
+    {
+      "sample": {
+        "sku": "MKR-WB-24",
+        "name": "双头美术马克笔24色",
+        "category_id": "21110711",
+        "price": "3.20",
+        "moq": "200",
+        "brand": "Giorgione",
+        "note": "200@3.20; alcohol based; dual tip fine and chisel",
+        "specs": {
+          "color_count": "24",
+          "material": "Plastic barrel",
+          "tip": "Dual tip",
+          "ink": "Alcohol"
+        }
+      },
+      "category_label": "Art Markers / 美术用马克笔",
+      "values": {
+        "catId": "21110711",
+        "icbuCatProp": {
+          "p-2": "Giorgione",
+          "p-1": "100000458",
+          "p-390873113": [
+            "3542796"
+          ]
+        },
+        "saleProp": {
+          "p-200307261": [
+            "62999051"
+          ]
+        },
+        "priceUnit": "4",
+        "saleType": "normal",
+        "scPrice": "1",
+        "ladderPrice": {
+          "ladderPrice_0": {
+            "quantity": "200",
+            "price": "3.20"
+          }
+        },
+        "minOrderQuantity": "200",
+        "shippingTemplate": {
+          "templateType": "freightNegotiation"
+        },
+        "logisticsProperty": [
+          "general_cargo_0"
+        ],
+        "marketSample": "2",
+        "ladderPeriod": {
+          "ladderPeriod_0": {
+            "quantity": "200",
+            "day": "15"
+          }
+        },
+        "productTitle": "Wholesale colored pencil set",
+        "productKeywords": {
+          "productKeywords_0": "wholesale"
+        },
+        "textDesc": "双头美术马克笔24色 200@3.20; alcohol based; dual tip fine and chisel 色数 24 材质 Plastic barrel tip Dual tip ink Alcohol",
+        "productDescType": "2"
+      },
+      "evidence": {
+        "icbuCatProp.p-2": {
+          "source": "excel",
+          "quote": "Giorgione"
+        },
+        "icbuCatProp.p-1": {
+          "source": "excel",
+          "quote": "China"
+        },
+        "icbuCatProp.p-390873113": {
+          "source": "excel",
+          "quote": "Plastic barrel"
+        },
+        "saleProp.p-200307261": {
+          "source": "excel",
+          "quote": "24"
+        },
+        "ladderPrice.ladderPrice_0": {
+          "source": "excel",
+          "quote": "200@3.20"
+        },
+        "price": {
+          "source": "excel",
+          "quote": "3.20"
+        },
+        "moq": {
+          "source": "excel",
+          "quote": "200"
+        },
+        "productTitle": {
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        "productKeywords": {
+          "source": "ai",
+          "quote": "wholesale,factory,bulk"
+        }
+      },
+      "issues": [
+        {
+          "field_id": "p-200001254",
+          "field_name": "Dual-side Writing",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "icbuCatProp.p-200001254",
+          "options": [
+            {
+              "value": "1954507641",
+              "label": "No"
+            },
+            {
+              "value": "1954509723",
+              "label": "Yes"
+            }
+          ]
+        },
+        {
+          "field_id": "p-210190015",
+          "field_name": "Color",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "saleProp.p-210190015",
+          "options": [
+            {
+              "value": "5412614",
+              "label": "Gray"
+            },
+            {
+              "value": "3558409",
+              "label": "Orange"
+            },
+            {
+              "value": "3252738",
+              "label": "Others"
+            },
+            {
+              "value": "153630482",
+              "label": "Wihte"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
+        }
+      ],
+      "fields": [
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-2",
+          "field_name": "Brand Name",
+          "value_raw": "Giorgione",
+          "value_label": "Giorgione",
+          "required": "否",
+          "source": "excel",
+          "quote": "Giorgione"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-1",
+          "field_name": "Place of Origin",
+          "value_raw": "100000458",
+          "value_label": "China",
+          "required": "是",
+          "source": "excel",
+          "quote": "China"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-390873113",
+          "field_name": "Material",
+          "value_raw": "[\"3542796\"]",
+          "value_label": "PLA",
+          "required": "否",
+          "source": "excel",
+          "quote": "Plastic barrel"
+        },
+        {
+          "group": "saleProp",
+          "field_id": "p-200307261",
+          "field_name": "Number of Colors",
+          "value_raw": "[\"62999051\"]",
+          "value_label": "24 Colors",
+          "required": "否",
+          "source": "excel",
+          "quote": "24"
+        },
+        {
+          "group": "trade",
+          "field_id": "productTitle",
+          "field_name": "Product name",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
+          "required": "是",
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        {
+          "group": "trade",
+          "field_id": "minOrderQuantity",
+          "field_name": "Minimum order quantity (MOQ)",
+          "value_raw": "200",
+          "value_label": "200",
+          "required": "否",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "priceUnit",
+          "field_name": "Unit",
+          "value_raw": "4",
+          "value_label": "Piece/Pieces",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "scPrice",
+          "field_name": "Price setting",
+          "value_raw": "1",
+          "value_label": "Tiered pricing by quantity",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "ladderPrice_0",
+          "field_name": "阶梯价",
+          "value_raw": "{\"quantity\": \"200\", \"price\": \"3.20\"}",
+          "value_label": "200 @ 3.20",
+          "required": "是",
+          "source": "excel",
+          "quote": "200@3.20"
+        }
+      ],
+      "stats": {
+        "required_total": 5,
+        "filled": 1,
+        "blocked_no_evidence": 4,
+        "ai_calls": 4,
+        "rounds": 2,
+        "filled_ai": 0,
+        "filled_local": 1,
+        "required_option_fields": 3,
+        "filled_required_options": 1,
+        "missing_required_options": 2,
+        "red_issues": 3
+      },
+      "model": "gemini-3.1-flash-lite",
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
+    },
+    {
+      "sample": {
+        "sku": "WC-PAN-18",
+        "name": "18色固体水彩颜料",
+        "category_id": "21111110",
+        "price": "4.50",
+        "moq": "300",
+        "brand": "Giorgione",
+        "note": "300@4.50; with brush; tin box",
+        "specs": {
+          "color_count": "18",
+          "material": "Pigment",
+          "packaging": "Tin box",
+          "form": "Pan cake"
+        }
+      },
+      "category_label": "Water Color / 水合颜料",
+      "values": {
+        "catId": "21111110",
+        "icbuCatProp": {
+          "p-2": "Giorgione",
+          "p-1": "100000458"
+        },
+        "priceUnit": "4",
+        "saleType": "normal",
+        "scPrice": "1",
+        "ladderPrice": {
+          "ladderPrice_0": {
+            "quantity": "300",
+            "price": "4.50"
+          }
+        },
+        "minOrderQuantity": "300",
+        "shippingTemplate": {
+          "templateType": "freightNegotiation"
+        },
+        "logisticsProperty": [
+          "general_cargo_0"
+        ],
+        "marketSample": "2",
+        "ladderPeriod": {
+          "ladderPeriod_0": {
+            "quantity": "300",
+            "day": "15"
+          }
+        },
+        "productTitle": "Wholesale colored pencil set",
+        "productKeywords": {
+          "productKeywords_0": "wholesale"
+        },
+        "textDesc": "18色固体水彩颜料 300@4.50; with brush; tin box 色数 18 材质 Pigment packaging Tin box form Pan cake",
+        "productDescType": "2"
+      },
+      "evidence": {
+        "icbuCatProp.p-2": {
+          "source": "excel",
+          "quote": "Giorgione"
+        },
+        "icbuCatProp.p-1": {
+          "source": "excel",
+          "quote": "China"
+        },
+        "ladderPrice.ladderPrice_0": {
+          "source": "excel",
+          "quote": "300@4.50"
+        },
+        "price": {
+          "source": "excel",
+          "quote": "4.50"
+        },
+        "moq": {
+          "source": "excel",
+          "quote": "300"
+        },
+        "productTitle": {
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        "productKeywords": {
+          "source": "ai",
+          "quote": "wholesale,factory,bulk"
+        }
+      },
+      "issues": [
+        {
+          "field_id": "p-210190051",
+          "field_name": "Capacity",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "icbuCatProp.p-210190051",
+          "options": [
+            {
+              "value": "1954508533",
+              "label": "20 ml"
+            },
+            {
+              "value": "46301",
+              "label": "3 mL"
+            },
+            {
+              "value": "75368834",
+              "label": "5 ml"
+            },
+            {
+              "value": "46302",
+              "label": "12 ml"
+            },
+            {
+              "value": "46990",
+              "label": "45 ml"
+            },
+            {
+              "value": "75366294",
+              "label": "100 mL"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "p-191288010",
+          "field_name": "Color",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "saleProp.p-191288010",
+          "options": [
+            {
+              "value": "3399503",
+              "label": "Brown"
+            },
+            {
+              "value": "3778969",
+              "label": "Coffee"
+            },
+            {
+              "value": "5412614",
+              "label": "Gray"
+            },
+            {
+              "value": "4371350",
+              "label": "Navy"
+            },
+            {
+              "value": "3851110",
+              "label": "Purple"
+            },
+            {
+              "value": "3331260",
+              "label": "Red"
+            },
+            {
+              "value": "20928969",
+              "label": "Sky Blue"
+            },
+            {
+              "value": "3331185",
+              "label": "White"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
+        }
+      ],
+      "fields": [
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-2",
+          "field_name": "Brand Name",
+          "value_raw": "Giorgione",
+          "value_label": "Giorgione",
+          "required": "否",
+          "source": "excel",
+          "quote": "Giorgione"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-1",
+          "field_name": "Place of Origin",
+          "value_raw": "100000458",
+          "value_label": "China",
+          "required": "是",
+          "source": "excel",
+          "quote": "China"
+        },
+        {
+          "group": "trade",
+          "field_id": "productTitle",
+          "field_name": "Product name",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
+          "required": "是",
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        {
+          "group": "trade",
+          "field_id": "minOrderQuantity",
+          "field_name": "Minimum order quantity (MOQ)",
+          "value_raw": "300",
+          "value_label": "300",
+          "required": "否",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "priceUnit",
+          "field_name": "Unit",
+          "value_raw": "4",
+          "value_label": "Piece/Pieces",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "scPrice",
+          "field_name": "Price setting",
+          "value_raw": "1",
+          "value_label": "Tiered pricing by quantity",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "ladderPrice_0",
+          "field_name": "阶梯价",
+          "value_raw": "{\"quantity\": \"300\", \"price\": \"4.50\"}",
+          "value_label": "300 @ 4.50",
+          "required": "是",
+          "source": "excel",
+          "quote": "300@4.50"
+        }
+      ],
+      "stats": {
+        "required_total": 4,
+        "filled": 1,
+        "blocked_no_evidence": 4,
+        "ai_calls": 4,
+        "rounds": 2,
+        "filled_ai": 0,
+        "filled_local": 1,
+        "required_option_fields": 3,
+        "filled_required_options": 1,
+        "missing_required_options": 2,
+        "red_issues": 3
+      },
+      "model": "gemini-3.1-flash-lite",
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
+    },
+    {
+      "sample": {
+        "sku": "SOFA-GD-01",
+        "name": "户外花园PE藤编沙发三件套",
+        "category_id": "100003017",
+        "price": "89.00",
+        "moq": "20",
+        "brand": "",
+        "note": "20 sets@89; UV resistant PE rattan; cushion included",
+        "specs": {
+          "material": "PE rattan",
+          "color": "Brown",
+          "pieces": "3",
+          "frame": "Steel"
+        }
+      },
+      "category_label": "Garden Sofas / 花园沙发",
+      "values": {
+        "catId": "100003017",
+        "icbuCatProp": {
+          "p-100000801": "1875814357",
+          "p-100001000": "428124982",
+          "p-191284014": "34313717",
+          "p-231671682": "111689382",
+          "p-100001004": "3339564",
+          "p-1": "100000458",
+          "p-400004414": "1982267690"
+        },
+        "saleProp": {
+          "p-210190015": [
+            "3399503"
+          ]
+        },
+        "priceUnit": "4",
+        "saleType": "normal",
+        "scPrice": "1",
+        "ladderPrice": {
+          "ladderPrice_0": {
+            "quantity": "20",
+            "price": "89.00"
+          }
+        },
+        "minOrderQuantity": "20",
+        "shippingTemplate": {
+          "templateType": "freightNegotiation"
+        },
+        "logisticsProperty": [
+          "general_cargo_0"
+        ],
+        "marketSample": "2",
+        "ladderPeriod": {
+          "ladderPeriod_0": {
+            "quantity": "20",
+            "day": "15"
+          }
+        },
+        "productTitle": "Wholesale colored pencil set",
+        "productKeywords": {
+          "productKeywords_0": "wholesale"
+        },
+        "textDesc": "户外花园PE藤编沙发三件套 20 sets@89; UV resistant PE rattan; cushion included 材质 PE rattan 颜色 Brown pieces 3 frame Steel",
+        "productDescType": "2"
+      },
+      "evidence": {
+        "icbuCatProp.p-100000801": {
+          "source": "excel",
+          "quote": "Garden Sofa"
+        },
+        "icbuCatProp.p-100001000": {
+          "source": "excel",
+          "quote": "pieces 3"
+        },
+        "icbuCatProp.p-191284014": {
+          "source": "excel",
+          "quote": "PE rattan"
+        },
+        "icbuCatProp.p-231671682": {
+          "source": "excel",
+          "quote": "N"
+        },
+        "icbuCatProp.p-100001004": {
+          "source": "excel",
+          "quote": "Set"
+        },
+        "icbuCatProp.p-1": {
+          "source": "excel",
+          "quote": "China"
+        },
+        "icbuCatProp.p-400004414": {
+          "source": "excel",
+          "quote": "UV-Resistant PE Rattan"
+        },
+        "saleProp.p-210190015": {
+          "source": "excel",
+          "quote": "Brown"
+        },
+        "ladderPrice.ladderPrice_0": {
+          "source": "excel",
+          "quote": "20@89.00"
+        },
+        "price": {
+          "source": "excel",
+          "quote": "89.00"
+        },
+        "moq": {
+          "source": "excel",
+          "quote": "20"
+        },
+        "productTitle": {
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        "productKeywords": {
+          "source": "ai",
+          "quote": "wholesale,factory,bulk"
+        }
+      },
+      "issues": [
+        {
+          "field_id": "p-234916993",
+          "field_name": "application",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "icbuCatProp.p-234916993",
+          "options": [
+            {
+              "value": "22188974",
+              "label": "Living Room"
+            },
+            {
+              "value": "5662101",
+              "label": "Bedroom"
+            },
+            {
+              "value": "6743162",
+              "label": "Dining"
+            },
+            {
+              "value": "3778175",
+              "label": "Outdoor"
+            },
+            {
+              "value": "3413080",
+              "label": "Hotel"
+            },
+            {
+              "value": "29162183",
+              "label": "Apartment"
+            },
+            {
+              "value": "305782145",
+              "label": "Office Building"
+            },
+            {
+              "value": "17774471",
+              "label": "Hospital"
+            },
+            {
+              "value": "7429513",
+              "label": "School"
+            },
+            {
+              "value": "11185772",
+              "label": "Mall"
+            },
+            {
+              "value": "1841738623",
+              "label": "Sports Venues"
+            },
+            {
+              "value": "190065876",
+              "label": "Leisure Facilities"
+            },
+            {
+              "value": "8596889",
+              "label": "Supermarket"
+            },
+            {
+              "value": "3492452",
+              "label": "Warehouse"
+            },
+            {
+              "value": "7146473",
+              "label": "Park"
+            },
+            {
+              "value": "3610200",
+              "label": "Farmhouse"
+            },
+            {
+              "value": "53879761",
+              "label": "Courtyard"
+            },
+            {
+              "value": "-1",
+              "label": "Other"
+            },
+            {
+              "value": "7723216",
+              "label": "Entry"
+            },
+            {
+              "value": "9986815",
+              "label": "Hall"
+            },
+            {
+              "value": "4319137",
+              "label": "Basement"
+            },
+            {
+              "value": "190066266",
+              "label": "Garage and Shed"
+            },
+            {
+              "value": "3363202",
+              "label": "Gym"
+            },
+            {
+              "value": "3410426",
+              "label": "Laundry"
+            },
+            {
+              "value": "3288788",
+              "label": "Villa"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "p-235983983",
+          "field_name": "design style",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "icbuCatProp.p-235983983",
+          "options": [
+            {
+              "value": "11109397",
+              "label": "Contemporary"
+            },
+            {
+              "value": "24609390",
+              "label": "Traditional"
+            },
+            {
+              "value": "3583053",
+              "label": "Modern"
+            },
+            {
+              "value": "64891176",
+              "label": "Minimalist"
+            },
+            {
+              "value": "12795819",
+              "label": "Industrial"
+            },
+            {
+              "value": "190065877",
+              "label": "Midcentury"
+            },
+            {
+              "value": "3610200",
+              "label": "Farmhouse"
+            },
+            {
+              "value": "90749667",
+              "label": "Scandinavian"
+            },
+            {
+              "value": "1477768126",
+              "label": "Postmodern"
+            },
+            {
+              "value": "3887311",
+              "label": "Mediterranean"
+            },
+            {
+              "value": "28919724",
+              "label": "Coastal"
+            },
+            {
+              "value": "40992611",
+              "label": "Rustic"
+            },
+            {
+              "value": "47057755",
+              "label": "European"
+            },
+            {
+              "value": "19663260",
+              "label": "Asian"
+            },
+            {
+              "value": "8622617",
+              "label": "Eclectic"
+            },
+            {
+              "value": "118914711",
+              "label": "Southwestern"
+            },
+            {
+              "value": "12046218",
+              "label": "Craftsman"
+            },
+            {
+              "value": "308136385",
+              "label": "Midcentury Modern"
+            },
+            {
+              "value": "180176014",
+              "label": "Transitional"
+            },
+            {
+              "value": "3805497",
+              "label": "Tropical"
+            },
+            {
+              "value": "3275469",
+              "label": "Victorian"
+            },
+            {
+              "value": "12116395",
+              "label": "Japanese"
+            },
+            {
+              "value": "11187305",
+              "label": "Chinese"
+            },
+            {
+              "value": "11628874",
+              "label": "French"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "p-191284006",
+          "field_name": "size",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "saleProp.p-191284006",
+          "options": [
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
+        }
+      ],
+      "fields": [
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-100000801",
+          "field_name": "specific use",
+          "value_raw": "1875814357",
+          "value_label": "Garden Sofa",
+          "required": "否",
+          "source": "excel",
+          "quote": "Garden Sofa"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-100001000",
+          "field_name": "general use",
+          "value_raw": "428124982",
+          "value_label": "Outdoor Furniture",
+          "required": "否",
+          "source": "excel",
+          "quote": "pieces 3"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-191284014",
+          "field_name": "material",
+          "value_raw": "34313717",
+          "value_label": "Rattan",
+          "required": "是",
+          "source": "excel",
+          "quote": "PE rattan"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-231671682",
+          "field_name": "mail packing",
+          "value_raw": "111689382",
+          "value_label": "N",
+          "required": "是",
+          "source": "excel",
+          "quote": "N"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-100001004",
+          "field_name": "sofa type",
+          "value_raw": "3339564",
+          "value_label": "Set",
+          "required": "否",
+          "source": "excel",
+          "quote": "Set"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-1",
+          "field_name": "place of origin",
+          "value_raw": "100000458",
+          "value_label": "China",
+          "required": "是",
+          "source": "excel",
+          "quote": "China"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-400004414",
+          "field_name": "Rattan",
+          "value_raw": "1982267690",
+          "value_label": "UV-Resistant PE Rattan",
+          "required": "否",
+          "source": "excel",
+          "quote": "UV-Resistant PE Rattan"
+        },
+        {
+          "group": "saleProp",
+          "field_id": "p-210190015",
+          "field_name": "color",
+          "value_raw": "[\"3399503\"]",
+          "value_label": "Brown",
+          "required": "是",
+          "source": "excel",
+          "quote": "Brown"
+        },
+        {
+          "group": "trade",
+          "field_id": "productTitle",
+          "field_name": "Product name",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
+          "required": "是",
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        {
+          "group": "trade",
+          "field_id": "minOrderQuantity",
+          "field_name": "Minimum order quantity (MOQ)",
+          "value_raw": "20",
+          "value_label": "20",
+          "required": "否",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "priceUnit",
+          "field_name": "Unit",
+          "value_raw": "4",
+          "value_label": "Piece/Pieces",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "scPrice",
+          "field_name": "Price setting",
+          "value_raw": "1",
+          "value_label": "Tiered pricing by quantity",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "ladderPrice_0",
+          "field_name": "阶梯价",
+          "value_raw": "{\"quantity\": \"20\", \"price\": \"89.00\"}",
+          "value_label": "20 @ 89.00",
+          "required": "是",
+          "source": "excel",
+          "quote": "20@89.00"
+        }
+      ],
+      "stats": {
+        "required_total": 6,
+        "filled": 1,
+        "blocked_no_evidence": 6,
+        "ai_calls": 4,
+        "rounds": 2,
+        "filled_ai": 0,
+        "filled_local": 4,
+        "required_option_fields": 7,
+        "filled_required_options": 4,
+        "missing_required_options": 3,
+        "red_issues": 4
+      },
+      "model": "gemini-3.1-flash-lite",
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
+    },
+    {
+      "sample": {
+        "sku": "FILTER-HEPA-01",
+        "name": "空气净化器HEPA滤芯",
+        "category_id": "100000050",
+        "price": "6.50",
+        "moq": "100",
+        "brand": "",
+        "note": "100@6.50; H13 HEPA; fits universal 352×478×30mm",
+        "specs": {
+          "material": "HEPA paper",
+          "grade": "H13",
+          "size": "352×478×30mm"
+        }
+      },
+      "category_label": "Air Purifier Parts / 空气净化器零部件",
+      "values": {
+        "catId": "100000050",
+        "icbuCatProp": {
+          "p-390873113": "190092752",
+          "p-1": "100000458",
+          "p-360946261": "352×478×30mm",
+          "p-191284008": "190092098"
+        },
+        "priceUnit": "4",
+        "saleType": "normal",
+        "scPrice": "1",
+        "ladderPrice": {
+          "ladderPrice_0": {
+            "quantity": "100",
+            "price": "6.50"
+          }
+        },
+        "minOrderQuantity": "100",
+        "shippingTemplate": {
+          "templateType": "freightNegotiation"
+        },
+        "logisticsProperty": [
+          "general_cargo_0"
+        ],
+        "marketSample": "2",
+        "ladderPeriod": {
+          "ladderPeriod_0": {
+            "quantity": "100",
+            "day": "15"
+          }
+        },
+        "productTitle": "Wholesale colored pencil set",
+        "productKeywords": {
+          "productKeywords_0": "wholesale"
+        },
+        "textDesc": "空气净化器HEPA滤芯 100@6.50; H13 HEPA; fits universal 352×478×30mm 材质 HEPA paper grade H13 尺寸 352×478×30mm",
+        "productDescType": "2"
+      },
+      "evidence": {
+        "icbuCatProp.p-390873113": {
+          "source": "excel",
+          "quote": "HEPA paper"
+        },
+        "icbuCatProp.p-1": {
+          "source": "excel",
+          "quote": "China"
+        },
+        "icbuCatProp.p-360946261": {
+          "source": "excel",
+          "quote": "352×478×30mm"
+        },
+        "icbuCatProp.p-191284008": {
+          "source": "excel",
+          "quote": "Filter"
+        },
+        "ladderPrice.ladderPrice_0": {
+          "source": "excel",
+          "quote": "100@6.50"
+        },
+        "price": {
+          "source": "excel",
+          "quote": "6.50"
+        },
+        "moq": {
+          "source": "excel",
+          "quote": "100"
+        },
+        "productTitle": {
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        "productKeywords": {
+          "source": "ai",
+          "quote": "wholesale,factory,bulk"
+        }
+      },
+      "issues": [
+        {
+          "field_id": "p-210194274",
+          "field_name": "application",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "icbuCatProp.p-210194274",
+          "options": [
+            {
+              "value": "3562099",
+              "label": "Car"
+            },
+            {
+              "value": "7248880",
+              "label": "Commercial"
+            },
+            {
+              "value": "3925011",
+              "label": "Garage"
+            },
+            {
+              "value": "3413080",
+              "label": "Hotel"
+            },
+            {
+              "value": "13820659",
+              "label": "Household"
+            },
+            {
+              "value": "3778175",
+              "label": "Outdoor"
+            },
+            {
+              "value": "4363857",
+              "label": "RV"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "p-210196802",
+          "field_name": "power source",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "icbuCatProp.p-210196802",
+          "options": [
+            {
+              "value": "190000786",
+              "label": "Battery"
+            },
+            {
+              "value": "190063384",
+              "label": "Electric"
+            },
+            {
+              "value": "3439116",
+              "label": "Gas"
+            },
+            {
+              "value": "4221285",
+              "label": "Manual"
+            },
+            {
+              "value": "3683583",
+              "label": "Solar"
+            },
+            {
+              "value": "22041",
+              "label": "Usb"
+            },
+            {
+              "value": "200009521",
+              "label": "Vehicle Power Supply"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "p-373265001",
+          "field_name": "Feature",
+          "level": "red",
+          "message": "平台必填字段无法百分百确定，请补事实或人工填写",
+          "path": "icbuCatProp.p-373265001",
+          "options": [
+            {
+              "value": "100040006",
+              "label": "Eco-Friendly"
+            },
+            {
+              "value": "1951280765",
+              "label": "High Permeability"
+            },
+            {
+              "value": "1982271801",
+              "label": "Strong Compatibility"
+            },
+            {
+              "value": "-1",
+              "label": "other"
+            }
+          ]
+        },
+        {
+          "field_id": "scImages",
+          "field_name": "产品图片",
+          "level": "red",
+          "message": "至少要一张图片",
+          "path": "scImages"
+        }
+      ],
+      "fields": [
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-390873113",
+          "field_name": "Material",
+          "value_raw": "190092752",
+          "value_label": "Hepa",
+          "required": "是",
+          "source": "excel",
+          "quote": "HEPA paper"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-1",
+          "field_name": "place of origin",
+          "value_raw": "100000458",
+          "value_label": "China",
+          "required": "是",
+          "source": "excel",
+          "quote": "China"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-360946261",
+          "field_name": "Size",
+          "value_raw": "352×478×30mm",
+          "value_label": "352×478×30mm",
+          "required": "否",
+          "source": "excel",
+          "quote": "352×478×30mm"
+        },
+        {
+          "group": "icbuCatProp",
+          "field_id": "p-191284008",
+          "field_name": "type",
+          "value_raw": "190092098",
+          "value_label": "Filter",
+          "required": "是",
+          "source": "excel",
+          "quote": "Filter"
+        },
+        {
+          "group": "trade",
+          "field_id": "productTitle",
+          "field_name": "Product name",
+          "value_raw": "Wholesale colored pencil set",
+          "value_label": "Wholesale colored pencil set",
+          "required": "是",
+          "source": "user",
+          "quote": "Wholesale colored pencil set"
+        },
+        {
+          "group": "trade",
+          "field_id": "minOrderQuantity",
+          "field_name": "Minimum order quantity (MOQ)",
+          "value_raw": "100",
+          "value_label": "100",
+          "required": "否",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "priceUnit",
+          "field_name": "Unit",
+          "value_raw": "4",
+          "value_label": "Piece/Pieces",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "scPrice",
+          "field_name": "Price setting",
+          "value_raw": "1",
+          "value_label": "Tiered pricing by quantity",
+          "required": "是",
+          "source": "excel",
+          "quote": ""
+        },
+        {
+          "group": "trade",
+          "field_id": "ladderPrice_0",
+          "field_name": "阶梯价",
+          "value_raw": "{\"quantity\": \"100\", \"price\": \"6.50\"}",
+          "value_label": "100 @ 6.50",
+          "required": "是",
+          "source": "excel",
+          "quote": "100@6.50"
+        }
+      ],
+      "stats": {
+        "required_total": 7,
+        "filled": 1,
+        "blocked_no_evidence": 6,
+        "ai_calls": 2,
+        "rounds": 2,
+        "filled_ai": 0,
+        "filled_local": 3,
+        "required_option_fields": 6,
+        "filled_required_options": 3,
+        "missing_required_options": 3,
+        "red_issues": 4
+      },
+      "model": "gemini-3.1-flash-lite",
+      "note": "无依据的必填项留空标红；有图时会先 vision 识图再 multimodal 填属性"
+    }
+  ]
+}

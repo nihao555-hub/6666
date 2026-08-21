@@ -1,0 +1,75 @@
+"""Request dependencies.
+
+`current_user` and `owned_shop` are the only way handlers get at data, which is
+what keeps one tenant out of another tenant's shops.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from datetime import datetime
+
+from fastapi import Cookie, Depends, HTTPException, Path
+from sqlalchemy.orm import Session
+
+from .config import settings
+from .crypto import read_session
+from .db import SessionLocal
+from .models import AuthSession, Draft, Shop, User
+
+
+def get_db() -> Iterator[Session]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def current_user(
+    db: Session = Depends(get_db),
+    session_token: str | None = Cookie(default=None, alias=settings.session_cookie),
+) -> User:
+    if not session_token:
+        raise HTTPException(status_code=401, detail="请先登录")
+    user_id = read_session(session_token)
+    if user_id:
+        user = db.get(User, user_id)
+        if user is not None:
+            return user
+    row = db.get(AuthSession, session_token)
+    if row is None or row.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    user = db.get(User, row.user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="账号不存在")
+    return user
+
+
+def owned_shop(
+    shop_id: str = Path(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Shop:
+    shop = db.get(Shop, shop_id)
+    if shop is None or shop.user_id != user.id:
+        raise HTTPException(status_code=404, detail="店铺不存在")
+    return shop
+
+
+def shop_for(db: Session, user: User, shop_id: str) -> Shop:
+    shop = db.get(Shop, shop_id)
+    if shop is None or shop.user_id != user.id:
+        raise HTTPException(status_code=404, detail="店铺不存在")
+    return shop
+
+
+def owned_draft(
+    draft_id: str = Path(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Draft:
+    draft = db.get(Draft, draft_id)
+    if draft is None or draft.user_id != user.id:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    return draft

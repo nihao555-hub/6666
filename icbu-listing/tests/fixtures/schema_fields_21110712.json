@@ -1,0 +1,829 @@
+[
+  {
+    "id": "infos",
+    "name": "信息",
+    "type": "label",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "productFeature",
+    "name": "",
+    "type": "multiCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "catId",
+    "name": "",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "icbuCatProp",
+    "name": "商品属性",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "p-200001258",
+        "name": "是否水溶",
+        "type": "singleCheck",
+        "required": false
+      },
+      {
+        "id": "p-3",
+        "name": "型号",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "p-2",
+        "name": "品牌",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "p-1",
+        "name": "原产地",
+        "type": "singleCheck",
+        "required": true
+      },
+      {
+        "id": "p-191288433",
+        "name": "铅芯颜色",
+        "type": "multiCheck",
+        "required": true
+      },
+      {
+        "id": "p-238249979",
+        "name": "印刷方式",
+        "type": "multiCheck",
+        "required": false
+      },
+      {
+        "id": "p-232979369",
+        "name": "导线直径",
+        "type": "multiCheck",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "saleProp",
+    "name": "销售属性",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "p-191288435",
+        "name": "铅芯硬度",
+        "type": "multiCheck",
+        "required": true
+      },
+      {
+        "id": "p-200307261",
+        "name": "颜色数",
+        "type": "multiCheck",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "sku",
+    "name": "商品规格组件",
+    "type": "multiComplex",
+    "required": false,
+    "children": [
+      {
+        "id": "skuOuterId",
+        "name": "商品编码",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "props",
+        "name": "",
+        "type": "multiInput",
+        "required": false
+      },
+      {
+        "id": "skuStock",
+        "name": "库存",
+        "type": "multiInput",
+        "required": false
+      },
+      {
+        "id": "price",
+        "name": "单件价格(USD)",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "skuId",
+        "name": "",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "outerSupplyId",
+        "name": "货品id",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "sampleSku",
+    "name": "样品SKU",
+    "type": "multiComplex",
+    "required": false,
+    "children": [
+      {
+        "id": "props",
+        "name": "",
+        "type": "multiInput",
+        "required": false
+      },
+      {
+        "id": "price",
+        "name": "样品价格(USD)",
+        "type": "input",
+        "required": true
+      },
+      {
+        "id": "skuId",
+        "name": "",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "productTitle",
+    "name": "商品名称",
+    "type": "input",
+    "required": true,
+    "children": []
+  },
+  {
+    "id": "inventory",
+    "name": "可售数量",
+    "type": "multiInput",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "scImages",
+    "name": "产品图片",
+    "type": "complex",
+    "required": true,
+    "children": [
+      {
+        "id": "scImages_0",
+        "name": "产品图片",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "scImages_1",
+        "name": "产品图片",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "scImages_2",
+        "name": "产品图片",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "scImages_3",
+        "name": "产品图片",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "scImages_4",
+        "name": "产品图片",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "scImages_5",
+        "name": "产品图片",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "imageVideo",
+    "name": "产品视频",
+    "type": "singleCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "detailVideo",
+    "name": "详情视频",
+    "type": "singleCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "productKeywords",
+    "name": "商品关键词",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "productKeywords_0",
+        "name": "商品关键词",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "pkgMeasure",
+    "name": "长宽高",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "length",
+        "name": "",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "width",
+        "name": "",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "height",
+        "name": "",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "pkgWeight",
+    "name": "体积与重量(含物流包装)",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "ApiPostLevelAttrAdapter",
+    "name": "ApiPostLevelAttrAdapter",
+    "type": "multiInput",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "boxPackaging",
+    "name": "箱规",
+    "type": "multiCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "ladderPeriod",
+    "name": "发货期",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "ladderPeriod_0",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "ladderPeriod_1",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "ladderPeriod_2",
+        "name": "",
+        "type": "complex",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "priceUnit",
+    "name": "计量单位",
+    "type": "singleCheck",
+    "required": true,
+    "children": []
+  },
+  {
+    "id": "platformLogisticsServices",
+    "name": "半托管",
+    "type": "multiCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "shippingTemplate",
+    "name": "物流提供方式",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "templateType",
+        "name": "",
+        "type": "singleCheck",
+        "required": true
+      },
+      {
+        "id": "shippingTemplateId",
+        "name": "",
+        "type": "singleCheck",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "productGroup",
+    "name": "商品分组",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "first_group_id",
+        "name": "",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "second_group_id",
+        "name": "",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "third_group_id",
+        "name": "",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "ladderPrice",
+    "name": "阶梯价",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "ladderPrice_0",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "ladderPrice_1",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "ladderPrice_2",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "ladderPrice_3",
+        "name": "",
+        "type": "complex",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "customMoreProperty",
+    "name": "自定义属性 ",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "customMoreProperty_0",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_1",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_2",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_3",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_4",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_5",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_6",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_7",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_8",
+        "name": "",
+        "type": "complex",
+        "required": false
+      },
+      {
+        "id": "customMoreProperty_9",
+        "name": "",
+        "type": "complex",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "fob",
+    "name": "单件价格",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "range_max",
+        "name": "",
+        "type": "input",
+        "required": true
+      },
+      {
+        "id": "range_min",
+        "name": "",
+        "type": "input",
+        "required": true
+      },
+      {
+        "id": "unit_type",
+        "name": "",
+        "type": "singleCheck",
+        "required": true
+      }
+    ]
+  },
+  {
+    "id": "saleType",
+    "name": "基础销售方式",
+    "type": "singleCheck",
+    "required": true,
+    "children": []
+  },
+  {
+    "id": "batchNum",
+    "name": "按批卖数量设置",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "scPrice",
+    "name": "价格设置",
+    "type": "singleCheck",
+    "required": true,
+    "children": []
+  },
+  {
+    "id": "minOrderQuantity",
+    "name": "最小起订量",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "productDescType",
+    "name": "产品详情描述",
+    "type": "singleCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "detailImage",
+    "name": "详情图片",
+    "type": "multiComplex",
+    "required": true,
+    "children": [
+      {
+        "id": "gallery",
+        "name": "gallery",
+        "type": "singleCheck",
+        "required": true
+      },
+      {
+        "id": "images",
+        "name": "images",
+        "type": "multiComplex",
+        "required": true
+      }
+    ]
+  },
+  {
+    "id": "textDesc",
+    "name": "商品卖点",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "companyImage",
+    "name": "公司图片",
+    "type": "multiComplex",
+    "required": false,
+    "children": [
+      {
+        "id": "gallery",
+        "name": "gallery",
+        "type": "singleCheck",
+        "required": true
+      },
+      {
+        "id": "images",
+        "name": "images",
+        "type": "multiComplex",
+        "required": true
+      }
+    ]
+  },
+  {
+    "id": "companyDesc",
+    "name": "公司介绍",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "companyFaqDesc",
+    "name": "FAQs",
+    "type": "multiComplex",
+    "required": false,
+    "children": [
+      {
+        "id": "question",
+        "name": "question",
+        "type": "input",
+        "required": true
+      },
+      {
+        "id": "answers",
+        "name": "answers",
+        "type": "input",
+        "required": true
+      }
+    ]
+  },
+  {
+    "id": "productQuality",
+    "name": "商品质量",
+    "type": "complex",
+    "required": false,
+    "children": [
+      {
+        "id": "productQuality_score",
+        "name": "0",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_0_text",
+        "name": "商品类目",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_0_type",
+        "name": "success",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_1_text",
+        "name": "基本信息",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_1_type",
+        "name": "success",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_2_text",
+        "name": "交易信息",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_2_type",
+        "name": "success",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_3_text",
+        "name": "物流信息",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_3_type",
+        "name": "success",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_4_text",
+        "name": "通用服务/能力",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_4_type",
+        "name": "success",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_5_text",
+        "name": "商品详情",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "productQuality_dataSource_5_type",
+        "name": "success",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "marketSample",
+    "name": "样品服务",
+    "type": "singleCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "marketSamplingQuantity",
+    "name": "单次最多索样数量",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "marketSamplingPrice",
+    "name": "样品单价",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "multilangInfo",
+    "name": "多语言信息组件",
+    "type": "multiComplex",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "logisticsProperty",
+    "name": "物流属性",
+    "type": "multiCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "logisticsSku",
+    "name": "体积与重量(含物流包装)",
+    "type": "multiComplex",
+    "required": false,
+    "children": [
+      {
+        "id": "props",
+        "name": "",
+        "type": "multiInput",
+        "required": false
+      },
+      {
+        "id": "skuId",
+        "name": "",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "pkgWeightSku",
+        "name": "重量",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "pkgMeasureLengthSku",
+        "name": "长",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "pkgMeasureWidthSku",
+        "name": "宽",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "pkgMeasureHeightSku",
+        "name": "高",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "boxPackagingSku",
+        "name": "箱规sku",
+        "type": "multiCheck",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "supportLogisticsSku",
+    "name": "",
+    "type": "singleCheck",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "semiManagedPeriod",
+    "name": "半托管发货期",
+    "type": "input",
+    "required": false,
+    "children": []
+  },
+  {
+    "id": "tariffsHsCode",
+    "name": "美国HS编码维护",
+    "type": "multiComplex",
+    "required": false,
+    "children": [
+      {
+        "id": "toCountry",
+        "name": "toCountry",
+        "type": "input",
+        "required": false
+      },
+      {
+        "id": "hsCode",
+        "name": "hsCode",
+        "type": "input",
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "designAndSampleService",
+    "name": "出图出样服务",
+    "type": "multiCheck",
+    "required": false,
+    "children": []
+  }
+]

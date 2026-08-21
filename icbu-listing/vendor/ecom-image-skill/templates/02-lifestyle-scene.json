@@ -1,0 +1,25 @@
+{
+  "id": "lifestyle-scene",
+  "name": "场景化生活图",
+  "source": "buluslan/gpt-image2-ecommerce",
+  "prompt_template": {
+    "type": "lifestyle product photography",
+    "subject": "{product_description}",
+    "setting": "{scene_description}",
+    "lighting": "natural morning light through window",
+    "composition": "rule of thirds, product as focal point",
+    "quality": "8K, editorial lifestyle photography"
+  },
+  "defaults": {
+    "setting": "modern living space, clean and organized",
+    "lighting": "natural morning light through window",
+    "composition": "rule of thirds, product as focal point"
+  },
+  "category_tips": {
+    "beauty": "bathroom vanity with botanical elements, skincare ritual feel",
+    "electronics": "modern desk setup, minimal aesthetic, tech-forward",
+    "food": "kitchen counter or dining table, fresh ingredients, warm tones",
+    "fashion": "urban street or boutique fitting room, model wearing the item",
+    "home": "styled room interior, product naturally placed"
+  }
+}
