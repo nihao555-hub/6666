@@ -115,6 +115,9 @@ def row_to_grid_item(row: ExcelRow, columns: Sequence[Mapping[str, Any]]) -> dic
         "brand": row.brand,
         "name": row.name,
         "note": row.note,
+        "title": row.title,
+        "keywords": row.keywords,
+        "highlights": str((row.raw or {}).get("highlights") or ""),
     }
     for col in columns:
         field_id = str(col["id"])
@@ -182,6 +185,8 @@ def grid_item_to_row(
     return ExcelRow(
         sku=str(item.get("sku") or "").strip(),
         name=str(item.get("name") or "").strip(),
+        title=str(item.get("title") or "").strip(),
+        keywords=str(item.get("keywords") or "").strip(),
         price=str(item.get("price") or "").strip(),
         moq=str(item.get("moq") or "").strip(),
         images=images,
@@ -194,6 +199,7 @@ def grid_item_to_row(
         schema_top=schema_top,
         raw={
             **{str(col["id"]): str(item.get(col["id"]) or "") for col in columns},
+            "highlights": str(item.get("highlights") or ""),
             "image_job_id": str(item.get("image_job_id") or ""),
         },
     )

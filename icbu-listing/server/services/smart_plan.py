@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Shop
 from . import catalog, defaults as defaults_service, excel_import, schema_labels, templates as template_service
+from .review_enrich import schema_inventory_summary
 from .excel_import import SKIP_ATTR_IDS, USER_FILLS
 
 CORE_IDS = ("sku", "price", "moq")
@@ -41,11 +42,17 @@ PLANNER_PROMPT = """You plan a minimal wholesale listing spreadsheet for Alibaba
 
 Leaf category: {category_name} ({category_id})
 
+Official schema.get inventory (ALL fillable fields for this leaf — read before deciding):
+{schema_inventory}
+
 Already covered by shop defaults or category template (do NOT ask the seller again):
 {covered}
 
-Candidate columns the seller might need to fill per product row:
+Candidate columns the seller might need to fill per product row (pre-filtered shortlist):
 {candidates}
+
+Title/keyword/description fields from schema are handled at REVIEW stage (AI pre-fills, user edits).
+Do NOT put productTitle/productKeywords/textDesc in user_columns unless the seller MUST supply source text.
 
 Always require sku, price, moq in the output — these are business red lines.
 
@@ -56,10 +63,12 @@ Pick the smallest set of columns that lets AI fill the rest after upload:
 - Prefer name/note over many spec columns when docs are unstructured.
 - images is optional; include it when sellers usually attach filenames or URLs in bulk sheets.
 
+Title formula (for your reasoning only, applied at review): Core Product + Type + Performance + Scene + OEM
+
 Return JSON only:
 {{
   "user_columns": ["sku", "price", "moq", ...],
-  "reasoning": "one short paragraph in Chinese",
+  "reasoning": "one short paragraph in Chinese explaining what you saw in schema inventory vs candidates",
   "tips": "one sentence telling the seller what to prepare before filling"
 }}
 """
@@ -261,6 +270,7 @@ def _llm_user_columns(
     candidates: Sequence[Mapping[str, Any]],
     covered_shop: Sequence[str],
     covered_template: Sequence[str],
+    schema_inventory: Mapping[str, Any],
 ) -> tuple[list[str], str, str]:
     compact = []
     for col in candidates:
@@ -277,6 +287,7 @@ def _llm_user_columns(
     prompt = PLANNER_PROMPT.format(
         category_name=category_name or category_id,
         category_id=category_id,
+        schema_inventory=json.dumps(schema_inventory, ensure_ascii=False),
         covered=json.dumps(
             {"shop": list(covered_shop), "template": list(covered_template)},
             ensure_ascii=False,
@@ -323,6 +334,8 @@ def build_plan(
     language = str(_shop_defaults(shop).get("language") or "en_US")
     xml = catalog.get_schema_xml(db, api, category_id, "zh")
     fields = parse_schema(xml)
+    fields_flat = excel_import.flatten_schema_fields(fields)
+    schema_inventory = schema_inventory_summary(fields_flat)
     shop_defaults = _shop_defaults(shop)
     template_values = _template_values(db, shop.id, category_id)
     candidates, covered_shop, covered_template = candidate_columns(
@@ -343,6 +356,7 @@ def build_plan(
                 candidates=candidates,
                 covered_shop=covered_shop,
                 covered_template=covered_template,
+                schema_inventory=schema_inventory,
             )
             planner = "llm"
         except AiUnavailable:
@@ -362,6 +376,8 @@ def build_plan(
         "planner": planner,
         "reasoning": reasoning,
         "tips": tips,
+        "schema_inventory": schema_inventory,
+        "download_columns": columns,
         "columns": columns,
         "column_count": len(columns),
         "required_attr_count": len(required_attrs),
@@ -370,6 +386,7 @@ def build_plan(
         "shop_fills": [dict(item) for item in excel_import.SHOP_FILLS],
         "ai_fills": ai_fills,
         "guarantee": excel_import.fill_policy([], {"attr_columns": required_attrs})["guarantee"],
+        "review_note": "标题/关键词/卖点在审核表前几列由 AI 预填，可手改；下载表只填事实字段。",
     }
 
 

@@ -353,9 +353,10 @@
           <p v-if="smartPlanLoading" class="muted" style="margin-top: 6px">正在分析该类目要填什么…</p>
           <template v-else-if="doc.categoryId && smartPlan.column_count">
             <p class="muted" style="margin-top: 10px">
-              需填 {{ smartPlan.column_count }} 列
-              <span v-if="smartPlan.required_attr_count">（含 {{ smartPlan.required_attr_count }} 个官方必填属性）</span>
-              · {{ smartPlan.planner === "llm" ? "AI 规划" : "规则规划" }}
+              官方 schema 共 {{ smartPlan.schema_inventory?.total || "?" }} 项
+             （必填 {{ smartPlan.schema_inventory?.required_count || smartPlan.required_attr_count || 0 }}）
+              → 下载表只需填 {{ smartPlan.column_count }} 列
+              · {{ smartPlan.planner === "llm" ? "AI 已读全量 schema 再规划" : "规则规划" }}
             </p>
             <p v-if="smartPlan.reasoning" class="muted">{{ smartPlan.reasoning }}</p>
             <p v-if="smartColumnLabels.length" class="muted">列：{{ smartColumnLabels.join("、") }}</p>
@@ -413,6 +414,8 @@
           <el-divider direction="vertical" />
           <el-button size="small" @click="batchSetField('price')">批量改价</el-button>
           <el-button size="small" @click="batchSetField('moq')">批量改起订量</el-button>
+          <el-button size="small" :loading="docGrid.regenerating" @click="regenCopyForSelection">AI 重写文案</el-button>
+          <el-button size="small" :loading="docGrid.regenerating" @click="regenCopyForAll">全部重写文案</el-button>
           <el-button size="small" :loading="docGrid.generating" @click="generateImagesForSelection">选中行生成 6 张图</el-button>
           <el-button size="small" :loading="docGrid.generating" @click="generateImagesForAll">全部生成 6 张图</el-button>
           <el-button size="small" @click="addDocRow">加一行</el-button>
@@ -466,8 +469,15 @@
                   </div>
                 </td>
                 <td v-for="col in docDataColumns" :key="`${index}-${col.id}`">
+                  <el-input
+                    v-if="col.kind === 'textarea'"
+                    v-model="row[col.id]"
+                    type="textarea"
+                    :rows="col.id === 'title' ? 2 : 1"
+                    size="small"
+                  />
                   <el-select
-                    v-if="col.options?.length"
+                    v-else-if="col.options?.length"
                     v-model="row[col.id]"
                     filterable
                     clearable
@@ -622,6 +632,7 @@ const docGrid = reactive({
   loading: false,
   checking: false,
   generating: false,
+  regenerating: false,
   selectAll: false,
 });
 const docProgress = ref({ done: 0 });
@@ -1430,6 +1441,41 @@ function generateImagesForRow(row) {
   generateImagesForRows([row.line]);
 }
 
+async function regenCopyForRows(lines) {
+  if (!docGrid.rows.length) return;
+  docGrid.regenerating = true;
+  try {
+    const body = new FormData();
+    body.append("shop_id", store.shopId || "");
+    body.append("category_id", doc.categoryId);
+    body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
+    body.append("rows", JSON.stringify(docGrid.rows));
+    body.append("lines", JSON.stringify(lines || []));
+    const result = await api.excelGridRegenCopy(body);
+    docGrid.rows = normalizeDocRows(result.rows || []);
+    if (result.errors?.length) ElMessage.warning(result.errors[0]);
+    await persistSession();
+    ElMessage.success(lines?.length ? "已重写选中行文案" : "已重写全部文案");
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    docGrid.regenerating = false;
+  }
+}
+
+function regenCopyForSelection() {
+  const lines = docGrid.rows.filter((row) => row._selected).map((row) => row.line);
+  if (!lines.length) {
+    ElMessage.warning("先勾选要重写文案的行");
+    return;
+  }
+  regenCopyForRows(lines);
+}
+
+function regenCopyForAll() {
+  regenCopyForRows([]);
+}
+
 async function parseDocuments() {
   if (!doc.categoryId) {
     ElMessage.warning("先选叶子类目");
@@ -1452,6 +1498,9 @@ async function parseDocuments() {
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || smartPlan.value.columns || [];
+    if (result.download_columns?.length) {
+      smartPlan.value = { ...smartPlan.value, download_columns: result.download_columns };
+    }
     docGrid.rows = normalizeDocRows(result.rows || []);
     docGrid.row_issues = result.row_issues || [];
     docGrid.warnings = result.warnings || [];

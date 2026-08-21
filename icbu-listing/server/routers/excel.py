@@ -19,7 +19,7 @@ from gop_client import GopError  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, smart_plan, templates
+from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -513,6 +513,17 @@ async def parse_documents(
             plan_columns=plan_columns,
         )
         result["planner"] = "smart" if plan_columns else "simple"
+        download_columns = plan_columns or result.get("columns") or []
+        review_columns, enriched_rows, enrich_warnings = review_enrich.enrich_rows(
+            result.get("rows") or [],
+            download_columns,
+            category_name=hint or category_name,
+            ai=ai,
+        )
+        result["download_columns"] = download_columns
+        result["columns"] = review_columns
+        result["rows"] = enriched_rows
+        result["warnings"] = list(result.get("warnings") or []) + enrich_warnings
         return result
     except AiUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -547,6 +558,50 @@ async def check_grid_rows(
         plan_columns=plan_columns,
     )
     return document_parse.check_grid(payload, grid_columns, category_id=category_id, image_mode=image_mode)
+
+
+@router.post("/grid-regen-copy")
+async def grid_regen_copy(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    rows: str = Form("[]"),
+    lines: str = Form("[]"),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if shop_id:
+        shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+        selected = json.loads(lines or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
+    ai = AiClient.from_env_or_none()
+    if ai is None:
+        raise HTTPException(status_code=503, detail="重写文案需要配置 AI")
+    updated: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for row in payload:
+        if not isinstance(row, Mapping):
+            continue
+        item = dict(row)
+        line = int(item.get("line") or 0)
+        if targets and line not in targets:
+            updated.append(item)
+            continue
+        try:
+            suggested = review_enrich.suggest_copy_for_row(ai, item, category_name=hint or category_name)
+            item.update(suggested)
+            item["_copy_source"] = "ai"
+        except Exception as exc:
+            errors.append(f"第 {line or '?'} 行：{exc}")
+        updated.append(item)
+    return {"rows": updated, "errors": errors}
 
 
 @router.post("/grid-generate-images")

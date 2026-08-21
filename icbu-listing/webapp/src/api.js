@@ -99,6 +99,7 @@ export const api = {
   excelDocParse: (form) => http.post("/excel/doc-parse", form),
   excelGridCheck: (form) => http.post("/excel/grid-check", form),
   excelGridGenerateImages: (form) => http.post("/excel/grid-generate-images", form),
+  excelGridRegenCopy: (form) => http.post("/excel/grid-regen-copy", form),
   excelGridPollImages: (form) => http.post("/excel/grid-poll-images", form),
   excelImportRows: (form) => http.post("/excel/import-rows", form),
   excelTemplateUrl: (style, listingTemplateId, extra = {}) => {
