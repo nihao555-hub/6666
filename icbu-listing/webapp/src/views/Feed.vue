@@ -22,7 +22,7 @@
         <h3>开始批量上品</h3>
         <p class="muted">必须先选叶子类目。系统结合官方 schema 和店铺默认，由 AI 规划你要填哪些列。</p>
         <div class="path-grid">
-          <button class="path-card path-card-primary" @click="startPath('doc')">
+          <button class="path-card path-card-primary" @click="startPath()">
             <b>新建批量任务</b>
             <p class="muted">支持 xlsx、报价单、目录 PDF 等。填完上传后进入审核工作台。</p>
           </button>
@@ -50,18 +50,6 @@
         <el-button text @click="dropCurrent">不要这条了</el-button>
       </div>
 
-      <el-alert
-        v-if="tab !== 'doc'"
-        type="info"
-        show-icon
-        :closable="false"
-        title="旧版投料路径已停用"
-        description="现在只支持批量上品。请退出后新建批量任务。"
-        style="margin-bottom: 14px"
-      />
-
-    <!-- 批量上品 -->
-    <template v-else>
       <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
@@ -99,7 +87,7 @@
           <div style="padding: 22px 0">把填好的 xlsx / 报价单 / 目录拖到这里（可多文件）</div>
         </el-upload>
         <div class="step-actions" style="margin-top: 16px">
-          <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.length" @click="parseDocuments">
+          <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.some((item) => item.raw)" @click="parseDocuments">
             解析并进入审核
           </el-button>
         </div>
@@ -389,7 +377,6 @@
         </div>
       </div>
     </template>
-    </template>
 
     <CategoryPicker v-model="categoryBrowser" @pick="pickCategory" />
   </div>
@@ -410,30 +397,8 @@ const sessionId = ref("");
 const openSessions = ref([]);
 const currentTitle = ref("");
 const restoring = ref(false);
-const tab = ref("single");
-const photoMode = ref("single");
-const photoSource = ref("upload");
-const photobankImages = ref([]);
-const selectedPhotobank = ref([]);
-const photobankLoading = ref(false);
-const photoStep = ref(0);
-const photoReached = ref(0);
-const aiStep = ref(0);
-const aiReached = ref(0);
 const docStep = ref(0);
 const docReached = ref(0);
-
-const photoSteps = [
-  { key: "photos", label: "上传图片" },
-  { key: "price", label: "填价格" },
-  { key: "draft", label: "生成草稿" },
-];
-const aiSteps = [
-  { key: "name", label: "写出品名" },
-  { key: "draw", label: "生成套图" },
-  { key: "price", label: "填价格" },
-  { key: "draft", label: "生成草稿" },
-];
 const docSteps = [
   { key: "setup", label: "智能表下载填写" },
   { key: "grid", label: "审核出图成稿" },
@@ -457,29 +422,6 @@ const DEFAULT_IMAGE_SLOTS = [
   { index: 5, id: "slot-5", name: "外箱", status: "empty", url: "" },
   { index: 6, id: "slot-6", name: "OEM", status: "empty", url: "" },
 ];
-const templates = ref({ families: [], sources: [] });
-const imageJob = ref(null);
-const aiForm = reactive({
-  familyId: "",
-  productName: "",
-  material: "",
-  size: "",
-  packCount: "",
-  colors: "",
-  note: "",
-  referenceUrl: "",
-  referenceFile: null,
-  planning: false,
-  categoryId: "",
-  categoryName: "",
-});
-const categoryTarget = ref("doc");
-const loading = ref(false);
-const files = ref([]);
-const batchFiles = ref([]);
-const batch = ref(null);
-const progress = ref({ done: 0 });
-const form = reactive({ sku: "", price: "", moq: "", note: "" });
 const excelImages = ref([]);
 const docFiles = ref([]);
 const doc = reactive({
@@ -508,13 +450,9 @@ const excel = reactive({
   photoPolicy: "complete",
   emptyPolicy: "draw",
 });
-const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null, sheet: null });
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] });
 const smartPlanLoading = ref(false);
-const officialLoading = ref(false);
 const categoryBrowser = ref(false);
-let timer = null;
-let imageTimer = null;
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
@@ -613,19 +551,6 @@ const docImageGenSummary = computed(() => {
   if (ready === rows.length) return `6 张图已齐 ${ready}/${rows.length} 行`;
   return `待出图 ${rows.length - ready} 行（进入审核后自动开始）`;
 });
-const percent = computed(() => {
-  if (!batch.value?.count) return 0;
-  return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
-});
-const hasPhotos = computed(() => {
-  if (photoMode.value === "batch") return batchFiles.value.length;
-  if (photoSource.value === "photobank") return selectedPhotobank.value.length;
-  return files.value.length;
-});
-const imagePercent = computed(() => {
-  const total = imageJob.value?.total || 6;
-  return Math.min(100, Math.round(((imageJob.value?.done || 0) / total) * 100));
-});
 
 function applyExcelImageMode(raw, photo, empty) {
   if (photo && empty) {
@@ -647,11 +572,6 @@ function applyExcelImageMode(raw, photo, empty) {
   excel.emptyPolicy = nextEmpty === "skip" ? "skip" : "draw";
 }
 
-function pathToTab(path) {
-  if (path === "ai") return "ai";
-  if (path === "doc" || path === "excel" || path === "full") return "doc";
-  return "single";
-}
 
 function migrateLegacyExcelSession(session, payload) {
   if (session.path !== "excel" && session.path !== "full") return;
@@ -669,28 +589,6 @@ function migrateLegacyExcelSession(session, payload) {
 
 function sessionPayload() {
   return {
-    photoMode: photoMode.value,
-    form: { ...form },
-    aiForm: {
-      familyId: aiForm.familyId,
-      productName: aiForm.productName,
-      material: aiForm.material,
-      size: aiForm.size,
-      packCount: aiForm.packCount,
-      colors: aiForm.colors,
-      note: aiForm.note,
-      referenceUrl: aiForm.referenceUrl,
-      categoryId: aiForm.categoryId,
-      categoryName: aiForm.categoryName,
-    },
-    excel: {
-      categoryId: doc.categoryId,
-      categoryName: doc.categoryName,
-      batch: doc.batch,
-      imageMode: excelImageMode.value,
-      photoPolicy: excel.photoPolicy,
-      emptyPolicy: excel.emptyPolicy,
-    },
     doc: {
       categoryId: doc.categoryId,
       categoryName: doc.categoryName,
@@ -706,36 +604,28 @@ function sessionPayload() {
       imageMode: excelImageMode.value,
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
+      uploadNames: docFiles.value.map((item) => item.name).filter(Boolean),
     },
-    categoryName: sheetPlan.value.category_name || doc.categoryName || "",
-    rowCount:
-      docGrid.row_count ||
-      docGrid.rows.length ||
-      doc.batch?.count ||
-      batch.value?.count ||
-      0,
-    imageJobId: imageJob.value?.id || "",
-    batchId: batch.value?.batch_id || doc.batch?.batch_id || "",
+    rowCount: docGrid.row_count || docGrid.rows.length || doc.batch?.count || 0,
+    batchId: doc.batch?.batch_id || "",
   };
 }
 
 function currentStep() {
-  if (tab.value === "ai") return aiStep.value;
-  if (tab.value === "doc") return docStep.value;
-  return photoStep.value;
+  return docStep.value;
 }
 
 function currentReached() {
-  if (tab.value === "ai") return aiReached.value;
-  if (tab.value === "doc") return docReached.value;
-  return photoReached.value;
+  return docReached.value;
 }
 
 async function loadOpenSessions() {
   if (!store.user) return;
   try {
     const data = await api.feedSessions(store.shopId);
-    openSessions.value = data.sessions || [];
+    openSessions.value = (data.sessions || []).filter((item) =>
+      ["doc", "excel", "full"].includes(item.path),
+    );
   } catch {
     openSessions.value = [];
   }
@@ -756,51 +646,13 @@ async function persistSession() {
   }
 }
 
-async function syncKind(kind, list) {
-  if (!sessionId.value || restoring.value || !store.user) return;
-  const raws = (list || []).filter((item) => item.raw);
-  if (!raws.length) return;
-  const keep = (list || []).filter((item) => !item.raw && item.name).map((item) => item.name);
-  try {
-    const body = new FormData();
-    body.append("kind", kind);
-    body.append("keep", keep.join(","));
-    raws.forEach((item) => body.append("files", item.raw));
-    await api.uploadFeedSessionFiles(sessionId.value, body);
-  } catch {
-    /* keep the in-progress session; file sync can retry on next upload */
-  }
-}
 
-function filesFromSession(session, kind) {
-  return (session.files || [])
-    .filter((item) => item.kind === kind)
-    .map((item) => ({ name: item.name, url: item.url, status: "success" }));
-}
 
 function applySession(session) {
   restoring.value = true;
   sessionId.value = session.id;
   currentTitle.value = session.title || session.path_label;
-  tab.value = pathToTab(session.path);
   const payload = session.payload || {};
-  photoMode.value = payload.photoMode || "single";
-  Object.assign(form, { sku: "", price: "", moq: "", note: "", ...(payload.form || {}) });
-  Object.assign(aiForm, {
-    familyId: "",
-    productName: "",
-    material: "",
-    size: "",
-    packCount: "",
-    colors: "",
-    note: "",
-    referenceUrl: "",
-    categoryId: "",
-    categoryName: "",
-    ...(payload.aiForm || {}),
-    referenceFile: null,
-    planning: false,
-  });
   if (payload.excel) {
     applyExcelImageMode(payload.excel.imageMode, payload.excel.photoPolicy, payload.excel.emptyPolicy);
   }
@@ -819,51 +671,48 @@ function applySession(session) {
       smartPlan.value = payload.doc.smartPlan;
     }
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
-  }
-  files.value = filesFromSession(session, "photos");
-  batchFiles.value = filesFromSession(session, "batch");
-  excelImages.value = filesFromSession(session, "excel_images");
-  docFiles.value = filesFromSession(session, "doc");
-  imageJob.value = payload.imageJobId ? { id: payload.imageJobId, status: "queued", slots: [] } : null;
-  batch.value = payload.batchId && tab.value === "single" ? { batch_id: payload.batchId, count: payload.rowCount || 0 } : null;
-  if (tab.value === "ai") {
-    aiStep.value = session.step || 0;
-    aiReached.value = session.reached || 0;
-  } else if (tab.value === "doc") {
-    if (session.path === "excel" || session.path === "full") {
-      migrateLegacyExcelSession(session, payload);
-    } else {
-      docStep.value = Math.min(session.step || 0, docSteps.length - 1);
-      if (docStep.value > 1) docStep.value = 1;
-      docReached.value = Math.min(session.reached ?? 0, docSteps.length - 1);
-    }
+    const names = payload.doc.uploadNames || [];
+    docFiles.value = names.map((name) => ({ name, status: "success" }));
   } else {
-    photoStep.value = session.step || 0;
-    photoReached.value = session.reached || 0;
+    doc.categoryId = "";
+    doc.categoryName = "";
+    doc.batch = null;
+    docGrid.columns = [];
+    docGrid.rows = [];
+    docGrid.row_issues = [];
+    docGrid.warnings = [];
+    docGrid.row_count = 0;
+    docGrid.ready_count = 0;
+    docGrid.source = "";
+    docFiles.value = [];
+  }
+  if (session.path === "excel" || session.path === "full") {
+    migrateLegacyExcelSession(session, payload);
+  } else {
+    docStep.value = Math.min(session.step || 0, docSteps.length - 1);
+    if (docStep.value > 1) docStep.value = 1;
+    docReached.value = Math.min(session.reached ?? 0, docSteps.length - 1);
   }
   restoring.value = false;
 }
 
-async function startPath(path) {
+async function startPath() {
   try {
-    const sessionPath = path === "excel" || path === "full" ? "doc" : path;
-    const created = await api.createFeedSession({ path: sessionPath, shop_id: store.shopId || "" });
-    if (sessionPath === "doc") {
-      docStep.value = 0;
-      docReached.value = 0;
-      doc.categoryId = "";
-      doc.categoryName = "";
-      doc.batch = null;
-      docGrid.columns = [];
-      docGrid.rows = [];
-      docGrid.row_issues = [];
-      docGrid.warnings = [];
-      docGrid.row_count = 0;
-      docGrid.ready_count = 0;
-      docGrid.source = "";
-      docFiles.value = [];
-      smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] };
-    }
+    const created = await api.createFeedSession({ path: "doc", shop_id: store.shopId || "" });
+    docStep.value = 0;
+    docReached.value = 0;
+    doc.categoryId = "";
+    doc.categoryName = "";
+    doc.batch = null;
+    docGrid.columns = [];
+    docGrid.rows = [];
+    docGrid.row_issues = [];
+    docGrid.warnings = [];
+    docGrid.row_count = 0;
+    docGrid.ready_count = 0;
+    docGrid.source = "";
+    docFiles.value = [];
+    smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] };
     applySession(created);
     router.replace({ query: { session: created.id } });
   } catch (error) {
@@ -876,30 +725,19 @@ async function resumeSession(id) {
     const session = await api.feedSession(id);
     applySession(session);
     router.replace({ query: { session: id } });
-    if (imageJob.value?.id) {
-      clearInterval(imageTimer);
-      imageTimer = setInterval(pollImageJob, 2000);
-      await pollImageJob();
-    }
-    if (batch.value?.batch_id) {
-      clearInterval(timer);
-      timer = setInterval(poll, 3000);
-      await poll();
-    }
     if (doc.batch?.batch_id) {
       clearInterval(docTimer);
       docTimer = setInterval(pollDoc, 3000);
       await pollDoc();
     }
     if (doc.categoryId) {
-      await loadSheetPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-      loadOfficialAttrs();
+      await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
       ensureGridPolling();
     }
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("不在了")) {
-      ElMessage.warning("这条做到一半的记录已失效，请重新选路");
+      ElMessage.warning("这条做到一半的记录已失效，请新建批量任务");
       sessionId.value = "";
       router.replace({ query: {} });
       await loadOpenSessions();
@@ -933,28 +771,13 @@ async function backToChooser() {
   await loadOpenSessions();
 }
 
-function advancePhoto(index) {
-  photoReached.value = Math.max(photoReached.value, index);
-  photoStep.value = index;
-  persistSession();
-}
 
-function advanceAi(index) {
-  aiReached.value = Math.max(aiReached.value, index);
-  aiStep.value = index;
-  persistSession();
-}
 
 onMounted(async () => {
   try {
     await store.ensureShops();
   } catch {
     /* shop list loads again when user opens category picker */
-  }
-  try {
-    templates.value = await api.imageTemplates();
-  } catch (error) {
-    ElMessage.error(error.message);
   }
   await loadOpenSessions();
   if (route.query.session) {
@@ -963,27 +786,6 @@ onMounted(async () => {
 });
 
 let saveTimer = null;
-watch([() => form.sku, () => form.price, () => form.moq, () => form.note], () => {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(persistSession, 500);
-});
-watch(
-  () => [
-    aiForm.productName,
-    aiForm.material,
-    aiForm.size,
-    aiForm.packCount,
-    aiForm.colors,
-    aiForm.note,
-    aiForm.referenceUrl,
-    aiForm.categoryId,
-    aiForm.familyId,
-  ],
-  () => {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(persistSession, 500);
-  },
-);
 watch(
   () => [excel.photoPolicy, excel.emptyPolicy],
   () => {
@@ -1005,98 +807,9 @@ watch(
   },
   { deep: true },
 );
-watch(docFiles, () => syncKind("doc", docFiles.value), { deep: true });
 
-function onReferenceFile(file) {
-  aiForm.referenceFile = file?.raw || null;
-}
 
-async function startGenerate() {
-  if (!aiForm.productName && !aiForm.note && !aiForm.familyId) {
-    ElMessage.warning("先写品名，或选一个类目");
-    return;
-  }
-  aiForm.planning = true;
-  try {
-    const refs = [];
-    if (aiForm.referenceFile) {
-      const body = new FormData();
-      body.append("file", aiForm.referenceFile);
-      const stored = await api.uploadReference(body);
-      if (stored?.url) refs.push(stored.url);
-    }
-    if (aiForm.referenceUrl.trim()) refs.push(aiForm.referenceUrl.trim());
-    imageJob.value = await api.generateImages({
-      family_id: aiForm.familyId,
-      product_name: aiForm.productName,
-      material: aiForm.material,
-      note: aiForm.note,
-      colors: aiForm.colors.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
-      specs: {
-        size: aiForm.size.trim(),
-        pack_count: aiForm.packCount.trim(),
-      },
-      category_id: aiForm.categoryId,
-      category_hint: aiForm.categoryName,
-      reference_urls: refs,
-    });
-    if (imageJob.value?.family?.id) aiForm.familyId = imageJob.value.family.id;
-    await persistSession();
-    advanceAi(1);
-    clearInterval(imageTimer);
-    imageTimer = setInterval(pollImageJob, 2000);
-    await pollImageJob();
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    aiForm.planning = false;
-  }
-}
 
-async function pollImageJob() {
-  if (!imageJob.value?.id) return;
-  try {
-    imageJob.value = await api.imageJob(imageJob.value.id);
-    if (imageJob.value.status === "succeeded") {
-      clearInterval(imageTimer);
-      aiReached.value = Math.max(aiReached.value, 2);
-      ElMessage.success("6 张套图已画好");
-    } else if (imageJob.value.status === "failed") {
-      clearInterval(imageTimer);
-      ElMessage.error(imageJob.value.error || "出图失败，请再试一次");
-    }
-  } catch (error) {
-    clearInterval(imageTimer);
-    ElMessage.error(error.message);
-  }
-}
-
-async function submitGenerated() {
-  if (!imageJob.value?.id) {
-    ElMessage.warning("先生成套图");
-    return;
-  }
-  loading.value = true;
-  try {
-    const draft = await api.feedFromGenerated({
-      shop_id: store.shopId,
-      job_id: imageJob.value.id,
-      sku: form.sku,
-      price: form.price,
-      moq: form.moq,
-      note: form.note,
-      category_id: aiForm.categoryId || imageJob.value.category_id || "",
-      session_id: sessionId.value,
-    });
-    ElMessage.success(`草稿已生成：${draft.category_name || "待定类目"}`);
-    sessionId.value = "";
-    router.push(`/drafts/${draft.id}`);
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    loading.value = false;
-  }
-}
 
 async function loadSmartPlan(override = null) {
   const categoryId = override?.categoryId ?? doc.categoryId ?? "";
@@ -1144,71 +857,14 @@ async function refreshSmartPlan() {
   }
 }
 
-async function loadSheetPlan(override = null) {
-  const categoryId = override?.categoryId ?? doc.categoryId ?? "";
-  const categoryName = override?.categoryName ?? doc.categoryName ?? "";
-  try {
-    sheetPlan.value = await api.excelSheetPlan({
-      shop_id: store.shopId || "",
-      category_id: categoryId,
-      category_name: categoryName,
-      style: "simple",
-    });
-  } catch (error) {
-    const msg = String(error.message || "");
-    if (msg.includes("店铺不存在")) {
-      await store.ensureShops();
-      if (store.shopId) {
-        sheetPlan.value = await api.excelSheetPlan({
-          shop_id: store.shopId,
-          category_id: categoryId,
-          category_name: categoryName,
-          style: "simple",
-        });
-        return;
-      }
-    }
-    throw error;
-  }
-}
 
-function syncDocColumnsFromPlan() {
-  const preview = sheetPlan.value.preview?.columns || [];
-  if (!preview.length) return;
-  docGrid.columns = preview.map((col) => ({
-    id: col.id,
-    label: col.label,
-    required: col.required,
-    options: col.options,
-    kind: col.options?.length ? "select" : "text",
-  }));
-}
 
-async function loadOfficialAttrs() {
-  if (!store.shopId || !doc.categoryId) return;
-  officialLoading.value = true;
-  try {
-    const data = await api.officialExcelAttrs(store.shopId, doc.categoryId);
-    sheetPlan.value = {
-      ...sheetPlan.value,
-      ai_attrs: data.ai_attrs || [],
-      ai_fills: data.ai_fills || sheetPlan.value.ai_fills,
-    };
-    syncDocColumnsFromPlan();
-  } catch {
-    /* cached sheet-plan already has whatever we have locally */
-    syncDocColumnsFromPlan();
-  } finally {
-    officialLoading.value = false;
-  }
-}
 
 function openDocCategory() {
   if (!store.shopId) {
     ElMessage.warning("先登录一个店铺");
     return;
   }
-  categoryTarget.value = "doc";
   categoryBrowser.value = true;
 }
 
@@ -1416,7 +1072,7 @@ async function generateImagesForRows(lines, options = {}) {
     const body = new FormData();
     body.append("shop_id", store.shopId || "");
     body.append("category_id", doc.categoryId);
-    body.append("category_name", doc.categoryName || smartPlan.value.category_name || sheetPlan.value.category_name || "");
+    body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
     body.append("rows", JSON.stringify(docGrid.rows));
     body.append("lines", JSON.stringify(lines || []));
     const result = await api.excelGridGenerateImages(body);
@@ -1574,7 +1230,7 @@ async function recheckDocGrid() {
 
 function addDocRow() {
   const row = { line: docGrid.rows.length + 2, _selected: false, image_slots: DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot })) };
-  (docGrid.columns.length ? docGrid.columns : sheetPlan.value.preview?.columns || []).forEach((col) => {
+  docGrid.columns.length ? docGrid.columns : smartPlan.value.columns || [].forEach((col) => {
     row[col.id] = "";
   });
   docGrid.rows.push(row);
@@ -1648,177 +1304,32 @@ function downloadDocTemplate() {
   });
 }
 
-function openAiCategory() {
-  if (!store.shopId) {
-    ElMessage.warning("先登录一个店铺");
-    return;
-  }
-  categoryTarget.value = "ai";
-  categoryBrowser.value = true;
-}
 
 async function pickCategory(node) {
-  if (categoryTarget.value === "doc") {
-    doc.categoryId = node.category_id;
-    doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
-    try {
-      await store.ensureShops();
-      await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-      ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」，可下载智能填写表`);
-      await persistSession();
-    } catch (error) {
-      ElMessage.error(error.message);
-    }
-    return;
-  }
-  if (categoryTarget.value === "ai") {
-    aiForm.categoryId = node.category_id;
-    aiForm.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
-    ElMessage.success(`已选「${aiForm.categoryName}」`);
-    api
-      .planImages({
-        product_name: aiForm.productName,
-        category_hint: aiForm.categoryName,
-        note: aiForm.note,
-      })
-      .then((planned) => {
-        aiForm.familyId = planned.family?.id || "";
-      })
-      .catch(() => {});
+  doc.categoryId = node.category_id;
+  doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
+  try {
+    await store.ensureShops();
+    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」，可下载智能填写表`);
+    await persistSession();
+  } catch (error) {
+    ElMessage.error(error.message);
   }
 }
 
 onUnmounted(() => {
-  clearInterval(timer);
   clearInterval(docTimer);
   clearInterval(gridPollTimer);
-  clearInterval(imageTimer);
 });
 
-async function loadPhotobank() {
-  if (!store.shopId) return;
-  photobankLoading.value = true;
-  try {
-    const data = await api.photobank(store.shopId, { page: 1, page_size: 60 });
-    photobankImages.value = data.images || [];
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    photobankLoading.value = false;
-  }
-}
 
-function normalizePhotoUrl(url) {
-  if (!url) return "";
-  return url.startsWith("//") ? `https:${url}` : url;
-}
 
-function isPhotobankSelected(item) {
-  return selectedPhotobank.value.some((row) => row.id === item.id);
-}
 
-function togglePhotobank(item) {
-  const index = selectedPhotobank.value.findIndex((row) => row.id === item.id);
-  if (index >= 0) {
-    selectedPhotobank.value.splice(index, 1);
-    return;
-  }
-  if (selectedPhotobank.value.length >= 6) {
-    ElMessage.warning("最多选 6 张");
-    return;
-  }
-  selectedPhotobank.value.push(item);
-}
 
-watch(
-  () => [photoSource.value, store.shopId],
-  () => {
-    if (photoSource.value === "photobank" && store.shopId && !photobankImages.value.length) {
-      loadPhotobank();
-    }
-  },
-);
 
-async function submitOne() {
-  if (photoSource.value === "photobank") {
-    if (!selectedPhotobank.value.length) {
-      ElMessage.warning("至少选一张图片银行的图");
-      return;
-    }
-  } else if (!files.value.length) {
-    ElMessage.warning("至少传一张图");
-    return;
-  }
-  const body = new FormData();
-  body.append("shop_id", store.shopId);
-  body.append("sku", form.sku);
-  body.append("price", form.price);
-  body.append("moq", form.moq);
-  body.append("note", form.note);
-  body.append("session_id", sessionId.value);
-  if (photoSource.value === "photobank") {
-    body.append(
-      "photobank_images",
-      JSON.stringify(
-        selectedPhotobank.value.map((item) => ({
-          id: item.id,
-          file_id: item.file_id || item.id,
-          file_name: item.file_name,
-          url: item.url,
-        })),
-      ),
-    );
-  } else {
-    files.value.forEach((item) => item.raw && body.append("files", item.raw));
-  }
-  loading.value = true;
-  try {
-    const draft = await api.feed(body);
-    ElMessage.success(`草稿已生成：${draft.category_name || "待定类目"}`);
-    sessionId.value = "";
-    router.push(`/drafts/${draft.id}`);
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    loading.value = false;
-  }
-}
 
-async function submitBatch() {
-  if (!batchFiles.value.length) {
-    ElMessage.warning("先把图片拖进来");
-    return;
-  }
-  const body = new FormData();
-  body.append("shop_id", store.shopId);
-  body.append("price", form.price);
-  body.append("moq", form.moq);
-  body.append("session_id", sessionId.value);
-  batchFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
-  loading.value = true;
-  try {
-    batch.value = await api.feedBatch(body);
-    progress.value = { done: 0 };
-    sessionId.value = "";
-    clearInterval(timer);
-    timer = setInterval(poll, 3000);
-    ElMessage.success(`已拆成 ${batch.value.count} 个商品，正在后台成稿`);
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    loading.value = false;
-  }
-}
 
-async function poll() {
-  if (!batch.value) return;
-  try {
-    progress.value = await api.batchProgress(batch.value.batch_id);
-    if (progress.value.done >= batch.value.count) clearInterval(timer);
-  } catch {
-    clearInterval(timer);
-  }
-}
 </script>
 
 <style scoped>
