@@ -89,6 +89,19 @@
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
         </div>
+        <section v-if="hasImagesColumn" class="image-help">
+          <h4>图片怎么填？</h4>
+          <p>表格里的「图片」列<strong>不能插入图片</strong>，只能写文字。任选一种方式：</p>
+          <ol>
+            <li><b>写文件名</b>：如 <code>SKU-1001_1.jpg;SKU-1001_2.jpg</code>，上传时把 xlsx 和图片文件<strong>一起拖进来</strong>，系统按货号/文件名自动对上。</li>
+            <li><b>写链接</b>：如 <code>https://example.com/a.jpg;https://example.com/b.jpg</code>，多个用英文分号隔开。</li>
+            <li><b>先留空</b>：图片列可以不填。解析进审核后，在「图片」标签里按货号补传，或点「全部出图」让 AI 生成（生成图会标黄）。</li>
+          </ol>
+        </section>
+        <section v-else-if="doc.categoryId" class="image-help">
+          <h4>这批没规划「图片」列</h4>
+          <p>下载表里可以不写图。填好 xlsx 上传后，在审核页「图片」标签按货号补传，或让 AI 出图。</p>
+        </section>
         <el-upload
           v-model:file-list="docFiles"
           :auto-upload="false"
@@ -470,6 +483,7 @@ const categoryBrowser = ref(false);
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
+const hasImagesColumn = computed(() => (smartPlan.value.columns || []).some((col) => col.id === "images"));
 const otherSessions = computed(() => openSessions.value.filter((item) => item.id !== sessionId.value));
 const plannerCoverageText = computed(() => {
   const input = smartPlan.value.planner_input;
@@ -1620,6 +1634,33 @@ onUnmounted(() => {
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 13px;
+}
+.image-help {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--gray3);
+  font-size: 13px;
+}
+.image-help h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.image-help p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.image-help ol {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+.image-help code {
+  font-size: 12px;
+  background: var(--surface);
+  padding: 1px 4px;
+  border-radius: 4px;
 }
 .slot-grid {
   display: grid;
