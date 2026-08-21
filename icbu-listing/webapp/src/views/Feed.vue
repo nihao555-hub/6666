@@ -35,7 +35,7 @@
           <button class="path-card" @click="startPath('doc')">
             <small>报价单 / 表格 / 目录</small>
             <b>批量上品</b>
-            <p class="muted">上传表格或报价单，前台商品表直接改，每行 6 张图可批量生成，再成稿。</p>
+            <p class="muted">选类目后 AI 定填写列，下载 xlsx 填完上传，审核、出图、批量成稿。</p>
           </button>
         </div>
       </div>
