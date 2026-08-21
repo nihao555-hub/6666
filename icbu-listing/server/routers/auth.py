@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..crypto import hash_password, sign_session, verify_password
+from ..crypto import hash_password, read_session_payload, sign_session, verify_password
 from ..deps import current_user, get_db
 from ..db import persist_database
 from ..models import AuthSession, Shop, User
@@ -28,7 +28,7 @@ class LoginIn(BaseModel):
 
 
 def _open_session(db: Session, response: Response, user: User) -> None:
-    token = sign_session(user.id, settings.session_days * 86400)
+    token = sign_session(user.id, settings.session_days * 86400, user.email)
     expires = datetime.utcnow() + timedelta(days=settings.session_days)
     db.add(AuthSession(token=token, user_id=user.id, expires_at=expires))
     db.commit()

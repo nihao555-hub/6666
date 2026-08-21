@@ -13,8 +13,8 @@ from fastapi import Cookie, Depends, HTTPException, Path
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .crypto import read_session
-from .db import SessionLocal
+from .crypto import read_session_payload
+from .db import SessionLocal, reload_db_from_blob
 from .models import AuthSession, Draft, Shop, User
 
 
@@ -26,21 +26,39 @@ def get_db() -> Iterator[Session]:
         db.close()
 
 
+def _resolve_user(db: Session, user_id: str, email: str = "") -> User | None:
+    if user_id:
+        user = db.get(User, user_id)
+        if user is not None:
+            return user
+    if reload_db_from_blob():
+        db.expire_all()
+        if user_id:
+            user = db.get(User, user_id)
+            if user is not None:
+                return user
+    if email:
+        return db.query(User).filter(User.email == email.strip().lower()).first()
+    return None
+
+
 def current_user(
     db: Session = Depends(get_db),
     session_token: str | None = Cookie(default=None, alias=settings.session_cookie),
 ) -> User:
     if not session_token:
         raise HTTPException(status_code=401, detail="请先登录")
-    user_id = read_session(session_token)
-    if user_id:
-        user = db.get(User, user_id)
+    payload = read_session_payload(session_token)
+    if payload:
+        user_id = str(payload.get("user_id") or "").strip()
+        email = str(payload.get("email") or "").strip().lower()
+        user = _resolve_user(db, user_id, email)
         if user is not None:
             return user
     row = db.get(AuthSession, session_token)
     if row is None or row.expires_at < datetime.utcnow():
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
-    user = db.get(User, row.user_id)
+    user = _resolve_user(db, row.user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="账号不存在")
     return user

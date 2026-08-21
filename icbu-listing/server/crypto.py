@@ -91,12 +91,22 @@ def read_state(state: str) -> dict[str, object] | None:
     return payload
 
 
-def sign_session(user_id: str, ttl_seconds: int) -> str:
-    return sign_state({"user_id": user_id, "kind": "session"}, ttl_seconds)
+def sign_session(user_id: str, ttl_seconds: int, email: str = "") -> str:
+    payload: dict[str, object] = {"user_id": user_id, "kind": "session"}
+    if email:
+        payload["email"] = email.strip().lower()
+    return sign_state(payload, ttl_seconds)
+
+
+def read_session_payload(token: str) -> dict[str, object] | None:
+    payload = read_state(token)
+    if not payload or payload.get("kind") != "session":
+        return None
+    return payload
 
 
 def read_session(token: str) -> str:
-    payload = read_state(token)
-    if not payload or payload.get("kind") != "session":
+    payload = read_session_payload(token)
+    if not payload:
         return ""
     return str(payload.get("user_id") or "").strip()

@@ -81,3 +81,11 @@ def persist_database() -> None:
     path = _sqlite_path()
     if path is not None:
         persist_sqlite(path)
+
+
+def reload_db_from_blob() -> bool:
+    """Re-download SQLite from Vercel Blob when this serverless instance is stale."""
+    path = _sqlite_path()
+    if path is None or not blob_enabled():
+        return False
+    return hydrate_sqlite(path)

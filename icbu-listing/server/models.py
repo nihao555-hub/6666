@@ -49,7 +49,7 @@ class User(Base):
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
 
-    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    token: Mapped[str] = mapped_column(String(512), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
