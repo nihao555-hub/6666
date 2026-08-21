@@ -167,17 +167,20 @@ def schema_inventory_summary(fields_flat: Sequence[Mapping[str, Any]]) -> dict[s
     optional = [item for item in fields_flat if not item.get("required")]
     copy_ids = {"productTitle", "productKeywords", "textDesc", "superText", "companyFaqDesc"}
     copy_fields = [item for item in fields_flat if str(item.get("field_id") or "") in copy_ids]
+
+    def _compact(item: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "field_id": item.get("field_id"),
+            "name": item.get("name"),
+            "group_id": item.get("group_id"),
+        }
+
     return {
         "total": len(fields_flat),
         "required_count": len(required),
         "optional_count": len(optional),
-        "required_fields": [
-            {"field_id": item.get("field_id"), "name": item.get("name"), "group_id": item.get("group_id")}
-            for item in required[:40]
-        ],
-        "optional_sample": [
-            {"field_id": item.get("field_id"), "name": item.get("name"), "group_id": item.get("group_id")}
-            for item in optional[:20]
-        ],
+        "required_fields": [_compact(item) for item in required],
+        "optional_fields": [_compact(item) for item in optional],
         "copy_fields": [item.get("name") or item.get("field_id") for item in copy_fields],
+        "sent_to_planner": "all_required_names_and_all_optional_names",
     }
