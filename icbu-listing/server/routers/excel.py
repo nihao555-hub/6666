@@ -19,7 +19,7 @@ from gop_client import GopError  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, templates
+from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -120,6 +120,38 @@ def _category_hint(db: Session, user: User, shop_id: str, category_id: str, cate
     return " / ".join(ordered)
 
 
+def _parse_plan_columns(raw: str) -> list[dict[str, Any]] | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="智能表列配置不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="智能表列配置格式不对")
+    return [dict(item) for item in payload if isinstance(item, dict)]
+
+
+def _resolve_grid_columns(
+    db: Session,
+    user: User,
+    shop_id: str,
+    category_id: str,
+    *,
+    plan_columns: list[dict[str, Any]] | None = None,
+    fetch: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, list[dict[str, Any]]]:
+    if plan_columns:
+        hint = _category_hint(db, user, shop_id, category_id, "")
+        profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=plan_columns)
+        return document_parse.grid_columns(profile, plan_columns, plan_columns=plan_columns), profile, plan_columns
+    hint = _category_hint(db, user, shop_id, category_id, "")
+    extras = _columns_for_style(db, user, shop_id, category_id, "simple", fetch=fetch)
+    profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
+    return document_parse.grid_columns(profile, extras), profile, extras
+
+
 @router.get("/styles")
 def list_styles() -> list[dict[str, Any]]:
     return excel_import.styles_view()
@@ -185,6 +217,69 @@ def sheet_plan(
             ),
         },
     }
+
+
+@router.get("/smart-plan")
+def smart_plan_endpoint(
+    shop_id: str = "",
+    category_id: str = "",
+    category_name: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if not shop_id:
+        raise HTTPException(status_code=400, detail="先选一个店铺")
+    if not category_id:
+        raise HTTPException(status_code=400, detail="先选叶子类目")
+    shop = shop_for(db, user, shop_id)
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    ai = AiClient.from_env_or_none()
+    try:
+        return smart_plan.build_plan(
+            db,
+            shop_api(shop),
+            shop,
+            category_id=category_id,
+            category_name=hint or category_name,
+            ai=ai,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/smart-template")
+def download_smart_template(
+    shop_id: str = "",
+    category_id: str = "",
+    category_name: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Response:
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop = shop_for(db, user, shop_id)
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    ai = AiClient.from_env_or_none()
+    plan = smart_plan.build_plan(
+        db,
+        shop_api(shop),
+        shop,
+        category_id=category_id,
+        category_name=hint or category_name,
+        ai=ai,
+    )
+    payload = smart_plan.build_smart_template_bytes(plan)
+    ascii_name = f"auto-shoper-smart-{category_id}.xlsx"
+    utf_name = f"智能批量上品-{hint or category_id}.xlsx"
+    return Response(
+        content=payload,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(utf_name)}"
+        },
+    )
 
 
 @router.get("/official-attrs")
@@ -379,6 +474,7 @@ async def parse_documents(
     category_id: str = Form(""),
     category_name: str = Form(""),
     image_mode: str = Form("keep_draw"),
+    columns: str = Form(""),
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -395,11 +491,18 @@ async def parse_documents(
     if not uploads:
         raise HTTPException(status_code=400, detail="资料文件是空的")
     hint = _category_hint(db, user, shop_id, category_id, category_name)
-    extras = _columns_for_style(db, user, shop_id, category_id, "simple", fetch=bool(category_id and shop_id))
-    profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
+    plan_columns = _parse_plan_columns(columns)
+    grid_columns, profile, extras = _resolve_grid_columns(
+        db,
+        user,
+        shop_id,
+        category_id,
+        plan_columns=plan_columns,
+        fetch=bool(category_id and shop_id and not plan_columns),
+    )
     ai = AiClient.from_env_or_none()
     try:
-        return document_parse.parse_documents(
+        result = document_parse.parse_documents(
             uploads,
             profile=profile,
             extra_columns=extras,
@@ -407,7 +510,21 @@ async def parse_documents(
             category_name=hint or category_name,
             image_mode=image_mode,
             ai=ai,
+            plan_columns=plan_columns,
         )
+        result["planner"] = "smart" if plan_columns else "simple"
+        download_columns = plan_columns or result.get("columns") or []
+        review_columns, enriched_rows, enrich_warnings = review_enrich.enrich_rows(
+            result.get("rows") or [],
+            download_columns,
+            category_name=hint or category_name,
+            ai=ai,
+        )
+        result["download_columns"] = download_columns
+        result["columns"] = review_columns
+        result["rows"] = enriched_rows
+        result["warnings"] = list(result.get("warnings") or []) + enrich_warnings
+        return result
     except AiUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -420,6 +537,7 @@ async def check_grid_rows(
     category_id: str = Form(""),
     image_mode: str = Form("keep_draw"),
     rows: str = Form("[]"),
+    columns: str = Form(""),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -431,11 +549,59 @@ async def check_grid_rows(
         raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
     if not isinstance(payload, list):
         raise HTTPException(status_code=400, detail="表格数据格式不对")
-    hint = _category_hint(db, user, shop_id, category_id, "")
-    extras = _columns_for_style(db, user, shop_id, category_id, "simple", fetch=False)
-    profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
-    columns = document_parse.grid_columns(profile, extras)
-    return document_parse.check_grid(payload, columns, category_id=category_id, image_mode=image_mode)
+    plan_columns = _parse_plan_columns(columns)
+    grid_columns, _profile, _extras = _resolve_grid_columns(
+        db,
+        user,
+        shop_id,
+        category_id,
+        plan_columns=plan_columns,
+    )
+    return document_parse.check_grid(payload, grid_columns, category_id=category_id, image_mode=image_mode)
+
+
+@router.post("/grid-regen-copy")
+async def grid_regen_copy(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    rows: str = Form("[]"),
+    lines: str = Form("[]"),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if shop_id:
+        shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+        selected = json.loads(lines or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
+    ai = AiClient.from_env_or_none()
+    if ai is None:
+        raise HTTPException(status_code=503, detail="重写文案需要配置 AI")
+    updated: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for row in payload:
+        if not isinstance(row, Mapping):
+            continue
+        item = dict(row)
+        line = int(item.get("line") or 0)
+        if targets and line not in targets:
+            updated.append(item)
+            continue
+        try:
+            suggested = review_enrich.suggest_copy_for_row(ai, item, category_name=hint or category_name)
+            item.update(suggested)
+            item["_copy_source"] = "ai"
+        except Exception as exc:
+            errors.append(f"第 {line or '?'} 行：{exc}")
+        updated.append(item)
+    return {"rows": updated, "errors": errors}
 
 
 @router.post("/grid-generate-images")
@@ -518,6 +684,7 @@ async def import_rows(
     session_id: str = Form(""),
     image_mode: str = Form("keep_draw"),
     rows: str = Form("[]"),
+    columns: str = Form(""),
     images: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -531,11 +698,15 @@ async def import_rows(
         raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
     if not isinstance(payload, list):
         raise HTTPException(status_code=400, detail="表格数据格式不对")
-    hint = _category_hint(db, user, shop_id, category_id, "")
-    extras = _columns_for_style(db, user, shop_id, category_id, "simple", fetch=False)
-    profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
-    columns = document_parse.grid_columns(profile, extras)
-    parsed = document_parse.grid_to_excel_rows(payload, columns, category_id=category_id)
+    plan_columns = _parse_plan_columns(columns)
+    grid_columns, _profile, _extras = _resolve_grid_columns(
+        db,
+        user,
+        shop_id,
+        category_id,
+        plan_columns=plan_columns,
+    )
+    parsed = document_parse.grid_to_excel_rows(payload, grid_columns, category_id=category_id)
     if category_id:
         for row in parsed:
             if not row.category_id:

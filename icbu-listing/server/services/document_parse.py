@@ -49,7 +49,14 @@ Return JSON only:
 """
 
 
-def grid_columns(profile: Mapping[str, Any] | None, extra_columns: Sequence[Mapping[str, Any]] | None) -> list[dict[str, Any]]:
+def grid_columns(
+    profile: Mapping[str, Any] | None,
+    extra_columns: Sequence[Mapping[str, Any]] | None,
+    *,
+    plan_columns: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    if plan_columns:
+        return [dict(col) for col in plan_columns]
     extra_by_id = {item["id"]: dict(item) for item in (extra_columns or [])}
     columns: list[dict[str, Any]] = []
     for field_id, label, hint in fill_headers("simple", dict(profile or {})):
@@ -98,7 +105,7 @@ def _option_value(label: str, options: Sequence[Mapping[str, Any]]) -> str:
 
 
 def row_to_grid_item(row: ExcelRow, columns: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    extra_by_id = {col["id"]: col for col in columns if str(col.get("id", "")).startswith("attr.")}
+    extra_by_id = {col["id"]: col for col in columns if str(col.get("id", "")).startswith(("attr.", "schema."))}
     item: dict[str, Any] = {"line": row.line}
     core = {
         "sku": row.sku,
@@ -108,6 +115,9 @@ def row_to_grid_item(row: ExcelRow, columns: Sequence[Mapping[str, Any]]) -> dic
         "brand": row.brand,
         "name": row.name,
         "note": row.note,
+        "title": row.title,
+        "keywords": row.keywords,
+        "highlights": str((row.raw or {}).get("highlights") or ""),
     }
     for col in columns:
         field_id = str(col["id"])
@@ -119,6 +129,16 @@ def row_to_grid_item(row: ExcelRow, columns: Sequence[Mapping[str, Any]]) -> dic
             child = spec.get("field_id") or field_id.split(".")[-1]
             raw = (row.attributes.get(group) or {}).get(child, "")
             item[field_id] = _option_label(str(raw), spec.get("options") or [])
+        elif field_id.startswith("schema."):
+            parts = field_id.split(".")
+            if len(parts) == 2:
+                top_id = parts[1]
+                raw = row.schema_top.get(top_id, "")
+                item[field_id] = _option_label(str(raw), col.get("options") or [])
+            elif len(parts) >= 3:
+                group, child = parts[1], parts[2]
+                raw = (row.attributes.get(group) or {}).get(child, "")
+                item[field_id] = _option_label(str(raw), col.get("options") or [])
         elif field_id.startswith("spec."):
             key = field_id.split(".", 1)[1]
             item[field_id] = row.specs.get(key, "")
@@ -134,9 +154,10 @@ def grid_item_to_row(
     line: int,
     category_id: str = "",
 ) -> ExcelRow:
-    extra_by_id = {col["id"]: col for col in columns if str(col.get("id", "")).startswith("attr.")}
+    extra_by_id = {col["id"]: col for col in columns if str(col.get("id", "")).startswith(("attr.", "schema."))}
     images = [part.strip() for part in re.split(r"[;；\n]+", str(item.get("images") or "")) if part.strip()]
     attributes: dict[str, dict[str, Any]] = {}
+    schema_top: dict[str, str] = {}
     specs: dict[str, str] = {}
     for col in columns:
         field_id = str(col["id"])
@@ -149,12 +170,23 @@ def grid_item_to_row(
             child = str(spec.get("field_id") or field_id.split(".")[-1])
             value = _option_value(raw, spec.get("options") or [])
             attributes.setdefault(group, {})[child] = value
+        elif field_id.startswith("schema."):
+            parts = field_id.split(".")
+            if len(parts) == 2:
+                top_id = parts[1]
+                schema_top[top_id] = _option_value(raw, col.get("options") or []) or raw
+            elif len(parts) >= 3:
+                group, child = parts[1], parts[2]
+                value = _option_value(raw, col.get("options") or []) or raw
+                attributes.setdefault(group, {})[child] = value
         elif field_id.startswith("spec."):
             specs[field_id.split(".", 1)[1]] = raw
 
     return ExcelRow(
         sku=str(item.get("sku") or "").strip(),
         name=str(item.get("name") or "").strip(),
+        title=str(item.get("title") or "").strip(),
+        keywords=str(item.get("keywords") or "").strip(),
         price=str(item.get("price") or "").strip(),
         moq=str(item.get("moq") or "").strip(),
         images=images,
@@ -164,8 +196,10 @@ def grid_item_to_row(
         specs=specs,
         line=int(item.get("line") or line),
         attributes=attributes,
+        schema_top=schema_top,
         raw={
             **{str(col["id"]): str(item.get(col["id"]) or "") for col in columns},
+            "highlights": str(item.get("highlights") or ""),
             "image_job_id": str(item.get("image_job_id") or ""),
         },
     )
@@ -296,12 +330,13 @@ def parse_documents(
     category_name: str = "",
     image_mode: str = "keep_draw",
     ai: AiClient | None = None,
+    plan_columns: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not files:
         raise ValueError("请先上传资料文件")
 
-    columns = grid_columns(profile, extra_columns)
-    extras = list(extra_columns or [])
+    columns = grid_columns(profile, extra_columns, plan_columns=plan_columns)
+    extras = list(plan_columns or extra_columns or [])
     structured: list[ExcelRow] = []
     unstructured: list[tuple[str, bytes]] = []
     sources: list[str] = []

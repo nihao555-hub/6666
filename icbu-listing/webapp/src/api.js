@@ -93,11 +93,13 @@ export const api = {
 
   excelStyles: () => http.get("/excel/styles"),
   excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),
+  excelSmartPlan: (params) => http.get("/excel/smart-plan", { params }),
   officialExcelAttrs: (shopId, categoryId) =>
     http.get("/excel/official-attrs", { params: { shop_id: shopId, category_id: categoryId } }),
   excelDocParse: (form) => http.post("/excel/doc-parse", form),
   excelGridCheck: (form) => http.post("/excel/grid-check", form),
   excelGridGenerateImages: (form) => http.post("/excel/grid-generate-images", form),
+  excelGridRegenCopy: (form) => http.post("/excel/grid-regen-copy", form),
   excelGridPollImages: (form) => http.post("/excel/grid-poll-images", form),
   excelImportRows: (form) => http.post("/excel/import-rows", form),
   excelTemplateUrl: (style, listingTemplateId, extra = {}) => {
@@ -107,6 +109,13 @@ export const api = {
     if (extra.shopId) params.set("shop_id", extra.shopId);
     if (extra.categoryName) params.set("category_name", extra.categoryName);
     return `/api/v1/excel/template?${params.toString()}`;
+  },
+  excelSmartTemplateUrl: (extra = {}) => {
+    const params = new URLSearchParams();
+    if (extra.categoryId) params.set("category_id", extra.categoryId);
+    if (extra.shopId) params.set("shop_id", extra.shopId);
+    if (extra.categoryName) params.set("category_name", extra.categoryName);
+    return `/api/v1/excel/smart-template?${params.toString()}`;
   },
   photobank: (shopId, params) => http.get(`/shops/${shopId}/photobank`, { params }),
   learnDefaults: (shopId, body) => http.post(`/shops/${shopId}/online/learn-defaults`, body),
