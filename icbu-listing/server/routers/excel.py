@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import quote, urlparse
 
 import requests
@@ -19,7 +19,7 @@ from gop_client import GopError  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, pipeline, products as catalogue, public_refs, templates
+from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -438,6 +438,78 @@ async def check_grid_rows(
     return document_parse.check_grid(payload, columns, category_id=category_id, image_mode=image_mode)
 
 
+@router.post("/grid-generate-images")
+async def grid_generate_images(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    rows: str = Form("[]"),
+    lines: str = Form("[]"),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if shop_id:
+        shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+        selected = json.loads(lines or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    if not category_id:
+        raise HTTPException(status_code=400, detail="先选叶子类目")
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
+    updated: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for row in payload:
+        if not isinstance(row, Mapping):
+            continue
+        line = int(row.get("line") or 0)
+        if targets and line not in targets:
+            updated.append(grid_images.refresh_row_job(row, user.id))
+            continue
+        item = grid_images.refresh_row_job(dict(row), user.id)
+        status = str(item.get("image_job_status") or "")
+        if item.get("image_job_id") and status in {"queued", "running"}:
+            updated.append(item)
+            continue
+        try:
+            job_id = grid_images.start_row_job(
+                user.id,
+                item,
+                category_id=category_id,
+                category_name=hint or category_name,
+            )
+            item["image_job_id"] = job_id
+            item = grid_images.refresh_row_job(item, user.id)
+        except ValueError as exc:
+            errors.append(f"第 {line or '?'} 行：{exc}")
+        updated.append(item)
+    return {"rows": updated, "errors": errors}
+
+
+@router.post("/grid-poll-images")
+async def grid_poll_images(
+    rows: str = Form("[]"),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    try:
+        payload = json.loads(rows or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    refreshed = [grid_images.refresh_row_job(item, user.id) for item in payload if isinstance(item, dict)]
+    pending = sum(
+        1
+        for item in refreshed
+        if str(item.get("image_job_status") or "") in {"queued", "running"}
+    )
+    return {"rows": refreshed, "pending": pending}
+
+
 @router.post("/import-rows")
 async def import_rows(
     request: Request,
@@ -655,33 +727,39 @@ def _import_one(
         node = catalog.get_node(db, shop_api(shop), forced)
         category_hint = catalog.label(node) if node is not None else ""
     fact_note = row.fact_text() or row.note
-    try:
-        files, source = excel_images.prepare_row_images(
-            row,
-            uploads,
-            image_mode,
-            user_id=user.id,
-            category_id=forced,
-            fetch_url=_fetch_image,
-            category_hint=category_hint,
-            public_base=public_base,
-        )
-    except excel_images.ExcelImageError as exc:
-        if shop is not None and create_drafts:
-            distribution.failed_draft(db, user.id, shop.id, None, batch_id, f"第 {row.line} 行：{exc.message}")
-        elif shop is None:
-            product = Product(
+    files: list[tuple[str, bytes]] = []
+    source = ""
+    prebuilt, prebuilt_source = grid_images.apply_job_to_excel_row(row, user.id)
+    if prebuilt:
+        files, source = prebuilt, prebuilt_source
+    if not files:
+        try:
+            files, source = excel_images.prepare_row_images(
+                row,
+                uploads,
+                image_mode,
                 user_id=user.id,
-                sku=row.sku or f"row-{row.line}",
-                name=row.name or row.title,
-                price=row.price,
-                moq=row.moq,
-                note=exc.message,
-                batch_id=batch_id,
+                category_id=forced,
+                fetch_url=_fetch_image,
+                category_hint=category_hint,
+                public_base=public_base,
             )
-            db.add(product)
-            db.commit()
-        return
+        except excel_images.ExcelImageError as exc:
+            if shop is not None and create_drafts:
+                distribution.failed_draft(db, user.id, shop.id, None, batch_id, f"第 {row.line} 行：{exc.message}")
+            elif shop is None:
+                product = Product(
+                    user_id=user.id,
+                    sku=row.sku or f"row-{row.line}",
+                    name=row.name or row.title,
+                    price=row.price,
+                    moq=row.moq,
+                    note=exc.message,
+                    batch_id=batch_id,
+                )
+                db.add(product)
+                db.commit()
+            return
 
     if source == "skip":
         if shop is not None and create_drafts:

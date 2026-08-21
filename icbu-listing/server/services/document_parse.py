@@ -18,6 +18,7 @@ from ai import AiClient, AiUnavailable, ImageInput  # noqa: E402
 
 from . import excel_import
 from .excel_import import ExcelRow, fill_headers, preview, read_sheet
+from .grid_images import attach_row_images
 
 SPREADSHEET_SUFFIXES = {".xlsx", ".xls", ".xlsm", ".csv"}
 TEXT_SUFFIXES = {".txt", ".md", ".json"}
@@ -123,7 +124,7 @@ def row_to_grid_item(row: ExcelRow, columns: Sequence[Mapping[str, Any]]) -> dic
             item[field_id] = row.specs.get(key, "")
         else:
             item[field_id] = core.get(field_id, "")
-    return item
+    return attach_row_images(item)
 
 
 def grid_item_to_row(
@@ -163,7 +164,10 @@ def grid_item_to_row(
         specs=specs,
         line=int(item.get("line") or line),
         attributes=attributes,
-        raw={str(col["id"]): str(item.get(col["id"]) or "") for col in columns},
+        raw={
+            **{str(col["id"]): str(item.get(col["id"]) or "") for col in columns},
+            "image_job_id": str(item.get("image_job_id") or ""),
+        },
     )
 
 
@@ -277,7 +281,7 @@ def _llm_extract(
     if isinstance(rows, list):
         for index, item in enumerate(rows, start=2):
             if isinstance(item, Mapping):
-                row = dict(item)
+                row = attach_row_images(dict(item))
                 row.setdefault("line", index)
                 cleaned.append(row)
     return cleaned, warnings
@@ -333,7 +337,7 @@ def parse_documents(
     if not grid_items:
         raise ValueError("没能从资料里识别出商品行，请换更完整的报价单或表格")
 
-    rows = grid_to_excel_rows(grid_items, columns, category_id=category_id)
+    grid_items = [attach_row_images(item) for item in grid_items]
     check = check_grid(grid_items, columns, category_id=category_id, image_mode=image_mode)
     return {
         "source": " + ".join(sources) if sources else "mixed",

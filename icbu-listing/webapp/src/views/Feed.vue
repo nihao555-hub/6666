@@ -35,7 +35,7 @@
           <button class="path-card" @click="startPath('doc')">
             <small>报价单 / 表格 / 目录</small>
             <b>批量上品</b>
-            <p class="muted">先选类目，上传资料或表格，AI 填好商品表，前台改完再批量成稿。</p>
+            <p class="muted">上传表格或报价单，前台商品表直接改，每行 6 张图可批量生成，再成稿。</p>
           </button>
         </div>
       </div>
@@ -341,65 +341,52 @@
       </div>
     </template>
 
-    <!-- 批量上品：选类目 → 导入资料 → 核对编辑 → 成稿 -->
+    <!-- 批量上品：导入 → 表格工作台（含 6 张图占位 + 批量操作） -->
     <template v-else-if="tab === 'doc'">
       <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
-        <h3>这批货是哪一类</h3>
-        <p class="muted">批量上品整批共用一个叶子类目。有实拍、平台画图不用先选类目。</p>
+        <h3>选类目并导入资料</h3>
+        <p class="muted">先选叶子类目，再上传表格或报价单。解析后直接进商品表，每行 6 张图可批量生成。</p>
         <div style="margin-top: 16px">
           <el-button @click="openDocCategory">{{ doc.categoryName || sheetPlan.category_name || "选择类目" }}</el-button>
           <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在拉类目属性…</p>
           <p v-else-if="schemaColumnLabels.length" class="muted" style="margin-top: 10px">
-            表里会带上必填属性：{{ schemaColumnLabels.join("、") }}
+            必填属性：{{ schemaColumnLabels.join("、") }}
           </p>
         </div>
-        <div v-if="doc.categoryId" class="category-next-box">
-          <b>选完类目后，批量上品可以走：</b>
-          <ul>
-            <li><b>上传资料</b> — 报价单、目录、已有 xlsx/csv（表格直接识别；照片/PDF 由 AI 提取）</li>
-            <li><b>下载短表</b> — 离线填货号、价、起订量、必填属性，填好再上传解析</li>
-            <li><b>没图的行</b> — 后面可选按品名画套图，或跳过</li>
-          </ul>
-          <p class="muted">标题、关键词、选填属性 AI 补；信息质量分 5.0 且审过才能发。</p>
-        </div>
-        <div class="step-actions">
-          <el-button type="primary" :disabled="!doc.categoryId" @click="advanceDoc(1)">下一步，导入资料</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="docStep === 1" class="step-panel">
-        <h3>导入资料</h3>
-        <p class="muted">支持 xlsx、csv、图片、txt、pdf，可多文件。领星 / 店小秘 / 马帮表头也能识别。</p>
-        <div class="toolbar" style="margin: 12px 0">
+        <div class="toolbar" style="margin: 16px 0 12px">
           <el-button :disabled="!doc.categoryId" @click="downloadDocTemplate">下载空白短表</el-button>
-          <span class="muted">离线填好再拖回来，和上传报价单走同一条路</span>
         </div>
         <el-upload
           v-model:file-list="docFiles"
           :auto-upload="false"
           multiple
+          :disabled="!doc.categoryId"
           accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
           drag
-          style="margin-top: 14px"
         >
-          <div style="padding: 22px 0">把工厂报价单、目录、表格拖到这里（可多文件）</div>
+          <div style="padding: 22px 0">把表格 / 报价单 / 目录拖到这里（可多文件）</div>
         </el-upload>
         <div class="step-actions" style="margin-top: 16px">
-          <el-button @click="docStep = 0">上一步</el-button>
-          <el-button type="primary" :loading="docGrid.loading" :disabled="!docFiles.length" @click="parseDocuments">
-            AI 解析并填表
+          <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.length" @click="parseDocuments">
+            解析并打开商品表
           </el-button>
         </div>
       </div>
 
-      <div v-else-if="docStep === 2" class="step-panel">
-        <h3>核对商品表（可直接改）</h3>
-        <p class="muted">
-          共 {{ docGrid.row_count || docGrid.rows.length }} 个商品，价量齐 {{ docGrid.ready_count || 0 }} 个。
-          <span v-if="docGrid.source">来源：{{ docGrid.source }}</span>
-        </p>
+      <div v-else class="step-panel">
+        <div class="workspace-head">
+          <div>
+            <h3>商品表</h3>
+            <p class="muted">
+              {{ docGrid.row_count || docGrid.rows.length }} 个商品 · 价量齐 {{ docGrid.ready_count || 0 }} 个
+              <span v-if="docGrid.source"> · {{ docGrid.source }}</span>
+            </p>
+          </div>
+          <el-button @click="docStep = 0">重新导入</el-button>
+        </div>
+
         <el-alert
           v-for="warning in docGrid.warnings || []"
           :key="warning"
@@ -408,16 +395,40 @@
           :closable="false"
           style="margin: 10px 0"
         />
-        <div class="doc-grid-toolbar">
+
+        <div class="batch-toolbar">
+          <el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll">全选</el-checkbox>
+          <span class="muted">已选 {{ docSelectedCount }} 行</span>
+          <el-divider direction="vertical" />
+          <el-button size="small" @click="batchSetField('price')">批量改价</el-button>
+          <el-button size="small" @click="batchSetField('moq')">批量改起订量</el-button>
+          <el-button size="small" :loading="docGrid.generating" @click="generateImagesForSelection">选中行生成 6 张图</el-button>
+          <el-button size="small" :loading="docGrid.generating" @click="generateImagesForAll">全部生成 6 张图</el-button>
           <el-button size="small" @click="addDocRow">加一行</el-button>
           <el-button size="small" :loading="docGrid.checking" @click="recheckDocGrid">重新校验</el-button>
         </div>
+
+        <div class="toolbar" style="margin: 0 0 12px">
+          <el-upload
+            v-model:file-list="excelImages"
+            :auto-upload="false"
+            multiple
+            accept="image/*"
+            :show-file-list="false"
+          >
+            <el-button size="small">按货号补传图片</el-button>
+          </el-upload>
+          <span class="muted">命名如 SKU-1001.jpg 或 SKU-1001_1.jpg</span>
+        </div>
+
         <div class="doc-grid-wrap">
-          <table class="doc-grid">
+          <table class="doc-grid doc-grid-wide">
             <thead>
               <tr>
+                <th class="col-check"></th>
                 <th>#</th>
-                <th v-for="col in docGrid.columns" :key="col.id">
+                <th class="col-slots">商品图 ×6</th>
+                <th v-for="col in docDataColumns" :key="col.id">
                   {{ col.label }}<span v-if="col.required" class="need">必填</span>
                 </th>
                 <th></th>
@@ -425,8 +436,25 @@
             </thead>
             <tbody>
               <tr v-for="(row, index) in docGrid.rows" :key="row.line || index">
+                <td class="col-check">
+                  <el-checkbox v-model="row._selected" />
+                </td>
                 <td>{{ index + 1 }}</td>
-                <td v-for="col in docGrid.columns" :key="`${index}-${col.id}`">
+                <td class="col-slots">
+                  <div class="slot-strip">
+                    <div
+                      v-for="slot in rowSlots(row)"
+                      :key="`${index}-${slot.index}`"
+                      class="slot-thumb"
+                      :class="`is-${slot.status || 'empty'}`"
+                      :title="slot.name"
+                    >
+                      <img v-if="slot.url" :src="slot.url" :alt="slot.name" />
+                      <span v-else>{{ slot.index }}</span>
+                    </div>
+                  </div>
+                </td>
+                <td v-for="col in docDataColumns" :key="`${index}-${col.id}`">
                   <el-select
                     v-if="col.options?.length"
                     v-model="row[col.id]"
@@ -436,91 +464,30 @@
                     size="small"
                     style="width: 100%"
                   >
-                    <el-option
-                      v-for="opt in col.options"
-                      :key="opt.value"
-                      :label="opt.label"
-                      :value="opt.label"
-                    />
+                    <el-option v-for="opt in col.options" :key="opt.value" :label="opt.label" :value="opt.label" />
                   </el-select>
                   <el-input v-else v-model="row[col.id]" size="small" />
                 </td>
-                <td><el-button text type="danger" @click="removeDocRow(index)">删</el-button></td>
+                <td>
+                  <el-button text type="danger" @click="removeDocRow(index)">删</el-button>
+                  <el-button text @click="generateImagesForRow(row)">出图</el-button>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
+
         <div v-if="docGrid.row_issues?.length" class="row-issues">
           <b>成稿前先看这几行</b>
           <ul>
-            <li v-for="(issue, index) in docGrid.row_issues.slice(0, 16)" :key="index">
+            <li v-for="(issue, idx) in docGrid.row_issues.slice(0, 16)" :key="idx">
               <span :class="['dot', issue.level]"></span>
               第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
             </li>
           </ul>
         </div>
-        <div class="step-actions">
-          <el-button @click="docStep = 1">上一步</el-button>
-          <el-button type="primary" :disabled="!docGrid.rows.length" @click="advanceDoc(3)">下一步，图怎么处理</el-button>
-        </div>
-      </div>
 
-      <div v-else-if="docStep === 3" class="step-panel">
-        <h3>这批图怎么处理</h3>
-        <p class="muted">一张表里可以有的行有图、有的没图，图多图少都按下面两句话走，不按张数分路。</p>
-        <div class="policy-block">
-          <small>有图的行</small>
-          <div class="path-grid">
-            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'keep' }" @click="excel.photoPolicy = 'keep'">
-              <small>工厂图已经能用</small>
-              <b>原图上架</b>
-              <p class="muted">有几张用几张，不改、不补。</p>
-            </button>
-            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'complete' }" @click="excel.photoPolicy = 'complete'">
-              <small>推荐</small>
-              <b>原图留下，再补转化位</b>
-              <p class="muted">实拍不动，缺的转化位平台补并标黄。</p>
-            </button>
-            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'boost' }" @click="excel.photoPolicy = 'boost'">
-              <small>图太乱</small>
-              <b>当参考，重画套图</b>
-              <p class="muted">6 张重画并标黄。</p>
-            </button>
-          </div>
-        </div>
-        <div class="policy-block">
-          <small>没图的行</small>
-          <div class="path-grid path-grid-2">
-            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'draw' }" @click="excel.emptyPolicy = 'draw'">
-              <b>按品名画套图</b>
-            </button>
-            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'skip' }" @click="excel.emptyPolicy = 'skip'">
-              <b>跳过没图的行</b>
-            </button>
-          </div>
-        </div>
-        <p class="muted" style="margin-top: 16px">{{ excelImageUploadHint }}</p>
-        <el-upload
-          v-model:file-list="excelImages"
-          :auto-upload="false"
-          multiple
-          accept="image/*"
-          drag
-          style="margin-top: 10px"
-        >
-          <div style="padding: 22px 0">有本地图就拖进来，按货号命名</div>
-        </el-upload>
         <div class="step-actions">
-          <el-button @click="docStep = 2">上一步</el-button>
-          <el-button type="primary" @click="advanceDoc(4)">下一步，开始成稿</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="docStep === 4" class="step-panel">
-        <h3>批量成稿</h3>
-        <p class="muted">{{ excelGoHint }} 导入后逐条核对，信息质量分 5.0 且审过才能发。</p>
-        <div class="step-actions">
-          <el-button @click="docStep = 3">上一步</el-button>
           <el-button
             type="primary"
             :loading="docGrid.loading"
@@ -529,7 +496,9 @@
           >
             批量成稿（{{ docGrid.rows.length }} 个）
           </el-button>
+          <span class="muted">每行需 6 张图或已点「生成套图」。成稿后进草稿审，5.0 分且审过才能发。</span>
         </div>
+
         <div v-if="doc.batch" style="margin-top: 18px">
           <p>
             共 {{ doc.batch.count }} 个商品，已成稿 {{ docProgress.done }}/{{ doc.batch.count }}。
@@ -553,7 +522,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import CategoryPicker from "../components/CategoryPicker.vue";
 import FishboneSteps from "../components/FishboneSteps.vue";
 import { api } from "../api";
@@ -590,11 +559,16 @@ const aiSteps = [
   { key: "draft", label: "生成草稿" },
 ];
 const docSteps = [
-  { key: "cat", label: "选类目" },
-  { key: "up", label: "导入资料" },
-  { key: "edit", label: "核对编辑" },
-  { key: "img", label: "图怎么处理" },
-  { key: "go", label: "批量成稿" },
+  { key: "setup", label: "选类目并导入" },
+  { key: "grid", label: "商品表" },
+];
+const DEFAULT_IMAGE_SLOTS = [
+  { index: 1, id: "slot-1", name: "白底主图", status: "empty", url: "" },
+  { index: 2, id: "slot-2", name: "细节", status: "empty", url: "" },
+  { index: 3, id: "slot-3", name: "尺寸", status: "empty", url: "" },
+  { index: 4, id: "slot-4", name: "场景", status: "empty", url: "" },
+  { index: 5, id: "slot-5", name: "外箱", status: "empty", url: "" },
+  { index: 6, id: "slot-6", name: "OEM", status: "empty", url: "" },
 ];
 const templates = ref({ families: [], sources: [] });
 const imageJob = ref(null);
@@ -636,9 +610,12 @@ const docGrid = reactive({
   source: "",
   loading: false,
   checking: false,
+  generating: false,
+  selectAll: false,
 });
 const docProgress = ref({ done: 0 });
 let docTimer = null;
+let gridPollTimer = null;
 const excel = reactive({
   photoPolicy: "complete",
   emptyPolicy: "draw",
@@ -647,7 +624,6 @@ const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [
 const officialLoading = ref(false);
 const categoryBrowser = ref(false);
 let timer = null;
-let docTimer = null;
 let imageTimer = null;
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
@@ -680,6 +656,8 @@ const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
   return Math.min(100, Math.round((docProgress.value.done / doc.batch.count) * 100));
 });
+const docDataColumns = computed(() => docGrid.columns.filter((col) => col.id !== "images"));
+const docSelectedCount = computed(() => docGrid.rows.filter((row) => row._selected).length);
 const percent = computed(() => {
   if (!batch.value?.count) return 0;
   return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
@@ -729,7 +707,7 @@ function migrateLegacyExcelSession(session, payload) {
   }
   if (!doc.batch && ep.batch) doc.batch = ep.batch;
   applyExcelImageMode(ep.imageMode, ep.photoPolicy, ep.emptyPolicy);
-  const stepMap = { 0: 0, 1: 1, 2: 1, 3: 3, 4: 4 };
+  const stepMap = { 0: 0, 1: 0, 2: 1, 3: 1, 4: 1 };
   docStep.value = stepMap[session.step ?? 0] ?? 0;
   docReached.value = Math.max(session.reached ?? 0, docStep.value);
 }
@@ -889,7 +867,7 @@ function applySession(session) {
     doc.categoryName = payload.doc.categoryName || payload.categoryName || "";
     doc.batch = payload.doc.batch || null;
     docGrid.columns = payload.doc.columns || [];
-    docGrid.rows = payload.doc.rows || [];
+    docGrid.rows = normalizeDocRows(payload.doc.rows || []);
     docGrid.row_issues = payload.doc.row_issues || [];
     docGrid.warnings = payload.doc.warnings || [];
     docGrid.row_count = payload.doc.row_count || docGrid.rows.length;
@@ -910,8 +888,9 @@ function applySession(session) {
     if (session.path === "excel" || session.path === "full") {
       migrateLegacyExcelSession(session, payload);
     } else {
-      docStep.value = session.step || 0;
-      docReached.value = session.reached || 0;
+      docStep.value = Math.min(session.step || 0, docSteps.length - 1);
+      if (docStep.value > 1) docStep.value = 1;
+      docReached.value = Math.min(session.reached ?? 0, docSteps.length - 1);
     }
   } else {
     photoStep.value = session.step || 0;
@@ -969,6 +948,7 @@ async function resumeSession(id) {
     if (doc.categoryId) {
       await loadSheetPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
       loadOfficialAttrs();
+      ensureGridPolling();
     }
   } catch (error) {
     const msg = String(error.message || "");
@@ -1238,6 +1218,117 @@ function advanceDoc(index) {
   persistSession();
 }
 
+function rowSlots(row) {
+  if (row?.image_slots?.length) return row.image_slots;
+  return DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot }));
+}
+
+function normalizeDocRows(rows) {
+  return (rows || []).map((row, index) => ({
+    ...row,
+    line: row.line || index + 2,
+    _selected: Boolean(row._selected),
+    image_slots: row.image_slots?.length ? row.image_slots : DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot })),
+  }));
+}
+
+function hasPendingImageJobs() {
+  return docGrid.rows.some((row) => ["queued", "running"].includes(String(row.image_job_status || "")));
+}
+
+function ensureGridPolling() {
+  if (gridPollTimer) return;
+  if (!hasPendingImageJobs()) return;
+  gridPollTimer = setInterval(pollGridImages, 2000);
+  pollGridImages();
+}
+
+async function pollGridImages() {
+  if (!docGrid.rows.length) return;
+  try {
+    const body = new FormData();
+    body.append("rows", JSON.stringify(docGrid.rows));
+    const result = await api.excelGridPollImages(body);
+    docGrid.rows = normalizeDocRows(result.rows || []);
+    if (!result.pending) {
+      clearInterval(gridPollTimer);
+      gridPollTimer = null;
+    }
+    await persistSession();
+  } catch {
+    clearInterval(gridPollTimer);
+    gridPollTimer = null;
+  }
+}
+
+function toggleSelectAll(checked) {
+  docGrid.rows.forEach((row) => {
+    row._selected = Boolean(checked);
+  });
+}
+
+async function batchSetField(field) {
+  const label = field === "price" ? "单价 USD" : "起订量";
+  const targets = docGrid.rows.filter((row) => row._selected);
+  if (!targets.length) {
+    ElMessage.warning("先勾选要改的行");
+    return;
+  }
+  try {
+    const { value } = await ElMessageBox.prompt(`批量填写${label}`, "批量修改", {
+      confirmButtonText: "应用到选中行",
+      cancelButtonText: "取消",
+    });
+    if (!String(value || "").trim()) return;
+    targets.forEach((row) => {
+      row[field] = String(value).trim();
+    });
+    await recheckDocGrid();
+  } catch {
+    /* cancelled */
+  }
+}
+
+async function generateImagesForRows(lines) {
+  if (!docGrid.rows.length) return;
+  docGrid.generating = true;
+  try {
+    const body = new FormData();
+    body.append("shop_id", store.shopId || "");
+    body.append("category_id", doc.categoryId);
+    body.append("category_name", doc.categoryName || sheetPlan.value.category_name || "");
+    body.append("rows", JSON.stringify(docGrid.rows));
+    body.append("lines", JSON.stringify(lines || []));
+    const result = await api.excelGridGenerateImages(body);
+    docGrid.rows = normalizeDocRows(result.rows || []);
+    if (result.errors?.length) ElMessage.warning(result.errors[0]);
+    ensureGridPolling();
+    await persistSession();
+    ElMessage.success(lines?.length ? "已开始为选中行出图" : "已开始为全部商品出图");
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    docGrid.generating = false;
+  }
+}
+
+function generateImagesForSelection() {
+  const lines = docGrid.rows.filter((row) => row._selected).map((row) => row.line);
+  if (!lines.length) {
+    ElMessage.warning("先勾选要出图的行");
+    return;
+  }
+  generateImagesForRows(lines);
+}
+
+function generateImagesForAll() {
+  generateImagesForRows([]);
+}
+
+function generateImagesForRow(row) {
+  generateImagesForRows([row.line]);
+}
+
 async function parseDocuments() {
   if (!doc.categoryId) {
     ElMessage.warning("先选叶子类目");
@@ -1251,20 +1342,20 @@ async function parseDocuments() {
   body.append("shop_id", store.shopId || "");
   body.append("category_id", doc.categoryId);
   body.append("category_name", doc.categoryName || sheetPlan.value.category_name || "");
-  body.append("image_mode", excelImageMode.value);
+  body.append("image_mode", "complete_draw");
   docFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
   docGrid.loading = true;
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || [];
-    docGrid.rows = result.rows || [];
+    docGrid.rows = normalizeDocRows(result.rows || []);
     docGrid.row_issues = result.row_issues || [];
     docGrid.warnings = result.warnings || [];
     docGrid.row_count = result.row_count || docGrid.rows.length;
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
     await persistSession();
-    advanceDoc(2);
+    advanceDoc(1);
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，可直接在表里改`);
   } catch (error) {
     ElMessage.error(error.message);
@@ -1278,7 +1369,7 @@ async function recheckDocGrid() {
   const body = new FormData();
   body.append("shop_id", store.shopId || "");
   body.append("category_id", doc.categoryId);
-  body.append("image_mode", excelImageMode.value);
+  body.append("image_mode", "complete_draw");
   body.append("rows", JSON.stringify(docGrid.rows));
   docGrid.checking = true;
   try {
@@ -1296,7 +1387,7 @@ async function recheckDocGrid() {
 }
 
 function addDocRow() {
-  const row = { line: docGrid.rows.length + 2 };
+  const row = { line: docGrid.rows.length + 2, _selected: false, image_slots: DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot })) };
   (docGrid.columns.length ? docGrid.columns : sheetPlan.value.preview?.columns || []).forEach((col) => {
     row[col.id] = "";
   });
@@ -1320,7 +1411,7 @@ async function importDocRows() {
   body.append("shop_id", store.shopId);
   body.append("category_id", doc.categoryId);
   body.append("session_id", sessionId.value);
-  body.append("image_mode", excelImageMode.value);
+  body.append("image_mode", "complete_draw");
   body.append("rows", JSON.stringify(docGrid.rows));
   excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
   docGrid.loading = true;
@@ -1407,6 +1498,7 @@ async function pickCategory(node) {
 onUnmounted(() => {
   clearInterval(timer);
   clearInterval(docTimer);
+  clearInterval(gridPollTimer);
   clearInterval(imageTimer);
 });
 
@@ -1943,5 +2035,79 @@ async function poll() {
   color: var(--muted);
   width: 36px;
   text-align: center;
+}
+
+.workspace-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--gray3);
+}
+
+.doc-grid-wide {
+  min-width: max-content;
+}
+
+.col-check {
+  width: 36px;
+  text-align: center;
+}
+
+.col-slots {
+  min-width: 420px;
+}
+
+.slot-strip {
+  display: grid;
+  grid-template-columns: repeat(6, 64px);
+  gap: 6px;
+}
+
+.slot-thumb {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: 1px dashed var(--line);
+  background: var(--gray3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.slot-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.slot-thumb.is-queued,
+.slot-thumb.is-running {
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.slot-thumb.is-done,
+.slot-thumb.is-uploaded {
+  border-style: solid;
+}
+
+.slot-thumb.is-empty {
+  opacity: 0.85;
 }
 </style>
