@@ -12,6 +12,7 @@ from .shop_bootstrap import ensure_env_shop
 
 DEFAULT_DEMO_EMAIL = "demo@auto-shoper.test"
 DEFAULT_DEMO_PASSWORD = "AutoShoper2026"
+DEMO_USER_ID = "00000000000000000000000000000001"
 
 
 def _seed_enabled() -> bool:
@@ -33,6 +34,7 @@ def ensure_demo_user(db: Session) -> User | None:
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         user = User(
+            id=DEMO_USER_ID,
             email=email,
             password_hash=hash_password(password),
             display_name=email.split("@")[0],
