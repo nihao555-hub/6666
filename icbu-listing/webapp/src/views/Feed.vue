@@ -2,8 +2,8 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>投料</h2>
-        <p class="muted">先选一条路上品。做到一半关掉也能回来接着做，多条可以同时记着。</p>
+        <h2>批量上品</h2>
+        <p class="muted">选类目 → 下载智能填写表 → 上传解析 → 审核出图成稿。做到一半会自动记下，关掉也能回来。</p>
       </div>
     </div>
 
@@ -19,23 +19,12 @@
 
     <template v-if="!sessionId">
       <div class="chooser">
-        <h3>先选一种上品方式</h3>
-        <p class="muted">三条路：有实拍、平台画图不用先选类目；批量上品必须先选叶子类目。</p>
-        <div class="path-grid path-grid-3">
-          <button class="path-card" @click="startPath('photo')">
-            <small>默认走这条</small>
-            <b>有实拍</b>
-            <p class="muted">手机或工厂已经拍好了。上传图，再填单价和起订量。AI 看图定类目。</p>
-          </button>
-          <button class="path-card" @click="startPath('ai')">
-            <small>一张实拍都没有</small>
-            <b>平台画图</b>
-            <p class="muted">单条上品：写品名，平台画 6 张再填价。生成图会标黄，不是实拍。</p>
-          </button>
-          <button class="path-card" @click="startPath('doc')">
-            <small>报价单 / 表格 / 目录</small>
-            <b>批量上品</b>
-            <p class="muted">选类目后 AI 定填写列，下载 xlsx 填完上传，审核、出图、批量成稿。</p>
+        <h3>开始批量上品</h3>
+        <p class="muted">必须先选叶子类目。系统结合官方 schema 和店铺默认，由 AI 规划你要填哪些列。</p>
+        <div class="path-grid">
+          <button class="path-card path-card-primary" @click="startPath('doc')">
+            <b>新建批量任务</b>
+            <p class="muted">支持 xlsx、报价单、目录 PDF 等。填完上传后进入审核工作台。</p>
           </button>
         </div>
       </div>
@@ -56,293 +45,23 @@
 
     <template v-else>
       <div class="flow-bar">
-        <el-button @click="backToChooser">回选路</el-button>
+        <el-button @click="backToChooser">退出</el-button>
         <span class="muted">{{ currentTitle }} · 做到一半会自动记下，关掉也能回来</span>
         <el-button text @click="dropCurrent">不要这条了</el-button>
       </div>
 
-    <!-- 有实拍 -->
-    <template v-if="tab === 'single'">
-      <FishboneSteps v-model="photoStep" :steps="photoSteps" :reached="photoReached" />
+      <el-alert
+        v-if="tab !== 'doc'"
+        type="info"
+        show-icon
+        :closable="false"
+        title="旧版投料路径已停用"
+        description="现在只支持批量上品。请退出后新建批量任务。"
+        style="margin-bottom: 14px"
+      />
 
-      <div v-if="photoStep === 0" class="step-panel">
-        <h3>上传产品图</h3>
-        <p class="muted">单条最多 6 张。批量时按货号命名，例如 SKU-1001_1.jpg，会自动归成同一个商品。</p>
-        <div class="toolbar" style="margin-top: 14px">
-          <el-radio-group v-model="photoMode">
-            <el-radio-button value="single">单条</el-radio-button>
-            <el-radio-button value="batch">按货号批量</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div v-if="photoMode === 'single'" class="toolbar" style="margin-top: 10px">
-          <el-radio-group v-model="photoSource">
-            <el-radio-button value="upload">本地上传</el-radio-button>
-            <el-radio-button value="photobank">图片银行</el-radio-button>
-          </el-radio-group>
-        </div>
-        <el-upload
-          v-if="photoMode === 'single' && photoSource === 'upload'"
-          v-model:file-list="files"
-          list-type="picture-card"
-          :auto-upload="false"
-          :limit="6"
-          accept="image/*"
-        >
-          <span style="font-size: 22px">+</span>
-        </el-upload>
-        <div v-else-if="photoMode === 'single' && photoSource === 'photobank'" class="photobank-panel">
-          <p class="muted">从这家店已上传的图片银行里选，最多 6 张。不用再传一遍。</p>
-          <div class="toolbar" style="margin: 10px 0">
-            <el-button :loading="photobankLoading" @click="loadPhotobank">刷新列表</el-button>
-            <span class="muted">已选 {{ selectedPhotobank.length }}/6</span>
-          </div>
-          <div v-if="photobankImages.length" class="photobank-grid">
-            <button
-              v-for="item in photobankImages"
-              :key="item.id"
-              type="button"
-              class="photobank-item"
-              :class="{ 'is-selected': isPhotobankSelected(item) }"
-              @click="togglePhotobank(item)"
-            >
-              <img :src="normalizePhotoUrl(item.url)" :alt="item.file_name" />
-              <span>{{ item.file_name || item.id }}</span>
-            </button>
-          </div>
-          <p v-else-if="!photobankLoading" class="muted">还没有拉到图片。先点刷新，或去阿里后台上传后再来。</p>
-        </div>
-        <el-upload
-          v-else-if="photoMode === 'batch'"
-          v-model:file-list="batchFiles"
-          :auto-upload="false"
-          multiple
-          accept="image/*"
-          drag
-          style="width: 100%; margin-top: 8px"
-        >
-          <div style="padding: 26px 0">把整个文件夹的图拖进来</div>
-        </el-upload>
-        <div class="step-actions">
-          <el-button type="primary" :disabled="!hasPhotos" @click="advancePhoto(1)">下一步，填价格</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="photoStep === 1" class="step-panel">
-        <h3>填价格和起订量</h3>
-        <p class="muted">这两项是红线，AI 不会代填。批量时整批共用同一个价和起订量。</p>
-        <div class="prop-form" style="margin-top: 8px">
-          <div v-if="photoMode === 'single'" class="prop-row">
-            <label>货号</label>
-            <el-input v-model="form.sku" placeholder="留空则用图片文件名" />
-          </div>
-          <div class="prop-row">
-            <label>单价</label>
-            <el-input v-model="form.price" placeholder="12.50">
-              <template #append>USD</template>
-            </el-input>
-          </div>
-          <div class="prop-row">
-            <label>起订量</label>
-            <el-input v-model="form.moq" placeholder="100" />
-          </div>
-          <div v-if="photoMode === 'single'" class="prop-row">
-            <label>补充</label>
-            <el-input v-model="form.note" type="textarea" :rows="2" placeholder="可选。中文也行，例如：加厚款，可定制 logo" />
-          </div>
-        </div>
-        <div class="step-actions">
-          <el-button @click="photoStep = 0">上一步</el-button>
-          <el-button type="primary" :disabled="!form.price || !form.moq" @click="advancePhoto(2)">下一步，生成草稿</el-button>
-        </div>
-      </div>
-
-      <div v-else class="step-panel">
-        <h3>生成草稿</h3>
-        <p class="muted">系统会看图、定类目、对齐属性、写英文标题。大约 20～40 秒一条。</p>
-        <div class="step-actions">
-          <el-button @click="photoStep = 1">上一步</el-button>
-          <el-button
-            type="primary"
-            :loading="loading"
-            :disabled="!store.shopId"
-            @click="photoMode === 'single' ? submitOne() : submitBatch()"
-          >
-            {{ photoMode === "single" ? "生成草稿" : "开始批量成稿" }}
-          </el-button>
-          <span v-if="loading" class="muted">正在成稿，可以先去干别的</span>
-        </div>
-        <div v-if="batch" style="margin-top: 18px">
-          <p>共 {{ batch.count }} 个商品，已完成 {{ progress.done }} 个。关掉页面也不影响。</p>
-          <el-progress :percentage="percent" :stroke-width="10" />
-          <el-button style="margin-top: 12px" @click="$router.push('/drafts?filter=pending')">去商品里核对</el-button>
-        </div>
-      </div>
-    </template>
-
-    <!-- 没图：平台生成套图 -->
-    <template v-else-if="tab === 'ai'">
-      <FishboneSteps v-model="aiStep" :steps="aiSteps" :reached="aiReached" />
-
-      <div v-if="aiStep === 0" class="step-panel">
-        <h3>写出品名和已知事实</h3>
-        <p class="muted">没有实拍时才走这里。平台按国际站画 6 张：白底主图、尺寸、细节、场景、外箱、OEM。生成图不是实拍，草稿会标黄。</p>
-        <el-alert
-          type="warning"
-          :closable="false"
-          show-icon
-          title="可以猜，但必须有依据"
-          description="套图按你写的规格和上传的主图样子来。没写的尺寸、装箱量、色数、认证一律不编。有主图时务必上传，模型按这张货长，不另设计一款。"
-          style="margin: 12px 0"
-        />
-        <el-form label-width="88px" style="max-width: 720px; margin-top: 12px">
-          <el-form-item label="类目">
-            <div>
-              <el-button @click="openAiCategory">{{ aiForm.categoryName || "选择国际站类目" }}</el-button>
-              <p class="muted" style="margin: 6px 0 0">从这家店的官方类目树选到可发布的叶子。不选也能先出图。</p>
-            </div>
-          </el-form-item>
-          <el-form-item label="出图风格">
-            <div>
-              <div class="family-chips">
-                <button
-                  v-for="item in templates.families || []"
-                  :key="item.id"
-                  type="button"
-                  class="family-chip"
-                  :class="{ 'is-active': aiForm.familyId === item.id }"
-                  @click="aiForm.familyId = aiForm.familyId === item.id ? '' : item.id"
-                >
-                  {{ item.name }}
-                </button>
-              </div>
-              <p class="muted" style="margin: 6px 0 0">可不选。不选则按官方类目和品名自动匹配。</p>
-            </div>
-          </el-form-item>
-          <el-form-item label="品名">
-            <el-input v-model="aiForm.productName" placeholder="例如 油漆刷 / colored pencil set / taza de cerámica" />
-          </el-form-item>
-          <el-form-item label="材质">
-            <el-input v-model="aiForm.material" placeholder="可选。例如 猪鬃、拉丝铁皮箍、哑光木柄。没写就不指定材质。" />
-          </el-form-item>
-          <el-form-item label="尺寸">
-            <el-input v-model="aiForm.size" placeholder="可选。例如 25cm。没写则尺寸图不加任何数字。" />
-          </el-form-item>
-          <el-form-item label="装箱量">
-            <el-input v-model="aiForm.packCount" placeholder="可选。例如 100 pcs / carton。没写则外箱不加数量。" />
-          </el-form-item>
-          <el-form-item label="颜色">
-            <el-input v-model="aiForm.colors" placeholder="可选。多个用逗号隔开。没写就不编色号。" />
-          </el-form-item>
-          <el-form-item label="补充">
-            <el-input v-model="aiForm.note" type="textarea" :rows="2" placeholder="只写你确定的事实。中文也行。不要写没核实的认证或数字。" />
-          </el-form-item>
-          <el-form-item label="主图">
-            <div>
-              <el-upload
-                :auto-upload="false"
-                :limit="1"
-                accept="image/*"
-                :on-change="onReferenceFile"
-                :on-remove="() => (aiForm.referenceFile = null)"
-              >
-                <el-button>上传商品主图</el-button>
-              </el-upload>
-              <el-input
-                v-model="aiForm.referenceUrl"
-                placeholder="或者贴一张产品图网址"
-                style="margin-top: 8px"
-              />
-              <p class="muted" style="margin: 6px 0 0">有实拍务必给一张。套图按这张货的样子和下面的规格来，不另设计。</p>
-            </div>
-          </el-form-item>
-        </el-form>
-        <div class="step-actions">
-          <el-button type="primary" :loading="aiForm.planning" @click="startGenerate">生成套图</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="aiStep === 1" class="step-panel">
-        <h3>{{ imageJob?.status === "succeeded" ? "套图已画好" : "正在出图" }}</h3>
-        <p class="muted">
-          套用「{{ imageJob?.family?.name || "类目模板" }}」。
-          <span v-if="imageJob?.product_brief && imageJob.product_brief !== imageJob.product_name">
-            出图按「{{ imageJob.product_brief }}」。
-          </span>
-          {{ imageJob?.progress || "排队出图" }}
-          这 6 张是平台生成图，不是实拍。
-        </p>
-        <el-progress :percentage="imagePercent" :stroke-width="10" style="margin: 14px 0" />
-        <div class="slot-grid">
-          <div v-for="slot in imageJob?.slots || []" :key="slot.id" class="slot-card">
-            <div class="slot-photo">
-              <img v-if="slot.url" :src="slot.url" :alt="slot.name" />
-              <span v-else class="muted">{{ slot.status === "running" ? "正在画" : "排队" }}</span>
-            </div>
-            <div class="slot-head">
-              <b>{{ slot.index }}. {{ slot.name }}</b>
-            </div>
-            <p class="muted">买手看这张：{{ slot.buyer_job }}</p>
-          </div>
-        </div>
-        <el-alert
-          v-if="imageJob?.status === 'failed'"
-          type="error"
-          :title="imageJob.error || '出图失败，请再试一次'"
-          :closable="false"
-          style="margin-bottom: 12px"
-        />
-        <div class="step-actions">
-          <el-button @click="aiStep = 0">上一步</el-button>
-          <el-button v-if="imageJob?.status === 'failed'" @click="startGenerate">再画一次</el-button>
-          <el-button type="primary" :disabled="imageJob?.status !== 'succeeded'" @click="advanceAi(2)">
-            下一步，填价格
-          </el-button>
-        </div>
-      </div>
-
-      <div v-else-if="aiStep === 2" class="step-panel">
-        <h3>填价格和起订量</h3>
-        <p class="muted">这两项是红线，AI 不会代填。</p>
-        <div class="prop-form" style="margin-top: 8px">
-          <div class="prop-row">
-            <label>货号</label>
-            <el-input v-model="form.sku" placeholder="留空则用品名" />
-          </div>
-          <div class="prop-row">
-            <label>单价</label>
-            <el-input v-model="form.price" placeholder="12.50">
-              <template #append>USD</template>
-            </el-input>
-          </div>
-          <div class="prop-row">
-            <label>起订量</label>
-            <el-input v-model="form.moq" placeholder="100" />
-          </div>
-          <div class="prop-row">
-            <label>补充</label>
-            <el-input v-model="form.note" type="textarea" :rows="2" placeholder="可选。中文也行" />
-          </div>
-        </div>
-        <div class="step-actions">
-          <el-button @click="aiStep = 1">上一步</el-button>
-          <el-button type="primary" :disabled="!form.price || !form.moq" @click="advanceAi(3)">下一步，生成草稿</el-button>
-        </div>
-      </div>
-
-      <div v-else class="step-panel">
-        <h3>生成草稿</h3>
-        <p class="muted">用刚画好的 6 张图成稿。大约 20～40 秒。草稿里会标黄：这不是实拍。</p>
-        <div class="step-actions">
-          <el-button @click="aiStep = 2">上一步</el-button>
-          <el-button type="primary" :loading="loading" :disabled="!store.shopId || imageJob?.status !== 'succeeded'" @click="submitGenerated">
-            生成草稿
-          </el-button>
-        </div>
-      </div>
-    </template>
-
-    <!-- 批量上品：导入 → 表格工作台（含 6 张图占位 + 批量操作） -->
-    <template v-else-if="tab === 'doc'">
+    <!-- 批量上品 -->
+    <template v-else>
       <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
@@ -1040,30 +759,16 @@ async function persistSession() {
 async function syncKind(kind, list) {
   if (!sessionId.value || restoring.value || !store.user) return;
   const raws = (list || []).filter((item) => item.raw);
+  if (!raws.length) return;
   const keep = (list || []).filter((item) => !item.raw && item.name).map((item) => item.name);
   try {
-    if (!raws.length && !list?.length) {
-      const body = new FormData();
-      body.append("kind", kind);
-      body.append("keep", "");
-      await api.uploadFeedSessionFiles(sessionId.value, body);
-      return;
-    }
-    if (!raws.length) return;
     const body = new FormData();
     body.append("kind", kind);
     body.append("keep", keep.join(","));
     raws.forEach((item) => body.append("files", item.raw));
     await api.uploadFeedSessionFiles(sessionId.value, body);
-  } catch (error) {
-    const msg = String(error.message || "");
-    if (msg.includes("不在了") || msg.includes("登录")) {
-      if (sessionId.value) {
-        sessionId.value = "";
-        router.replace({ query: {} });
-        await loadOpenSessions();
-      }
-    }
+  } catch {
+    /* keep the in-progress session; file sync can retry on next upload */
   }
 }
 
@@ -1242,6 +947,11 @@ function advanceAi(index) {
 
 onMounted(async () => {
   try {
+    await store.ensureShops();
+  } catch {
+    /* shop list loads again when user opens category picker */
+  }
+  try {
     templates.value = await api.imageTemplates();
   } catch (error) {
     ElMessage.error(error.message);
@@ -1274,9 +984,6 @@ watch(
     saveTimer = setTimeout(persistSession, 500);
   },
 );
-watch(files, () => syncKind("photos", files.value), { deep: true });
-watch(batchFiles, () => syncKind("batch", batchFiles.value), { deep: true });
-watch(excelImages, () => syncKind("excel_images", excelImages.value), { deep: true });
 watch(
   () => [excel.photoPolicy, excel.emptyPolicy],
   () => {
@@ -1955,6 +1662,7 @@ async function pickCategory(node) {
     doc.categoryId = node.category_id;
     doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
     try {
+      await store.ensureShops();
       await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
       ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」，可下载智能填写表`);
       await persistSession();
@@ -2116,9 +1824,13 @@ async function poll() {
 <style scoped>
 .path-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin-bottom: 18px;
+}
+.path-card-primary {
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
 }
 .path-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));

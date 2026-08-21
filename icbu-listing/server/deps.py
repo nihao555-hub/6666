@@ -77,9 +77,14 @@ def owned_shop(
 
 def shop_for(db: Session, user: User, shop_id: str) -> Shop:
     shop = db.get(Shop, shop_id)
-    if shop is None or shop.user_id != user.id:
-        raise HTTPException(status_code=404, detail="店铺不存在")
-    return shop
+    if shop is not None and shop.user_id == user.id:
+        return shop
+    if reload_db_from_blob():
+        db.expire_all()
+        shop = db.get(Shop, shop_id)
+        if shop is not None and shop.user_id == user.id:
+            return shop
+    raise HTTPException(status_code=404, detail="店铺不存在")
 
 
 def owned_draft(
