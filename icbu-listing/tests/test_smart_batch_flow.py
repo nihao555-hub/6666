@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "backend"))
 
-os.environ["DATABASE_PATH"] = str(Path(tempfile.mkdtemp()) / "smart-flow.db")
+os.environ["DATABASE_PATH"] = str(Path(tempfile.mkdtemp()) / f"smart-flow-{uuid.uuid4().hex}.db")
 os.environ["UPLOAD_DIR"] = str(Path(tempfile.mkdtemp()) / "uploads")
 os.environ["TOKEN_ENCRYPTION_KEY"] = "Frqkv73e3W19RfKb5WSgTueumPWcBSmpbM4wDyqu52o="
 os.environ["REGISTRATION_CODES"] = "TEST-CODE"
