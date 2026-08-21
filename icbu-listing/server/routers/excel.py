@@ -514,12 +514,15 @@ async def parse_documents(
         )
         result["planner"] = "smart" if plan_columns else "simple"
         download_columns = plan_columns or result.get("columns") or []
-        review_columns, enriched_rows, enrich_warnings = review_enrich.enrich_rows(
-            result.get("rows") or [],
-            download_columns,
-            category_name=hint or category_name,
-            ai=ai,
-        )
+        review_columns = review_enrich.order_review_columns(download_columns)
+        enriched_rows = []
+        for row in result.get("rows") or []:
+            item = dict(row)
+            item.setdefault("title", str(item.get("title") or ""))
+            item.setdefault("keywords", str(item.get("keywords") or ""))
+            item.setdefault("highlights", str(item.get("highlights") or ""))
+            enriched_rows.append(item)
+        enrich_warnings = ["标题和关键词可在审核页用「AI 重写文案」生成。"]
         result["download_columns"] = download_columns
         result["columns"] = review_columns
         result["rows"] = enriched_rows

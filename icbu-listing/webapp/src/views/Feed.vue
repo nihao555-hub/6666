@@ -44,39 +44,23 @@
       <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
-        <h3>选类目，生成智能填写表</h3>
-        <p class="muted">选好叶子类目后，AI 会读取官方 schema 并规划你需要手填的列。</p>
+        <h3>选类目，生成填写表</h3>
+        <p class="muted">选好叶子类目后，AI 会分析需要填哪些列。</p>
         <div style="margin-top: 16px">
           <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
         </div>
 
         <section v-if="smartPlanLoading" class="plan-panel plan-panel-loading">
-          <p class="muted">AI 正在读取官方 schema 并规划填写列…</p>
+          <p class="muted">AI 正在分析类目…</p>
         </section>
 
         <section v-else-if="doc.categoryId && smartPlan.column_count" class="plan-panel">
           <header class="plan-head">
-            <span class="plan-badge">{{ smartPlan.planner === "llm" ? "AI 规划" : "规则规划" }}</span>
             <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
+            <span class="plan-badge">需填 {{ smartPlan.column_count }} 列</span>
           </header>
-          <div class="plan-stats">
-            <div class="plan-stat">
-              <strong>{{ smartPlan.schema_inventory?.total || "?" }}</strong>
-              <span>官方 schema 字段</span>
-            </div>
-            <div class="plan-stat">
-              <strong>{{ smartPlan.schema_inventory?.required_count || smartPlan.required_attr_count || 0 }}</strong>
-              <span>其中必填</span>
-            </div>
-            <div class="plan-stat plan-stat-accent">
-              <strong>{{ smartPlan.column_count }}</strong>
-              <span>下载表需填列</span>
-            </div>
-          </div>
-          <p v-if="plannerCoverageText" class="plan-coverage muted">{{ plannerCoverageText }}</p>
           <p v-if="smartPlan.reasoning" class="plan-reasoning">{{ smartPlan.reasoning }}</p>
           <div v-if="smartColumnLabels.length" class="plan-columns">
-            <small>填写列</small>
             <div class="plan-column-tags">
               <span v-for="label in smartColumnLabels" :key="label" class="plan-tag">{{ label }}</span>
             </div>
@@ -114,7 +98,7 @@
         </el-upload>
         <div class="step-actions" style="margin-top: 16px">
           <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.some((item) => item.raw)" @click="parseDocuments">
-            解析并进入审核
+            {{ parseStatus || "解析并进入审核" }}
           </el-button>
         </div>
       </div>
@@ -126,7 +110,6 @@
             <h3>{{ doc.categoryName || smartPlan.category_name || "未命名类目" }}</h3>
             <p class="review-hero-meta">
               {{ docGrid.row_count || docGrid.rows.length }} 个商品
-              <span v-if="docGrid.source"> · {{ docGrid.source }}</span>
               <span v-if="docImageGenSummary"> · {{ docImageGenSummary }}</span>
             </p>
           </div>
@@ -182,16 +165,6 @@
                 <small>{{ item.count }}</small>
               </button>
             </div>
-            <button type="button" class="review-guide-toggle" @click="showReviewGuide = !showReviewGuide">
-              {{ showReviewGuide ? "收起要点" : "审核要点" }}
-            </button>
-          </div>
-
-          <div v-if="showReviewGuide && reviewChecklist.length" class="review-guide">
-            <article v-for="item in reviewChecklist" :key="item.id" class="review-guide-item">
-              <b>{{ item.label }}</b>
-              <span>{{ item.hint }}</span>
-            </article>
           </div>
 
           <el-tabs v-model="reviewOpsTab" class="review-tabs">
@@ -243,7 +216,7 @@
                     <el-button>按货号补传</el-button>
                   </el-upload>
                 </div>
-                <p class="review-tab-note">图片命名如 SKU-1001.jpg。成稿时 {{ excelGoHint }}</p>
+                <p class="review-tab-note">图片命名如 SKU-1001.jpg。缺图可点「全部出图」。</p>
                 <div class="review-policy-row">
                   <label>有图</label>
                   <el-radio-group v-model="excel.photoPolicy" size="small">
@@ -427,20 +400,12 @@ const restoring = ref(false);
 const docStep = ref(0);
 const docReached = ref(0);
 const docSteps = [
-  { key: "setup", label: "智能表下载填写" },
+  { key: "setup", label: "填写表下载上传" },
   { key: "grid", label: "审核出图成稿" },
-];
-const DEFAULT_REVIEW_CHECKLIST = [
-  { id: "category", label: "类目一致", hint: "整批共用所选叶子类目，行内属性选项合法" },
-  { id: "copy", label: "标题关键词", hint: "英文标题靠前放核心词；1～3 个询盘向关键词" },
-  { id: "trade", label: "价量红线", hint: "单价、起订量由你定，AI 不会改" },
-  { id: "attrs", label: "必填属性", hint: "下拉必须来自官方选项，不能手打 Other" },
-  { id: "images", label: "六张图", hint: "实拍可上传；缺图可并发出图，生成图成稿后标黄" },
-  { id: "quality", label: "信息分 5.0", hint: "成稿后本地预估六桶，人审过才能发" },
 ];
 const reviewFilter = ref("all");
 const reviewOpsTab = ref("select");
-const showReviewGuide = ref(false);
+const parseStatus = ref("");
 const DEFAULT_IMAGE_SLOTS = [
   { index: 1, id: "slot-1", name: "白底主图", status: "empty", url: "" },
   { index: 2, id: "slot-2", name: "细节", status: "empty", url: "" },
@@ -477,45 +442,14 @@ const excel = reactive({
   photoPolicy: "complete",
   emptyPolicy: "draw",
 });
-const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] });
+const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
 const smartPlanLoading = ref(false);
 const categoryBrowser = ref(false);
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
 const hasImagesColumn = computed(() => (smartPlan.value.columns || []).some((col) => col.id === "images"));
-const otherSessions = computed(() => openSessions.value.filter((item) => item.id !== sessionId.value));
-const plannerCoverageText = computed(() => {
-  const input = smartPlan.value.planner_input;
-  const inv = smartPlan.value.schema_inventory;
-  if (!inv?.total) return "";
-  if (smartPlan.value.planner === "llm" && input) {
-    return `AI 已读取官方 schema 全部 ${input.schema_fields_sent} 个字段名（必填 ${input.required_fields_sent}、可选 ${input.optional_fields_sent}），并结合 ${input.candidate_columns_sent} 个候选列（含下拉选项）规划出 ${smartPlan.value.column_count} 列。英文标题/关键词在审核阶段填写，不在下载表里。`;
-  }
-  if (smartPlan.value.planner === "llm") {
-    return `AI 已读取官方 schema 全部 ${inv.total} 个字段名（必填 ${inv.required_count}），规划出 ${smartPlan.value.column_count} 列。`;
-  }
-  return `按规则从官方必填项生成 ${smartPlan.value.column_count} 列（当前未启用 AI，使用规则规划）。`;
-});
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
-const excelImageUploadHint = computed(() => {
-  if (excel.photoPolicy === "boost") {
-    return "有本地图或表里的链接都只当认货参考。没图的行看下面第二条。";
-  }
-  if (excel.emptyPolicy === "skip") {
-    return "有本地图就拖进来，按货号命名。对不上的行会跳过。";
-  }
-  return "有本地图就拖进来，按货号命名。表里写了链接也不用再传。没对上的行按品名画套图。";
-});
-const excelGoHint = computed(() => {
-  const photoText = {
-    keep: "有图的原图上架",
-    complete: "有图的原图留下并补转化位",
-    boost: "有图的当参考重画套图",
-  }[excel.photoPolicy] || "有图的按你选的规则处理";
-  const emptyText = excel.emptyPolicy === "skip" ? "没图的跳过" : "没图的按品名画套图并标黄";
-  return `${photoText}，${emptyText}。后台一条一条过。`;
-});
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
   return Math.min(100, Math.round((docProgress.value.done / doc.batch.count) * 100));
@@ -523,10 +457,6 @@ const docPercent = computed(() => {
 const docDataColumns = computed(() => docGrid.columns.filter((col) => col.id !== "images"));
 const docSelectedCount = computed(() => docGrid.rows.filter((row) => row._selected).length);
 const hasBrandColumn = computed(() => docGrid.columns.some((col) => col.id === "brand"));
-const reviewChecklist = computed(() => {
-  if (smartPlan.value.review_checklist?.length) return smartPlan.value.review_checklist;
-  return DEFAULT_REVIEW_CHECKLIST;
-});
 const issueLineSet = computed(() => new Set((docGrid.row_issues || []).map((item) => item.line)));
 const reviewStats = computed(() => {
   const rows = docGrid.rows || [];
@@ -550,6 +480,14 @@ const reviewStats = computed(() => {
     selected: docSelectedCount.value,
   };
 });
+const reviewFilterOptions = computed(() => [
+  { id: "all", label: "全部", count: reviewStats.value.total },
+  { id: "issues", label: "有问题", count: reviewStats.value.issueCount },
+  { id: "no_images", label: "缺图", count: reviewStats.value.total - reviewStats.value.imagesOk },
+  { id: "no_copy", label: "缺文案", count: reviewStats.value.total - reviewStats.value.copyOk },
+  { id: "not_ready", label: "价量未齐", count: reviewStats.value.total - reviewStats.value.ready },
+  { id: "selected", label: "已选", count: reviewStats.value.selected },
+]);
 const filteredDocRowViews = computed(() =>
   docGrid.rows
     .map((row, index) => ({ row, index }))
@@ -570,14 +508,7 @@ const filteredDocRowViews = computed(() =>
       }
     }),
 );
-const reviewFilterOptions = computed(() => [
-  { id: "all", label: "全部", count: reviewStats.value.total },
-  { id: "issues", label: "有问题", count: reviewStats.value.issueCount },
-  { id: "no_images", label: "缺图", count: reviewStats.value.total - reviewStats.value.imagesOk },
-  { id: "no_copy", label: "缺文案", count: reviewStats.value.total - reviewStats.value.copyOk },
-  { id: "not_ready", label: "价量未齐", count: reviewStats.value.total - reviewStats.value.ready },
-  { id: "selected", label: "已选", count: reviewStats.value.selected },
-]);
+const otherSessions = computed(() => openSessions.value.filter((item) => item.id !== sessionId.value));
 const docImageGenSummary = computed(() => {
   const rows = docGrid.rows || [];
   if (!rows.length) return "";
@@ -588,9 +519,9 @@ const docImageGenSummary = computed(() => {
     if (["queued", "running"].includes(status)) running += 1;
     if (rowSlots(row).filter((slot) => slot.url).length >= 6) ready += 1;
   });
-  if (running) return `套图并发生成中 ${running}/${rows.length} 行`;
-  if (ready === rows.length) return `6 张图已齐 ${ready}/${rows.length} 行`;
-  return `待出图 ${rows.length - ready} 行（进入审核后自动开始）`;
+  if (running) return `出图中 ${running}/${rows.length} 行`;
+  if (ready === rows.length) return `图片已齐 ${ready}/${rows.length} 行`;
+  return `待出图 ${rows.length - ready} 行`;
 });
 
 function applyExcelImageMode(raw, photo, empty) {
@@ -709,7 +640,7 @@ function applySession(session) {
     docGrid.ready_count = payload.doc.ready_count || 0;
     docGrid.source = payload.doc.source || "";
     if (payload.doc.smartPlan?.columns?.length) {
-      smartPlan.value = payload.doc.smartPlan;
+      smartPlan.value = normalizeSmartPlan(payload.doc.smartPlan);
     }
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
     const names = payload.doc.uploadNames || [];
@@ -753,7 +684,7 @@ async function startPath() {
     docGrid.ready_count = 0;
     docGrid.source = "";
     docFiles.value = [];
-    smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] };
+    smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" };
     applySession(created);
     router.replace({ query: { session: created.id } });
     await loadOpenSessions();
@@ -866,22 +797,22 @@ async function loadSmartPlan(override = null) {
   if (!store.shopId || !categoryId) return;
   smartPlanLoading.value = true;
   try {
-    smartPlan.value = await api.excelSmartPlan({
+    smartPlan.value = normalizeSmartPlan(await api.excelSmartPlan({
       shop_id: store.shopId,
       category_id: categoryId,
       category_name: categoryName,
-    });
+    }));
     docGrid.columns = smartPlan.value.columns || [];
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
       await store.ensureShops();
       if (store.shopId) {
-        smartPlan.value = await api.excelSmartPlan({
+        smartPlan.value = normalizeSmartPlan(await api.excelSmartPlan({
           shop_id: store.shopId,
           category_id: categoryId,
           category_name: categoryName,
-        });
+        }));
         docGrid.columns = smartPlan.value.columns || [];
         return;
       }
@@ -890,6 +821,23 @@ async function loadSmartPlan(override = null) {
   } finally {
     smartPlanLoading.value = false;
   }
+}
+
+function normalizeSmartPlan(raw) {
+  const columns = (raw.columns || []).map((col) => ({
+    id: col.id,
+    label: col.label || col.header || col.id,
+    required: Boolean(col.required),
+    options: col.options,
+    kind: col.kind,
+  }));
+  return {
+    category_name: raw.category_name || "",
+    column_count: raw.column_count || columns.length,
+    columns,
+    reasoning: raw.reasoning || "",
+    tips: raw.tips || "",
+  };
 }
 
 async function refreshSmartPlan() {
@@ -1229,11 +1177,12 @@ async function parseDocuments() {
   }
   docFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
   docGrid.loading = true;
+  parseStatus.value = "正在读取表格…";
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || smartPlan.value.columns || [];
     if (result.download_columns?.length) {
-      smartPlan.value = { ...smartPlan.value, download_columns: result.download_columns };
+      smartPlan.value = normalizeSmartPlan({ ...smartPlan.value, columns: result.download_columns, column_count: result.download_columns.length });
     }
     docGrid.rows = normalizeDocRows(result.rows || []);
     docGrid.row_issues = result.row_issues || [];
@@ -1241,14 +1190,16 @@ async function parseDocuments() {
     docGrid.row_count = result.row_count || docGrid.rows.length;
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
+    parseStatus.value = "进入审核…";
     await persistSession();
     advanceDoc(1);
-    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核；套图正在后台并发生成`);
-    await autoStartReviewImages();
+    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
+    void autoStartReviewImages();
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
     docGrid.loading = false;
+    parseStatus.value = "";
   }
 }
 
@@ -1557,6 +1508,7 @@ onUnmounted(() => {
 .plan-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -1572,6 +1524,7 @@ onUnmounted(() => {
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
 }
 .plan-stats {
   display: grid;
