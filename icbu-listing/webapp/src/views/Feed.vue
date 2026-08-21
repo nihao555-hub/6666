@@ -392,6 +392,7 @@
             <p class="muted">
               {{ docGrid.row_count || docGrid.rows.length }} 个商品 · 价量齐 {{ docGrid.ready_count || 0 }} 个
               <span v-if="docGrid.source"> · {{ docGrid.source }}</span>
+              <span v-if="docImageGenSummary"> · {{ docImageGenSummary }}</span>
             </p>
           </div>
           <el-button @click="docStep = 0">重新导入</el-button>
@@ -665,6 +666,20 @@ const docPercent = computed(() => {
 });
 const docDataColumns = computed(() => docGrid.columns.filter((col) => col.id !== "images"));
 const docSelectedCount = computed(() => docGrid.rows.filter((row) => row._selected).length);
+const docImageGenSummary = computed(() => {
+  const rows = docGrid.rows || [];
+  if (!rows.length) return "";
+  let running = 0;
+  let ready = 0;
+  rows.forEach((row) => {
+    const status = String(row.image_job_status || "");
+    if (["queued", "running"].includes(status)) running += 1;
+    if (rowSlots(row).filter((slot) => slot.url).length >= 6) ready += 1;
+  });
+  if (running) return `套图并发生成中 ${running}/${rows.length} 行`;
+  if (ready === rows.length) return `6 张图已齐 ${ready}/${rows.length} 行`;
+  return `待出图 ${rows.length - ready} 行（进入审核后自动开始）`;
+});
 const percent = computed(() => {
   if (!batch.value?.count) return 0;
   return Math.min(100, Math.round((progress.value.done / batch.value.count) * 100));
@@ -1056,6 +1071,12 @@ watch(
   },
 );
 watch(
+  () => docStep.value,
+  (step) => {
+    if (step === 1) autoStartReviewImages();
+  },
+);
+watch(
   () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.rows],
   () => {
     clearTimeout(saveTimer);
@@ -1347,14 +1368,15 @@ async function batchSetField(field) {
   }
 }
 
-async function generateImagesForRows(lines) {
+async function generateImagesForRows(lines, options = {}) {
+  const { silent = false } = options;
   if (!docGrid.rows.length) return;
   docGrid.generating = true;
   try {
     const body = new FormData();
     body.append("shop_id", store.shopId || "");
     body.append("category_id", doc.categoryId);
-    body.append("category_name", doc.categoryName || sheetPlan.value.category_name || "");
+    body.append("category_name", doc.categoryName || smartPlan.value.category_name || sheetPlan.value.category_name || "");
     body.append("rows", JSON.stringify(docGrid.rows));
     body.append("lines", JSON.stringify(lines || []));
     const result = await api.excelGridGenerateImages(body);
@@ -1362,12 +1384,33 @@ async function generateImagesForRows(lines) {
     if (result.errors?.length) ElMessage.warning(result.errors[0]);
     ensureGridPolling();
     await persistSession();
-    ElMessage.success(lines?.length ? "已开始为选中行出图" : "已开始为全部商品出图");
+    if (!silent) {
+      ElMessage.success(lines?.length ? "已开始为选中行出图" : "已开始为全部商品出图");
+    }
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!silent) ElMessage.error(error.message);
   } finally {
     docGrid.generating = false;
   }
+}
+
+function rowsNeedingImageJobs() {
+  return docGrid.rows.filter((row) => {
+    const filled = rowSlots(row).filter((slot) => slot.url).length;
+    if (filled >= 6) return false;
+    const status = String(row.image_job_status || "");
+    if (row.image_job_id && ["queued", "running"].includes(status)) return false;
+    return true;
+  });
+}
+
+async function autoStartReviewImages() {
+  if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return;
+  if (!rowsNeedingImageJobs().length) {
+    ensureGridPolling();
+    return;
+  }
+  await generateImagesForRows([], { silent: true });
 }
 
 function generateImagesForSelection() {
@@ -1417,7 +1460,8 @@ async function parseDocuments() {
     docGrid.source = result.source || "";
     await persistSession();
     advanceDoc(1);
-    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，请审核后出图成稿`);
+    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核；套图正在后台并发生成`);
+    await autoStartReviewImages();
   } catch (error) {
     ElMessage.error(error.message);
   } finally {

@@ -112,7 +112,6 @@ def start_row_job(
     planned = image_templates.plan_stack(
         product_name=name,
         category_hint=category_name,
-        category_id=category_id,
         note=note,
         specs=_row_facts(row),
         reference_urls=urls,
