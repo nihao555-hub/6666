@@ -43,7 +43,7 @@ PLANNER_PROMPT = """You plan a minimal wholesale listing spreadsheet for Alibaba
 
 Leaf category: {category_name} ({category_id})
 
-Official schema.get inventory (ALL fillable fields for this leaf — read before deciding):
+Official schema inventory (every fillable field name for this leaf — required list is complete):
 {schema_inventory}
 
 Already covered by shop defaults or category template (do NOT ask the seller again):
@@ -394,6 +394,13 @@ def build_plan(
         "review_note": "标题/关键词/卖点在审核表前几列由 AI 预填，可手改；下载表只填事实字段。",
         "review_checklist": checklist_for_review(),
         "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
+        "planner_input": {
+            "schema_fields_sent": schema_inventory.get("total", 0),
+            "required_fields_sent": schema_inventory.get("required_count", 0),
+            "optional_fields_sent": schema_inventory.get("optional_count", 0),
+            "candidate_columns_sent": len(candidates),
+            "mode": "llm reads full field-name inventory + candidate shortlist with options",
+        },
     }
 
 

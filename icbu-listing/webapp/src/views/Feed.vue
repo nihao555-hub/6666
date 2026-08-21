@@ -17,35 +17,26 @@
       style="margin-bottom: 14px"
     />
 
-    <template v-if="!sessionId">
-      <div class="chooser">
-        <h3>开始批量上品</h3>
-        <p class="muted">必须先选叶子类目。系统结合官方 schema 和店铺默认，由 AI 规划你要填哪些列。</p>
-        <div class="path-grid">
-          <button class="path-card path-card-primary" @click="startPath()">
-            <b>新建批量任务</b>
-            <p class="muted">支持 xlsx、报价单、目录 PDF 等。填完上传后进入审核工作台。</p>
-          </button>
-        </div>
-      </div>
-      <div v-if="openSessions.length" class="resume-box">
-        <h3>做到一半的</h3>
-        <p class="muted">关掉页面或中途退出都还在。点一条接着做，可以同时记多条。</p>
-        <div class="resume-list">
-          <div v-for="item in openSessions" :key="item.id" class="resume-row">
-            <button class="resume-card" @click="resumeSession(item.id)">
-              <b>{{ item.title }}</b>
-              <span class="muted">{{ item.path_label }} · 停在「{{ item.step_label }}」</span>
-            </button>
-            <el-button text @click="dropSession(item.id)">不要了</el-button>
-          </div>
-        </div>
-      </div>
-    </template>
+    <div v-if="sessionBooting" class="boot-panel">
+      <p class="muted">正在准备批量任务…</p>
+    </div>
 
-    <template v-else>
+    <template v-else-if="sessionId">
+      <div v-if="otherSessions.length" class="resume-inline">
+        <span class="muted">其他进行中的任务：</span>
+        <button
+          v-for="item in otherSessions"
+          :key="item.id"
+          type="button"
+          class="resume-chip"
+          @click="resumeSession(item.id)"
+        >
+          {{ item.title }}
+        </button>
+      </div>
+
       <div class="flow-bar">
-        <el-button @click="backToChooser">退出</el-button>
+        <el-button @click="backToChooser">新建任务</el-button>
         <span class="muted">{{ currentTitle }} · 做到一半会自动记下，关掉也能回来</span>
         <el-button text @click="dropCurrent">不要这条了</el-button>
       </div>
@@ -54,22 +45,44 @@
 
       <div v-if="docStep === 0" class="step-panel">
         <h3>选类目，生成智能填写表</h3>
-        <p class="muted">系统拉官方必填项，结合店铺默认和类目模板，由 AI 决定你需要填哪些列，下载 xlsx 填完再上传。</p>
+        <p class="muted">选好叶子类目后，AI 会读取官方 schema 并规划你需要手填的列。</p>
         <div style="margin-top: 16px">
-          <el-button @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
-          <p v-if="smartPlanLoading" class="muted" style="margin-top: 6px">正在分析该类目要填什么…</p>
-          <template v-else-if="doc.categoryId && smartPlan.column_count">
-            <p class="muted" style="margin-top: 10px">
-              官方 schema 共 {{ smartPlan.schema_inventory?.total || "?" }} 项
-             （必填 {{ smartPlan.schema_inventory?.required_count || smartPlan.required_attr_count || 0 }}）
-              → 下载表只需填 {{ smartPlan.column_count }} 列
-              · {{ smartPlan.planner === "llm" ? "AI 已读全量 schema 再规划" : "规则规划" }}
-            </p>
-            <p v-if="smartPlan.reasoning" class="muted">{{ smartPlan.reasoning }}</p>
-            <p v-if="smartColumnLabels.length" class="muted">列：{{ smartColumnLabels.join("、") }}</p>
-            <p v-if="smartPlan.tips" class="muted">{{ smartPlan.tips }}</p>
-          </template>
+          <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
         </div>
+
+        <section v-if="smartPlanLoading" class="plan-panel plan-panel-loading">
+          <p class="muted">AI 正在读取官方 schema 并规划填写列…</p>
+        </section>
+
+        <section v-else-if="doc.categoryId && smartPlan.column_count" class="plan-panel">
+          <header class="plan-head">
+            <span class="plan-badge">{{ smartPlan.planner === "llm" ? "AI 规划" : "规则规划" }}</span>
+            <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
+          </header>
+          <div class="plan-stats">
+            <div class="plan-stat">
+              <strong>{{ smartPlan.schema_inventory?.total || "?" }}</strong>
+              <span>官方 schema 字段</span>
+            </div>
+            <div class="plan-stat">
+              <strong>{{ smartPlan.schema_inventory?.required_count || smartPlan.required_attr_count || 0 }}</strong>
+              <span>其中必填</span>
+            </div>
+            <div class="plan-stat plan-stat-accent">
+              <strong>{{ smartPlan.column_count }}</strong>
+              <span>下载表需填列</span>
+            </div>
+          </div>
+          <p v-if="plannerCoverageText" class="plan-coverage muted">{{ plannerCoverageText }}</p>
+          <p v-if="smartPlan.reasoning" class="plan-reasoning">{{ smartPlan.reasoning }}</p>
+          <div v-if="smartColumnLabels.length" class="plan-columns">
+            <small>填写列</small>
+            <div class="plan-column-tags">
+              <span v-for="label in smartColumnLabels" :key="label" class="plan-tag">{{ label }}</span>
+            </div>
+          </div>
+          <p v-if="smartPlan.tips" class="plan-tips">{{ smartPlan.tips }}</p>
+        </section>
         <div class="toolbar" style="margin: 16px 0 12px">
           <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading" @click="downloadDocTemplate">
             下载智能填写表
@@ -394,6 +407,7 @@ import { store } from "../store";
 const router = useRouter();
 const route = useRoute();
 const sessionId = ref("");
+const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
 const restoring = ref(false);
@@ -456,6 +470,19 @@ const categoryBrowser = ref(false);
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
+const otherSessions = computed(() => openSessions.value.filter((item) => item.id !== sessionId.value));
+const plannerCoverageText = computed(() => {
+  const input = smartPlan.value.planner_input;
+  const inv = smartPlan.value.schema_inventory;
+  if (!inv?.total) return "";
+  if (smartPlan.value.planner === "llm" && input) {
+    return `AI 已读取官方 schema 全部 ${input.schema_fields_sent} 个字段名（必填 ${input.required_fields_sent}、可选 ${input.optional_fields_sent}），并结合 ${input.candidate_columns_sent} 个候选列（含下拉选项）规划出 ${smartPlan.value.column_count} 列。英文标题/关键词在审核阶段填写，不在下载表里。`;
+  }
+  if (smartPlan.value.planner === "llm") {
+    return `AI 已读取官方 schema 全部 ${inv.total} 个字段名（必填 ${inv.required_count}），规划出 ${smartPlan.value.column_count} 列。`;
+  }
+  return `按规则从官方必填项生成 ${smartPlan.value.column_count} 列（当前未启用 AI，使用规则规划）。`;
+});
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const excelImageUploadHint = computed(() => {
   if (excel.photoPolicy === "boost") {
@@ -715,6 +742,7 @@ async function startPath() {
     smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", planner: "rules", covered_by_shop: [], covered_by_template: [], ai_fills: [] };
     applySession(created);
     router.replace({ query: { session: created.id } });
+    await loadOpenSessions();
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -766,12 +794,22 @@ async function dropCurrent() {
 
 async function backToChooser() {
   await persistSession();
-  sessionId.value = "";
-  router.replace({ query: {} });
-  await loadOpenSessions();
+  await startPath();
 }
 
-
+async function bootSession() {
+  sessionBooting.value = true;
+  try {
+    await loadOpenSessions();
+    if (route.query.session) {
+      await resumeSession(String(route.query.session));
+    } else {
+      await startPath();
+    }
+  } finally {
+    sessionBooting.value = false;
+  }
+}
 
 onMounted(async () => {
   try {
@@ -779,10 +817,7 @@ onMounted(async () => {
   } catch {
     /* shop list loads again when user opens category picker */
   }
-  await loadOpenSessions();
-  if (route.query.session) {
-    await resumeSession(String(route.query.session));
-  }
+  await bootSession();
 });
 
 let saveTimer = null;
@@ -1470,6 +1505,121 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+}
+.boot-panel {
+  padding: 24px 0;
+}
+.resume-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.resume-chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  color: inherit;
+}
+.resume-chip:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
+}
+.plan-panel {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  background: var(--surface);
+}
+.plan-panel-loading {
+  background: var(--gray3);
+}
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.plan-head h4 {
+  margin: 0;
+  font-size: 16px;
+}
+.plan-badge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+.plan-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.plan-stat {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--gray3);
+}
+.plan-stat strong {
+  display: block;
+  font-size: 22px;
+  line-height: 1.1;
+}
+.plan-stat span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.plan-stat-accent {
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
+}
+.plan-coverage {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.plan-reasoning {
+  margin: 0 0 12px;
+  line-height: 1.6;
+}
+.plan-columns small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.plan-column-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plan-tag {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--gray3);
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+.plan-tips {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
 }
 .slot-grid {
   display: grid;
