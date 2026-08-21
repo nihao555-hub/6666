@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .blob_persist import enabled as blob_enabled, hydrate_sqlite, persist_sqlite
 from .config import settings
 from .models import Base
+from .services.auth_bootstrap import ensure_demo_user
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 
@@ -31,6 +32,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _ensure_columns()
+    with SessionLocal() as db:
+        ensure_demo_user(db)
     path = _sqlite_path()
     if path is not None and blob_enabled() and path.is_file():
         persist_sqlite(path)

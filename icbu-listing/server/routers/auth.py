@@ -60,6 +60,11 @@ def register(payload: RegisterIn, response: Response, db: Session = Depends(get_
     user = User(email=email, password_hash=hash_password(payload.password), display_name=email.split("@")[0])
     db.add(user)
     db.commit()
+    db.refresh(user)
+    try:
+        ensure_env_shop(db, user)
+    except Exception:
+        db.rollback()
     _open_session(db, response, user)
     return _profile(user)
 
@@ -70,10 +75,13 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)) -
     user = db.query(User).filter(User.email == email).first()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=400, detail="邮箱或密码不对")
+    try:
+        if not db.query(Shop).filter(Shop.user_id == user.id).count():
+            ensure_env_shop(db, user)
+    except Exception:
+        db.rollback()
     _open_session(db, response, user)
-    if not db.query(Shop).filter(Shop.user_id == user.id).count():
-        ensure_env_shop(db, user)
-        persist_database()
+    persist_database()
     return _profile(user)
 
 
