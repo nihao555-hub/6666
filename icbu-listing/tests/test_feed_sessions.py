@@ -114,11 +114,22 @@ class FeedSessionTests(unittest.TestCase):
         leftover = client.get("/api/v1/feed-sessions").json()["sessions"]
         self.assertEqual(leftover, [])
 
+    def test_doc_files_can_be_staged(self) -> None:
+        client = signup("feed-doc@example.com")
+        session = client.post("/api/v1/feed-sessions", json={"path": "doc"}).json()
+        uploaded = client.post(
+            f"/api/v1/feed-sessions/{session['id']}/files",
+            data={"kind": "doc", "keep": ""},
+            files=[("files", ("batch.xlsx", b"fake-xlsx", "application/vnd.ms-excel"))],
+        )
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertEqual(uploaded.json()["files"][0]["kind"], "doc")
+
     def test_drop_hides_the_unfinished_path(self) -> None:
         client = signup("feed-drop@example.com")
         session = client.post("/api/v1/feed-sessions", json={"path": "excel"}).json()
         self.assertEqual(session["path_label"], "批量上品")
         moved = client.patch(f"/api/v1/feed-sessions/{session['id']}", json={"step": 3, "reached": 3}).json()
-        self.assertEqual(moved["step_label"], "图怎么处理")
+        self.assertEqual(moved["step_label"], "商品表")
         self.assertEqual(client.delete(f"/api/v1/feed-sessions/{session['id']}").status_code, 200)
         self.assertEqual(client.get("/api/v1/feed-sessions").json()["sessions"], [])

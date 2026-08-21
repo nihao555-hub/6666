@@ -165,6 +165,13 @@ async function onOpen() {
   sideLoaded.value = false;
   recent.value = [];
   used.value = [];
+  if (store.user) {
+    try {
+      await store.ensureShops();
+    } catch {
+      /* shop binding happens on Feed mount */
+    }
+  }
   await openNode("0");
   loadSidebar();
 }
@@ -181,13 +188,20 @@ function pick(row) {
   const payload = { ...row, path_label: row.path_label || pathLabel(row) };
   emit("pick", payload);
   open.value = false;
-  if (store.shopId && payload.category_id) {
-    api
-      .recordCategoryPick(store.shopId, {
-        category_id: payload.category_id,
-        category_name: payload.path_label || payload.label || payload.name || "",
-      })
-      .catch(() => {});
+  void recordPick(payload);
+}
+
+async function recordPick(payload) {
+  if (!payload.category_id) return;
+  try {
+    await store.ensureShops();
+    if (!store.shopId) return;
+    await api.recordCategoryPick(store.shopId, {
+      category_id: payload.category_id,
+      category_name: payload.path_label || payload.label || payload.name || "",
+    });
+  } catch {
+    /* remembering recent picks is optional */
   }
 }
 </script>

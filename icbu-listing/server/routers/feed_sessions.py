@@ -83,7 +83,7 @@ async def upload_files(
     row = sessions.get_owned(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
-    if kind not in {"photos", "batch", "excel", "excel_images"}:
+    if kind not in {"photos", "batch", "excel", "excel_images", "doc"}:
         raise HTTPException(status_code=400, detail="这种文件不能存在半成品里")
     uploads = [(item.filename or "file", await item.read()) for item in files]
     uploads = [(name, content) for name, content in uploads if content]

@@ -14,6 +14,9 @@ from ..models import Shop, User
 from ..services import defaults as defaults_service
 from ..services.shop_client import ShopNotConnected, shop_api
 
+DEMO_SHOP_ID = "00000000000000000000000000000002"
+DEMO_USER_ID = "00000000000000000000000000000001"
+
 DEFAULT_TEMPLATE: dict[str, Any] = {
     "origin": "China",
     "priceUnit": "Piece/Pieces",
@@ -48,6 +51,14 @@ def ensure_env_shop(db: Session, user: User, *, name: str = "测试店铺") -> S
     """Bind the platform access token as this user's shop when none exists."""
     if not settings.dev_access_token:
         return None
+    if user.id == DEMO_USER_ID:
+        shop = db.get(Shop, DEMO_SHOP_ID)
+        if shop is not None and shop.user_id == user.id:
+            if not shop.access_token:
+                shop.access_token = encrypt_secret(settings.dev_access_token)
+                shop.status = "active"
+                db.commit()
+            return shop
     existing = (
         db.query(Shop)
         .filter(Shop.user_id == user.id, Shop.platform == "alibaba_icbu")
@@ -63,6 +74,7 @@ def ensure_env_shop(db: Session, user: User, *, name: str = "测试店铺") -> S
         return shop
 
     shop = Shop(
+        id=DEMO_SHOP_ID if user.id == DEMO_USER_ID else None,
         user_id=user.id,
         name=name,
         platform="alibaba_icbu",
