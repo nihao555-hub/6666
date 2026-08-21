@@ -386,21 +386,44 @@
         </div>
       </div>
 
-      <div v-else class="step-panel review-workspace">
-        <div class="workspace-head">
-          <div>
-            <h3>商品表 · 审核与出图</h3>
-            <p class="muted">
-              {{ doc.categoryName || smartPlan.category_name || "未命名类目" }}
-              · {{ docGrid.row_count || docGrid.rows.length }} 个商品
+      <div v-else class="step-panel review-shell">
+        <header class="review-hero">
+          <div class="review-hero-main">
+            <span class="review-kicker">批量上品 · 审核出图</span>
+            <h3>{{ doc.categoryName || smartPlan.category_name || "未命名类目" }}</h3>
+            <p class="review-hero-meta">
+              {{ docGrid.row_count || docGrid.rows.length }} 个商品
               <span v-if="docGrid.source"> · {{ docGrid.source }}</span>
+              <span v-if="docImageGenSummary"> · {{ docImageGenSummary }}</span>
             </p>
           </div>
-          <div class="workspace-head-actions">
+          <div class="review-metrics">
+            <div class="review-metric" :class="{ 'is-done': reviewStats.ready === reviewStats.total && reviewStats.total }">
+              <strong>{{ reviewStats.ready }}/{{ reviewStats.total }}</strong>
+              <span>价量齐</span>
+            </div>
+            <div class="review-metric" :class="{ 'is-done': reviewStats.imagesOk === reviewStats.total && reviewStats.total }">
+              <strong>{{ reviewStats.imagesOk }}/{{ reviewStats.total }}</strong>
+              <span>六图齐</span>
+            </div>
+            <div class="review-metric" :class="{ 'is-done': reviewStats.copyOk === reviewStats.total && reviewStats.total }">
+              <strong>{{ reviewStats.copyOk }}/{{ reviewStats.total }}</strong>
+              <span>文案齐</span>
+            </div>
+            <div class="review-metric" :class="{ 'is-warn': reviewStats.issueCount > 0 }">
+              <strong>{{ reviewStats.issueCount }}</strong>
+              <span>待改</span>
+            </div>
+            <div class="review-metric">
+              <strong>{{ reviewStats.selected }}</strong>
+              <span>已选</span>
+            </div>
+          </div>
+          <div class="review-hero-actions">
             <el-button @click="downloadDocTemplate">下载填写表</el-button>
             <el-button @click="docStep = 0">重新导入</el-button>
           </div>
-        </div>
+        </header>
 
         <el-alert
           v-for="warning in docGrid.warnings || []"
@@ -408,143 +431,125 @@
           type="warning"
           :title="warning"
           :closable="false"
-          style="margin: 10px 0"
+          class="review-alert"
         />
 
-        <div class="review-stats">
-          <div class="review-stat">
-            <span class="review-stat-value">{{ reviewStats.total }}</span>
-            <span class="review-stat-label">商品行</span>
-          </div>
-          <div class="review-stat" :class="{ 'is-ok': reviewStats.ready === reviewStats.total && reviewStats.total }">
-            <span class="review-stat-value">{{ reviewStats.ready }}/{{ reviewStats.total }}</span>
-            <span class="review-stat-label">价量齐</span>
-          </div>
-          <div class="review-stat" :class="{ 'is-ok': reviewStats.imagesOk === reviewStats.total && reviewStats.total }">
-            <span class="review-stat-value">{{ reviewStats.imagesOk }}/{{ reviewStats.total }}</span>
-            <span class="review-stat-label">六图齐</span>
-          </div>
-          <div class="review-stat" :class="{ 'is-ok': reviewStats.copyOk === reviewStats.total && reviewStats.total }">
-            <span class="review-stat-value">{{ reviewStats.copyOk }}/{{ reviewStats.total }}</span>
-            <span class="review-stat-label">文案齐</span>
-          </div>
-          <div class="review-stat" :class="{ 'is-warn': reviewStats.issueCount > 0 }">
-            <span class="review-stat-value">{{ reviewStats.issueCount }}</span>
-            <span class="review-stat-label">待改项</span>
-          </div>
-          <div class="review-stat">
-            <span class="review-stat-value">{{ reviewStats.selected }}</span>
-            <span class="review-stat-label">已选</span>
-          </div>
-        </div>
-
-        <p v-if="docImageGenSummary" class="muted review-status-line">{{ docImageGenSummary }}</p>
-
-        <div v-if="reviewChecklist.length" class="review-checklist">
-          <div v-for="item in reviewChecklist" :key="item.id" class="review-check-item">
-            <b>{{ item.label }}</b>
-            <span class="muted">{{ item.hint }}</span>
-          </div>
-        </div>
-
-        <div class="review-ops">
-          <div class="review-ops-head">
-            <b>操作区</b>
-            <span class="muted">上方批量操作，下方表格可逐行改。成稿前建议先筛「有问题」或「缺图」。</span>
+        <section class="review-panel">
+          <div class="review-panel-top">
+            <div class="review-filters" role="tablist" aria-label="筛选商品行">
+              <button
+                v-for="item in reviewFilterOptions"
+                :key="item.id"
+                type="button"
+                class="review-filter-pill"
+                :class="{ 'is-active': reviewFilter === item.id }"
+                @click="reviewFilter = item.id"
+              >
+                {{ item.label }}
+                <small>{{ item.count }}</small>
+              </button>
+            </div>
+            <button type="button" class="review-guide-toggle" @click="showReviewGuide = !showReviewGuide">
+              {{ showReviewGuide ? "收起要点" : "审核要点" }}
+            </button>
           </div>
 
-          <div class="review-filter-bar">
-            <span class="review-filter-label">筛选</span>
-            <el-radio-group v-model="reviewFilter" size="small">
-              <el-radio-button value="all">全部 {{ reviewStats.total }}</el-radio-button>
-              <el-radio-button value="issues">有问题 {{ reviewStats.issueCount }}</el-radio-button>
-              <el-radio-button value="no_images">缺图 {{ reviewStats.total - reviewStats.imagesOk }}</el-radio-button>
-              <el-radio-button value="no_copy">缺文案 {{ reviewStats.total - reviewStats.copyOk }}</el-radio-button>
-              <el-radio-button value="not_ready">价量未齐 {{ reviewStats.total - reviewStats.ready }}</el-radio-button>
-              <el-radio-button value="selected">已选 {{ reviewStats.selected }}</el-radio-button>
-            </el-radio-group>
+          <div v-if="showReviewGuide && reviewChecklist.length" class="review-guide">
+            <article v-for="item in reviewChecklist" :key="item.id" class="review-guide-item">
+              <b>{{ item.label }}</b>
+              <span>{{ item.hint }}</span>
+            </article>
           </div>
 
-          <div class="review-ops-grid">
-            <section class="review-ops-section">
-              <h4>选择</h4>
-              <div class="review-ops-buttons">
-                <el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll">全选</el-checkbox>
-                <el-button size="small" @click="invertDocSelection">反选</el-button>
-                <el-button size="small" @click="clearDocSelection">取消选择</el-button>
+          <el-tabs v-model="reviewOpsTab" class="review-tabs">
+            <el-tab-pane label="选择" name="select">
+              <div class="review-tab-body">
+                <p class="review-tab-note">先勾选要批量处理的行，再切到其他标签执行操作。</p>
+                <div class="review-tab-actions">
+                  <el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll">全选当前列表</el-checkbox>
+                  <el-button @click="invertDocSelection">反选</el-button>
+                  <el-button @click="clearDocSelection">取消选择</el-button>
+                </div>
               </div>
-            </section>
+            </el-tab-pane>
 
-            <section class="review-ops-section">
-              <h4>文案</h4>
-              <div class="review-ops-buttons">
-                <el-button size="small" :loading="docGrid.regenerating" @click="regenCopyForSelection">AI 重写选中</el-button>
-                <el-button size="small" :loading="docGrid.regenerating" @click="regenCopyForAll">全部重写</el-button>
-                <el-button size="small" @click="clearCopyForSelection">清空选中文案</el-button>
-                <el-button size="small" @click="clearCopyForAll">清空全部文案</el-button>
+            <el-tab-pane label="文案" name="copy">
+              <div class="review-tab-body">
+                <div class="review-tab-actions">
+                  <el-button :loading="docGrid.regenerating" type="primary" @click="regenCopyForSelection">AI 重写选中</el-button>
+                  <el-button :loading="docGrid.regenerating" @click="regenCopyForAll">全部重写</el-button>
+                  <el-button @click="clearCopyForSelection">清空选中</el-button>
+                  <el-button @click="clearCopyForAll">清空全部</el-button>
+                </div>
               </div>
-            </section>
+            </el-tab-pane>
 
-            <section class="review-ops-section">
-              <h4>价量</h4>
-              <div class="review-ops-buttons">
-                <el-button size="small" @click="batchSetField('price')">批量改价</el-button>
-                <el-button size="small" @click="batchSetField('moq')">批量改起订量</el-button>
-                <el-button v-if="hasBrandColumn" size="small" @click="batchSetField('brand')">批量改品牌</el-button>
+            <el-tab-pane label="价量" name="trade">
+              <div class="review-tab-body">
+                <div class="review-tab-actions">
+                  <el-button type="primary" @click="batchSetField('price')">批量改价</el-button>
+                  <el-button @click="batchSetField('moq')">批量改起订量</el-button>
+                  <el-button v-if="hasBrandColumn" @click="batchSetField('brand')">批量改品牌</el-button>
+                </div>
               </div>
-            </section>
+            </el-tab-pane>
 
-            <section class="review-ops-section">
-              <h4>图片</h4>
-              <div class="review-ops-buttons">
-                <el-button size="small" :loading="docGrid.generating" @click="generateImagesForSelection">选中行出图</el-button>
-                <el-button size="small" :loading="docGrid.generating" @click="generateImagesForAll">全部出图</el-button>
-                <el-button size="small" :loading="docGrid.generating" @click="refreshGridImages">刷新出图状态</el-button>
-                <el-upload
-                  v-model:file-list="excelImages"
-                  :auto-upload="false"
-                  multiple
-                  accept="image/*"
-                  :show-file-list="false"
-                >
-                  <el-button size="small">按货号补传</el-button>
-                </el-upload>
+            <el-tab-pane label="图片" name="images">
+              <div class="review-tab-body">
+                <div class="review-tab-actions">
+                  <el-button :loading="docGrid.generating" type="primary" @click="generateImagesForSelection">选中行出图</el-button>
+                  <el-button :loading="docGrid.generating" @click="generateImagesForAll">全部出图</el-button>
+                  <el-button :loading="docGrid.generating" @click="refreshGridImages">刷新状态</el-button>
+                  <el-upload
+                    v-model:file-list="excelImages"
+                    :auto-upload="false"
+                    multiple
+                    accept="image/*"
+                    :show-file-list="false"
+                  >
+                    <el-button>按货号补传</el-button>
+                  </el-upload>
+                </div>
+                <p class="review-tab-note">图片命名如 SKU-1001.jpg。成稿时 {{ excelGoHint }}</p>
+                <div class="review-policy-row">
+                  <label>有图</label>
+                  <el-radio-group v-model="excel.photoPolicy" size="small">
+                    <el-radio-button value="keep">原图</el-radio-button>
+                    <el-radio-button value="complete">补位</el-radio-button>
+                    <el-radio-button value="boost">重画</el-radio-button>
+                  </el-radio-group>
+                  <label>没图</label>
+                  <el-radio-group v-model="excel.emptyPolicy" size="small">
+                    <el-radio-button value="draw">套图</el-radio-button>
+                    <el-radio-button value="skip">跳过</el-radio-button>
+                  </el-radio-group>
+                </div>
               </div>
-              <p class="muted review-ops-hint">命名如 SKU-1001.jpg；成稿时 {{ excelGoHint }}</p>
-              <div class="review-image-policy">
-                <span class="muted">有图：</span>
-                <el-radio-group v-model="excel.photoPolicy" size="small">
-                  <el-radio-button value="keep">原图</el-radio-button>
-                  <el-radio-button value="complete">补位</el-radio-button>
-                  <el-radio-button value="boost">重画</el-radio-button>
-                </el-radio-group>
-                <span class="muted" style="margin-left: 8px">没图：</span>
-                <el-radio-group v-model="excel.emptyPolicy" size="small">
-                  <el-radio-button value="draw">套图</el-radio-button>
-                  <el-radio-button value="skip">跳过</el-radio-button>
-                </el-radio-group>
-              </div>
-            </section>
+            </el-tab-pane>
 
-            <section class="review-ops-section">
-              <h4>表格</h4>
-              <div class="review-ops-buttons">
-                <el-button size="small" @click="addDocRow">加一行</el-button>
-                <el-button size="small" @click="duplicateSelectedRows">复制选中</el-button>
-                <el-button size="small" type="danger" plain @click="deleteSelectedRows">删除选中</el-button>
-                <el-button size="small" :loading="docGrid.checking" @click="recheckDocGrid">重新校验</el-button>
+            <el-tab-pane label="表格" name="table">
+              <div class="review-tab-body">
+                <div class="review-tab-actions">
+                  <el-button type="primary" @click="addDocRow">加一行</el-button>
+                  <el-button @click="duplicateSelectedRows">复制选中</el-button>
+                  <el-button type="danger" plain @click="deleteSelectedRows">删除选中</el-button>
+                  <el-button :loading="docGrid.checking" @click="recheckDocGrid">重新校验</el-button>
+                </div>
               </div>
-            </section>
+            </el-tab-pane>
+          </el-tabs>
+        </section>
+
+        <section class="review-grid-card">
+          <div class="review-grid-head">
+            <div>
+              <b>商品明细</b>
+              <span class="muted">显示 {{ filteredDocRowViews.length }}/{{ docGrid.rows.length }} 行</span>
+            </div>
+            <span class="muted">可直接改单元格</span>
           </div>
-        </div>
-
-        <div class="review-table-panel">
-          <div class="review-table-head">
-            <b>商品明细</b>
-            <span class="muted">显示 {{ filteredDocRowViews.length }}/{{ docGrid.rows.length }} 行 · 可直接改单元格</span>
-          </div>
-          <div class="doc-grid-wrap">
-            <table class="doc-grid doc-grid-wide">
+          <div class="doc-grid-wrap review-grid-scroll">
+            <table class="doc-grid doc-grid-wide review-grid">
               <thead>
                 <tr>
                   <th class="col-check"></th>
@@ -554,7 +559,7 @@
                   <th v-for="col in docDataColumns" :key="col.id">
                     {{ col.label }}<span v-if="col.required" class="need">必填</span>
                   </th>
-                  <th class="col-row-actions">行操作</th>
+                  <th class="col-row-actions">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -621,34 +626,37 @@
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        <div v-if="docGrid.row_issues?.length" class="row-issues">
-          <div class="row-issues-head">
-            <b>成稿前先看这几行</b>
-            <el-button text size="small" @click="reviewFilter = 'issues'">只看有问题行</el-button>
-          </div>
+        <details v-if="docGrid.row_issues?.length" class="review-issues" :open="reviewStats.issueCount > 0">
+          <summary>
+            <span>成稿前先看这几行（{{ docGrid.row_issues.length }}）</span>
+            <el-button text size="small" @click.stop="reviewFilter = 'issues'">只看有问题行</el-button>
+          </summary>
           <ul>
             <li v-for="(issue, idx) in docGrid.row_issues.slice(0, 16)" :key="idx">
               <span :class="['dot', issue.level]"></span>
               第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
             </li>
           </ul>
-        </div>
+        </details>
 
-        <div class="step-actions review-footer">
-          <el-button
-            type="primary"
-            :loading="docGrid.loading"
-            :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
-            @click="importDocRows"
-          >
-            批量成稿（{{ docGrid.rows.length }} 个）
-          </el-button>
-          <span class="muted">每行需 6 张图或已点「生成套图」。成稿后进草稿审，5.0 分且审过才能发。</span>
-        </div>
+        <footer class="review-actionbar">
+          <div class="review-actionbar-main">
+            <el-button
+              type="primary"
+              size="large"
+              :loading="docGrid.loading"
+              :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
+              @click="importDocRows"
+            >
+              批量成稿（{{ docGrid.rows.length }} 个）
+            </el-button>
+            <p class="muted">每行需 6 张图或已生成套图。成稿后进草稿审，5.0 分且审过才能发。</p>
+          </div>
+        </footer>
 
-        <div v-if="doc.batch" style="margin-top: 18px">
+        <div v-if="doc.batch" class="review-batch-progress">
           <p>
             共 {{ doc.batch.count }} 个商品，已成稿 {{ docProgress.done }}/{{ doc.batch.count }}。
             <template v-if="docProgress.complete">
@@ -720,6 +728,8 @@ const DEFAULT_REVIEW_CHECKLIST = [
   { id: "quality", label: "信息分 5.0", hint: "成稿后本地预估六桶，人审过才能发" },
 ];
 const reviewFilter = ref("all");
+const reviewOpsTab = ref("select");
+const showReviewGuide = ref(false);
 const DEFAULT_IMAGE_SLOTS = [
   { index: 1, id: "slot-1", name: "白底主图", status: "empty", url: "" },
   { index: 2, id: "slot-2", name: "细节", status: "empty", url: "" },
@@ -862,6 +872,14 @@ const filteredDocRowViews = computed(() =>
       }
     }),
 );
+const reviewFilterOptions = computed(() => [
+  { id: "all", label: "全部", count: reviewStats.value.total },
+  { id: "issues", label: "有问题", count: reviewStats.value.issueCount },
+  { id: "no_images", label: "缺图", count: reviewStats.value.total - reviewStats.value.imagesOk },
+  { id: "no_copy", label: "缺文案", count: reviewStats.value.total - reviewStats.value.copyOk },
+  { id: "not_ready", label: "价量未齐", count: reviewStats.value.total - reviewStats.value.ready },
+  { id: "selected", label: "已选", count: reviewStats.value.selected },
+]);
 const docImageGenSummary = computed(() => {
   const rows = docGrid.rows || [];
   if (!rows.length) return "";
@@ -2518,181 +2536,336 @@ async function poll() {
   gap: 8px;
 }
 
-.review-workspace {
+.review-shell {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
-.review-stats {
+.review-hero {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.review-stat {
-  padding: 12px 14px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 16px 20px;
+  align-items: end;
+  padding: 18px 20px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  border-radius: calc(var(--radius) + 2px);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--gray2) 100%);
 }
 
-.review-stat-value {
+.review-kicker {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.review-hero-main h3 {
+  margin: 0;
   font-size: 22px;
-  font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
-.review-stat-label {
-  font-size: 12px;
+.review-hero-meta {
+  margin: 8px 0 0;
   color: var(--muted);
-}
-
-.review-stat.is-ok .review-stat-value {
-  color: #1a7f37;
-}
-
-.review-stat.is-warn .review-stat-value {
-  color: #b54708;
-}
-
-.review-status-line {
-  margin: -4px 0 0;
-}
-
-.review-checklist {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.review-check-item {
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--gray3);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.review-check-item b {
   font-size: 13px;
 }
 
-.review-ops {
+.review-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: center;
+}
+
+.review-metric {
+  min-width: 72px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
+  border-radius: 999px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.review-metric strong {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.review-metric span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.review-metric.is-done {
+  border-color: #b7ebc6;
+  background: #f3fbf5;
+}
+
+.review-metric.is-done strong {
+  color: #1a7f37;
+}
+
+.review-metric.is-warn {
+  border-color: #f0d58a;
+  background: #fffdf5;
+}
+
+.review-metric.is-warn strong {
+  color: #9a6700;
+}
+
+.review-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: end;
+}
+
+.review-alert {
+  margin: 0;
+}
+
+.review-panel {
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
   overflow: hidden;
 }
 
-.review-ops-head {
+.review-panel-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  padding: 12px 14px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--gray2);
+}
+
+.review-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-filter-pill {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.review-filter-pill small {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.review-filter-pill:hover {
+  border-color: var(--line-strong);
+}
+
+.review-filter-pill.is-active {
+  border-color: var(--accent-line);
+  background: var(--accent-wash);
+  color: var(--accent-text);
+}
+
+.review-guide-toggle {
+  border: none;
+  background: transparent;
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.review-guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--gray3);
 }
 
-.review-filter-bar {
+.review-guide-item {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.review-guide-item b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.review-guide-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.review-tabs :deep(.el-tabs__header) {
+  margin: 0;
+  padding: 0 16px;
+  background: var(--surface);
+}
+
+.review-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: var(--line);
+}
+
+.review-tab-body {
+  padding: 16px;
+}
+
+.review-tab-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.review-tab-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
 }
 
-.review-filter-label {
+.review-policy-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.review-policy-row label {
   font-size: 12px;
+  color: var(--muted);
   font-weight: 600;
-  color: var(--muted);
 }
 
-.review-ops-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-}
-
-.review-ops-section {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.review-ops-section:nth-child(odd) {
-  border-right: 1px solid var(--line);
-}
-
-.review-ops-section h4 {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.review-ops-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.review-ops-hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-}
-
-.review-image-policy {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.review-table-panel {
+.review-grid-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
   overflow: hidden;
 }
 
-.review-table-head {
+.review-grid-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--gray3);
+  background: var(--gray2);
+}
+
+.review-grid-scroll {
+  max-height: min(62vh, 720px);
+  overflow: auto;
+}
+
+.review-grid th {
+  background: var(--gray12);
+  color: #fff;
 }
 
 .review-empty {
   text-align: center;
-  padding: 28px 12px;
+  padding: 32px 12px;
   color: var(--muted);
 }
 
-.review-footer {
-  margin-top: 4px;
+.review-issues {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fffdf5;
+  padding: 0 14px 12px;
 }
 
-.row-issues-head {
+.review-issues summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 12px 0;
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+.review-issues summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-issues ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.review-issues li {
+  padding: 6px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 13px;
+}
+
+.review-actionbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+}
+
+.review-actionbar-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.review-actionbar-main p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.review-batch-progress {
+  margin-top: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
 .col-status {
@@ -2724,41 +2897,21 @@ async function poll() {
   color: #9a6700;
 }
 
-.doc-grid tr.is-issue td {
+.review-grid tr.is-issue td {
   background: #fffdf5;
 }
 
-.doc-grid tr.is-selected td {
+.review-grid tr.is-selected td {
   background: var(--accent-wash);
 }
 
-.batch-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 12px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--gray3);
-}
-
 @media (max-width: 960px) {
-  .review-stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .review-checklist {
+  .review-hero {
     grid-template-columns: 1fr;
   }
 
-  .review-ops-grid {
+  .review-guide {
     grid-template-columns: 1fr;
-  }
-
-  .review-ops-section:nth-child(odd) {
-    border-right: none;
   }
 }
 
