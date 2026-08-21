@@ -40,6 +40,7 @@
         <button class="filter-pill" :class="{ 'is-on': filter === 'published' }" @click="setFilter('published')">已发布 {{ counts.published }}</button>
       </div>
       <div class="spacer"></div>
+      <el-button text @click="$router.push('/queue')">发布记录</el-button>
       <el-button text @click="reload">刷新</el-button>
     </div>
 

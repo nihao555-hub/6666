@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>店铺</h2>
-        <p class="muted">授权国际站店铺后，在这里管店铺政策；跟货走的字段去「发品习惯」。</p>
+        <p class="muted">授权国际站店铺后，在这里填店铺政策。跟货走的字段在「发品习惯（高级）」里配。</p>
       </div>
       <div class="head-actions">
         <el-button type="primary" :loading="bindingEnv" @click="openEmbeddedOAuth">
@@ -62,7 +62,7 @@
       <el-table-column label="操作" width="320" align="right">
         <template #default="{ row }">
           <el-button text type="primary" @click="edit(row)">店铺政策</el-button>
-          <el-button text type="primary" @click="openHabits(row)">发品习惯</el-button>
+          <el-button text type="primary" @click="openHabits(row)">发品习惯（高级）</el-button>
           <el-button text type="primary" @click="use(row)">设为当前</el-button>
           <el-button v-if="row.status !== 'active'" text type="primary" @click="openEmbeddedOAuth">
             重新授权
@@ -91,7 +91,7 @@
 
     <el-drawer v-model="drawer" size="460px" :title="`${editing?.name || ''} · 店铺政策`">
       <p class="muted" style="margin-bottom: 12px">
-        只填整店政策：产地、售卖方式、样品等。跟货走的单位、包装、运费请去「发品习惯」。
+        只填整店政策：产地、售卖方式、样品等。跟货走的单位、包装、运费请去「发品习惯（高级）」。
       </p>
       <p v-if="optionSource.category_name" class="muted" style="margin-bottom: 12px">
         选项以「{{ optionSource.category_name }}」为例；不同类目可能多出或缺少字段。
@@ -131,7 +131,7 @@
         </p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap">
           <el-button type="primary" :loading="saving" @click="save">保存政策</el-button>
-          <el-button @click="openHabits(editing)">去发品习惯</el-button>
+          <el-button @click="openHabits(editing)">发品习惯（高级）</el-button>
         </div>
       </el-form>
     </el-drawer>

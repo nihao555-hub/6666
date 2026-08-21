@@ -23,29 +23,6 @@
       </div>
 
       <nav class="nav-list">
-        <router-link class="nav-link" :class="{ 'is-active': on('/overview') }" to="/overview" title="概览">
-          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <rect x="3" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="3" width="7" height="7" rx="1" />
-            <rect x="3" y="14" width="7" height="7" rx="1" />
-            <rect x="14" y="14" width="7" height="7" rx="1" />
-          </svg>
-          <span class="nav-text">概览</span>
-        </router-link>
-        <router-link class="nav-link" :class="{ 'is-active': on('/shops') }" to="/shops" title="店铺">
-          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M3 10.5 12 4l9 6.5" />
-            <path d="M5 10v9h14v-9" />
-          </svg>
-          <span class="nav-text">店铺</span>
-        </router-link>
-        <router-link class="nav-link" :class="{ 'is-active': on('/habits') }" to="/habits" title="发品习惯">
-          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M4 7h16M4 12h10M4 17h14" />
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-          </svg>
-          <span class="nav-text">发品习惯</span>
-        </router-link>
         <router-link class="nav-link" :class="{ 'is-active': on('/feed') }" to="/feed" title="投料">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M12 5v14M5 12h14" />
@@ -59,12 +36,12 @@
           </svg>
           <span class="nav-text">商品</span>
         </router-link>
-        <router-link class="nav-link" :class="{ 'is-active': on('/queue') }" to="/queue" title="队列">
+        <router-link class="nav-link" :class="{ 'is-active': on('/shops') }" to="/shops" title="店铺">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M4 12a8 8 0 1 0 2.3-5.7" />
-            <path d="M4 4v4h4" />
+            <path d="M3 10.5 12 4l9 6.5" />
+            <path d="M5 10v9h14v-9" />
           </svg>
-          <span class="nav-text">队列</span>
+          <span class="nav-text">店铺</span>
         </router-link>
       </nav>
 

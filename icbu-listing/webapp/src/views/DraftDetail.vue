@@ -357,7 +357,7 @@ async function publish() {
     const job = await api.publishDraft(draft.value.id);
     if (job.status === "success") {
       ElMessage.success(job.product_id ? "已发布到国际站" : "已发到官方草稿箱");
-      router.push("/queue");
+      router.push({ path: "/drafts", query: { filter: "published" } });
     } else {
       ElMessage.error(job.error || "发布失败");
       await load();

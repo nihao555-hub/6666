@@ -51,7 +51,7 @@ async function submit() {
   try {
     store.user = mode.value === "login" ? await api.login(form) : await api.register(form);
     await store.ensureShops();
-    router.push(store.shops.length ? "/overview" : "/shops");
+    router.push(store.shops.length ? "/feed" : "/shops");
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
