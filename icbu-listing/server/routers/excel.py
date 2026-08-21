@@ -13,13 +13,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from ai import AiClient, ImageInput  # noqa: E402
+from ai import AiClient, AiUnavailable, ImageInput  # noqa: E402
 from gop_client import GopError  # noqa: E402
 
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, excel_import, excel_images, feed_sessions, pipeline, products as catalogue, public_refs, templates
+from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, pipeline, products as catalogue, public_refs, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -296,6 +296,204 @@ async def preview_excel(
         raise HTTPException(status_code=400, detail=f"读不了这个表格：{exc}") from exc
 
 
+def _rows_payload(rows: list[excel_import.ExcelRow]) -> list[dict[str, Any]]:
+    return [
+        {
+            "sku": row.sku,
+            "name": row.name,
+            "title": row.title,
+            "keywords": row.keywords,
+            "price": row.price,
+            "moq": row.moq,
+            "images": row.images,
+            "note": row.note,
+            "brand": row.brand,
+            "category_id": row.category_id,
+            "origin": row.origin,
+            "spec": row.spec,
+            "specs": row.specs,
+            "line": row.line,
+            "attributes": row.attributes,
+        }
+        for row in rows
+    ]
+
+
+def _launch_import(
+    *,
+    user: User,
+    shop: Shop | None,
+    rows: list[excel_import.ExcelRow],
+    uploads: dict[str, bytes],
+    wants_drafts: bool,
+    listing_id: str,
+    style: str,
+    image_mode: str,
+    public_base: str,
+    session: Any | None = None,
+    db: Session | None = None,
+) -> dict[str, Any]:
+    if not rows:
+        raise HTTPException(
+            status_code=400,
+            detail="没有可导入的商品行。请检查资料或在前台表格里补货号、价、起订量。",
+        )
+    batch_id = new_id()
+    thread = threading.Thread(
+        target=_run_import,
+        args=(
+            user.id,
+            shop.id if shop else "",
+            batch_id,
+            _rows_payload(rows),
+            uploads,
+            wants_drafts,
+            listing_id,
+            style,
+            excel_import.normalize_image_mode(image_mode),
+            public_base,
+        ),
+        daemon=True,
+    )
+    thread.start()
+    if session is not None and db is not None:
+        feed_sessions.save(
+            db,
+            session,
+            status="done",
+            shop_id=shop.id if shop else session.shop_id,
+            payload={"batchId": batch_id, "rowCount": len(rows)},
+        )
+    return {
+        "batch_id": batch_id,
+        "count": len(rows),
+        "style": style,
+        "create_drafts": wants_drafts,
+        "image_mode": excel_import.normalize_image_mode(image_mode),
+    }
+
+
+@router.post("/doc-parse")
+async def parse_documents(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    image_mode: str = Form("keep_draw"),
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if not category_id:
+        raise HTTPException(status_code=400, detail="先选叶子类目")
+    if shop_id:
+        shop_for(db, user, shop_id)
+    uploads: list[tuple[str, bytes]] = []
+    for item in files:
+        raw = await item.read()
+        if raw:
+            uploads.append((item.filename or "document.bin", raw))
+    if not uploads:
+        raise HTTPException(status_code=400, detail="资料文件是空的")
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    extras = _columns_for_style(db, user, shop_id, category_id, "simple", fetch=bool(category_id and shop_id))
+    profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
+    ai = AiClient.from_env_or_none()
+    try:
+        return document_parse.parse_documents(
+            uploads,
+            profile=profile,
+            extra_columns=extras,
+            category_id=category_id,
+            category_name=hint or category_name,
+            image_mode=image_mode,
+            ai=ai,
+        )
+    except AiUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/grid-check")
+async def check_grid_rows(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    image_mode: str = Form("keep_draw"),
+    rows: str = Form("[]"),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if shop_id:
+        shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    hint = _category_hint(db, user, shop_id, category_id, "")
+    extras = _columns_for_style(db, user, shop_id, category_id, "simple", fetch=False)
+    profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
+    columns = document_parse.grid_columns(profile, extras)
+    return document_parse.check_grid(payload, columns, category_id=category_id, image_mode=image_mode)
+
+
+@router.post("/import-rows")
+async def import_rows(
+    request: Request,
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    session_id: str = Form(""),
+    image_mode: str = Form("keep_draw"),
+    rows: str = Form("[]"),
+    images: list[UploadFile] = File(default_factory=list),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    shop = shop_for(db, user, shop_id) if shop_id else None
+    if shop is None:
+        raise HTTPException(status_code=400, detail="批量成稿要先选一个店铺")
+    try:
+        payload = json.loads(rows or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    hint = _category_hint(db, user, shop_id, category_id, "")
+    extras = _columns_for_style(db, user, shop_id, category_id, "simple", fetch=False)
+    profile = excel_import.sheet_profile(hint, category_id=category_id, attr_columns=extras)
+    columns = document_parse.grid_columns(profile, extras)
+    parsed = document_parse.grid_to_excel_rows(payload, columns, category_id=category_id)
+    if category_id:
+        for row in parsed:
+            if not row.category_id:
+                row.category_id = category_id
+
+    uploads: dict[str, bytes] = {}
+    for item in images:
+        raw = await item.read()
+        if raw:
+            uploads[(item.filename or "image.jpg").rsplit("/", 1)[-1].lower()] = raw
+    session = feed_sessions.get_owned(db, user.id, session_id) if session_id else None
+    if not uploads and session is not None:
+        for name, raw in feed_sessions.file_bytes(session, "excel_images"):
+            uploads[name.rsplit("/", 1)[-1].lower()] = raw
+
+    return _launch_import(
+        user=user,
+        shop=shop,
+        rows=parsed,
+        uploads=uploads,
+        wants_drafts=True,
+        listing_id="",
+        style="simple",
+        image_mode=image_mode,
+        public_base=public_refs.request_base(request),
+        session=session,
+        db=db,
+    )
+
+
 @router.post("/import")
 async def import_excel(
     request: Request,
@@ -366,59 +564,19 @@ async def import_excel(
         for name, raw in feed_sessions.file_bytes(session, "excel_images"):
             uploads[name.rsplit("/", 1)[-1].lower()] = raw
 
-    batch_id = new_id()
-    payload = [
-        {
-            "sku": row.sku,
-            "name": row.name,
-            "title": row.title,
-            "keywords": row.keywords,
-            "price": row.price,
-            "moq": row.moq,
-            "images": row.images,
-            "note": row.note,
-            "brand": row.brand,
-            "category_id": row.category_id,
-            "origin": row.origin,
-            "spec": row.spec,
-            "specs": row.specs,
-            "line": row.line,
-            "attributes": row.attributes,
-        }
-        for row in rows
-    ]
-    thread = threading.Thread(
-        target=_run_import,
-        args=(
-            user.id,
-            shop.id if shop else "",
-            batch_id,
-            payload,
-            uploads,
-            wants_drafts,
-            listing_id,
-            style,
-            excel_import.normalize_image_mode(image_mode),
-            public_refs.request_base(request),
-        ),
-        daemon=True,
+    return _launch_import(
+        user=user,
+        shop=shop,
+        rows=rows,
+        uploads=uploads,
+        wants_drafts=wants_drafts,
+        listing_id=listing_id,
+        style=style,
+        image_mode=image_mode,
+        public_base=public_refs.request_base(request),
+        session=session,
+        db=db,
     )
-    thread.start()
-    if session is not None:
-        feed_sessions.save(
-            db,
-            session,
-            status="done",
-            shop_id=shop.id if shop else session.shop_id,
-            payload={"batchId": batch_id, "rowCount": len(rows)},
-        )
-    return {
-        "batch_id": batch_id,
-        "count": len(rows),
-        "style": style,
-        "create_drafts": wants_drafts,
-        "image_mode": excel_import.normalize_image_mode(image_mode),
-    }
 
 
 def _run_import(

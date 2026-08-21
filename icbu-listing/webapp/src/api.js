@@ -95,8 +95,9 @@ export const api = {
   excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),
   officialExcelAttrs: (shopId, categoryId) =>
     http.get("/excel/official-attrs", { params: { shop_id: shopId, category_id: categoryId } }),
-  excelPreview: (form) => http.post("/excel/preview", form),
-  excelImport: (form) => http.post("/excel/import", form),
+  excelDocParse: (form) => http.post("/excel/doc-parse", form),
+  excelGridCheck: (form) => http.post("/excel/grid-check", form),
+  excelImportRows: (form) => http.post("/excel/import-rows", form),
   excelTemplateUrl: (style, listingTemplateId, extra = {}) => {
     const params = new URLSearchParams({ style: style || "lingxing" });
     if (listingTemplateId) params.set("listing_template_id", listingTemplateId);

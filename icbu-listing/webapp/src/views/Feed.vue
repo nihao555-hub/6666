@@ -21,7 +21,7 @@
       <div class="chooser">
         <h3>先选一种上品方式</h3>
         <p class="muted">四条路最后都是：你出图、单价、起订量；没写的数系统不会编。</p>
-        <div class="path-grid path-grid-3">
+        <div class="path-grid path-grid-4">
           <button class="path-card" @click="startPath('photo')">
             <small>默认走这条</small>
             <b>有实拍</b>
@@ -33,9 +33,14 @@
             <p class="muted">只写品名（最好再贴一张参考图），平台画 6 张后再填价。生成图会标黄，不是实拍。</p>
           </button>
           <button class="path-card" @click="startPath('excel')">
-            <small>一次很多、每个价不一样</small>
+            <small>自己填短表</small>
             <b>填表批量</b>
             <p class="muted">短表一行一个货：货号、价、起订量、图。必填属性在表里，标题和详描 AI 补。</p>
+          </button>
+          <button class="path-card" @click="startPath('doc')">
+            <small>有报价单 / 目录 / 表格</small>
+            <b>资料解析</b>
+            <p class="muted">上传现有资料，AI 填好整表，前台直接改，再批量成稿。不用手抄短表。</p>
           </button>
         </div>
       </div>
@@ -593,6 +598,197 @@
         </el-table>
       </details>
     </template>
+
+    <!-- 资料解析：上传文档 → AI 填表 → 前台可改 → 成稿 -->
+    <template v-else-if="tab === 'doc'">
+      <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
+
+      <div v-if="docStep === 0" class="step-panel">
+        <h3>这批货是哪一类</h3>
+        <p class="muted">整批共用一个叶子类目。AI 会把资料里的字段对齐到该类目的短表列（含官方必填属性）。</p>
+        <div style="margin-top: 16px">
+          <el-button @click="openDocCategory">{{ doc.categoryName || sheetPlan.category_name || "选择类目" }}</el-button>
+          <p v-if="docGrid.columns.length" class="muted" style="margin-top: 10px">
+            解析后将按 {{ docGrid.columns.length }} 列填表：{{ docGrid.columns.slice(0, 8).map((c) => c.label).join("、") }}
+            <template v-if="docGrid.columns.length > 8">…</template>
+          </p>
+        </div>
+        <div class="step-actions">
+          <el-button type="primary" :disabled="!doc.categoryId" @click="advanceDoc(1)">下一步，上传资料</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="docStep === 1" class="step-panel">
+        <h3>上传报价单 / 目录 / 表格</h3>
+        <p class="muted">支持 xlsx、csv、图片、txt。已有表格会直接识别；报价单照片或 PDF 文字由 AI 提取填进下一张表。</p>
+        <el-upload
+          v-model:file-list="docFiles"
+          :auto-upload="false"
+          multiple
+          accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
+          drag
+          style="margin-top: 14px"
+        >
+          <div style="padding: 22px 0">把工厂报价单、目录、表格拖到这里（可多文件）</div>
+        </el-upload>
+        <div class="step-actions" style="margin-top: 16px">
+          <el-button @click="docStep = 0">上一步</el-button>
+          <el-button type="primary" :loading="docGrid.loading" :disabled="!docFiles.length" @click="parseDocuments">
+            AI 解析并填表
+          </el-button>
+        </div>
+      </div>
+
+      <div v-else-if="docStep === 2" class="step-panel">
+        <h3>核对商品表（可直接改）</h3>
+        <p class="muted">
+          共 {{ docGrid.row_count || docGrid.rows.length }} 个商品，价量齐 {{ docGrid.ready_count || 0 }} 个。
+          <span v-if="docGrid.source">来源：{{ docGrid.source }}</span>
+        </p>
+        <el-alert
+          v-for="warning in docGrid.warnings || []"
+          :key="warning"
+          type="warning"
+          :title="warning"
+          :closable="false"
+          style="margin: 10px 0"
+        />
+        <div class="doc-grid-toolbar">
+          <el-button size="small" @click="addDocRow">加一行</el-button>
+          <el-button size="small" :loading="docGrid.checking" @click="recheckDocGrid">重新校验</el-button>
+        </div>
+        <div class="doc-grid-wrap">
+          <table class="doc-grid">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th v-for="col in docGrid.columns" :key="col.id">
+                  {{ col.label }}<span v-if="col.required" class="need">必填</span>
+                </th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, index) in docGrid.rows" :key="row.line || index">
+                <td>{{ index + 1 }}</td>
+                <td v-for="col in docGrid.columns" :key="`${index}-${col.id}`">
+                  <el-select
+                    v-if="col.options?.length"
+                    v-model="row[col.id]"
+                    filterable
+                    clearable
+                    placeholder="选"
+                    size="small"
+                    style="width: 100%"
+                  >
+                    <el-option
+                      v-for="opt in col.options"
+                      :key="opt.value"
+                      :label="opt.label"
+                      :value="opt.label"
+                    />
+                  </el-select>
+                  <el-input v-else v-model="row[col.id]" size="small" />
+                </td>
+                <td><el-button text type="danger" @click="removeDocRow(index)">删</el-button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="docGrid.row_issues?.length" class="row-issues">
+          <b>成稿前先看这几行</b>
+          <ul>
+            <li v-for="(issue, index) in docGrid.row_issues.slice(0, 16)" :key="index">
+              <span :class="['dot', issue.level]"></span>
+              第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
+            </li>
+          </ul>
+        </div>
+        <div class="step-actions">
+          <el-button @click="docStep = 1">上一步</el-button>
+          <el-button type="primary" :disabled="!docGrid.rows.length" @click="advanceDoc(3)">下一步，图怎么处理</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="docStep === 3" class="step-panel">
+        <h3>这批图怎么处理</h3>
+        <p class="muted">一张表里可以有的行有图、有的没图，图多图少都按下面两句话走，不按张数分路。</p>
+        <div class="policy-block">
+          <small>有图的行</small>
+          <div class="path-grid">
+            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'keep' }" @click="excel.photoPolicy = 'keep'">
+              <small>工厂图已经能用</small>
+              <b>原图上架</b>
+              <p class="muted">有几张用几张，不改、不补。</p>
+            </button>
+            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'complete' }" @click="excel.photoPolicy = 'complete'">
+              <small>推荐</small>
+              <b>原图留下，再补转化位</b>
+              <p class="muted">实拍不动，缺的转化位平台补并标黄。</p>
+            </button>
+            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'boost' }" @click="excel.photoPolicy = 'boost'">
+              <small>图太乱</small>
+              <b>当参考，重画套图</b>
+              <p class="muted">6 张重画并标黄。</p>
+            </button>
+          </div>
+        </div>
+        <div class="policy-block">
+          <small>没图的行</small>
+          <div class="path-grid path-grid-2">
+            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'draw' }" @click="excel.emptyPolicy = 'draw'">
+              <b>按品名画套图</b>
+            </button>
+            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'skip' }" @click="excel.emptyPolicy = 'skip'">
+              <b>跳过没图的行</b>
+            </button>
+          </div>
+        </div>
+        <p class="muted" style="margin-top: 16px">{{ excelImageUploadHint }}</p>
+        <el-upload
+          v-model:file-list="excelImages"
+          :auto-upload="false"
+          multiple
+          accept="image/*"
+          drag
+          style="margin-top: 10px"
+        >
+          <div style="padding: 22px 0">有本地图就拖进来，按货号命名</div>
+        </el-upload>
+        <div class="step-actions">
+          <el-button @click="docStep = 2">上一步</el-button>
+          <el-button type="primary" @click="advanceDoc(4)">下一步，开始成稿</el-button>
+        </div>
+      </div>
+
+      <div v-else-if="docStep === 4" class="step-panel">
+        <h3>批量成稿</h3>
+        <p class="muted">{{ excelGoHint }} 导入后逐条核对，信息质量分 5.0 且审过才能发。</p>
+        <div class="step-actions">
+          <el-button @click="docStep = 3">上一步</el-button>
+          <el-button
+            type="primary"
+            :loading="docGrid.loading"
+            :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
+            @click="importDocRows"
+          >
+            批量成稿（{{ docGrid.rows.length }} 个）
+          </el-button>
+        </div>
+        <div v-if="doc.batch" style="margin-top: 18px">
+          <p>
+            共 {{ doc.batch.count }} 个商品，已成稿 {{ docProgress.done }}/{{ doc.batch.count }}。
+            <template v-if="docProgress.complete">
+              待审 {{ docProgress.pending || 0 }} · 待改 {{ docProgress.counts?.red || 0 }} · 已审可发 {{ docProgress.ready || 0 }}。
+            </template>
+          </p>
+          <el-progress :percentage="docPercent" :stroke-width="10" />
+          <div style="margin-top: 12px">
+            <el-button type="primary" :disabled="!docProgress.complete" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
+          </div>
+        </div>
+      </div>
+    </template>
     </template>
 
     <CategoryPicker v-model="categoryBrowser" @pick="pickCategory" />
@@ -626,6 +822,8 @@ const aiStep = ref(0);
 const aiReached = ref(0);
 const excelStep = ref(0);
 const excelReached = ref(0);
+const docStep = ref(0);
+const docReached = ref(0);
 
 const photoSteps = [
   { key: "photos", label: "上传图片" },
@@ -644,6 +842,13 @@ const excelSteps = [
   { key: "up", label: "传回表格" },
   { key: "img", label: "图怎么处理" },
   { key: "go", label: "成稿人审" },
+];
+const docSteps = [
+  { key: "cat", label: "选类目" },
+  { key: "up", label: "上传资料" },
+  { key: "edit", label: "核对编辑" },
+  { key: "img", label: "图怎么处理" },
+  { key: "go", label: "开始成稿" },
 ];
 const templates = ref({ families: [], sources: [] });
 const imageJob = ref(null);
@@ -672,6 +877,25 @@ const styles = ref([]);
 const listingTemplates = ref([]);
 const excelFile = ref([]);
 const excelImages = ref([]);
+const docFiles = ref([]);
+const doc = reactive({
+  categoryId: "",
+  categoryName: "",
+  batch: null,
+});
+const docGrid = reactive({
+  columns: [],
+  rows: [],
+  row_issues: [],
+  warnings: [],
+  row_count: 0,
+  ready_count: 0,
+  source: "",
+  loading: false,
+  checking: false,
+});
+const docProgress = ref({ done: 0 });
+let docTimer = null;
 const excel = reactive({
   style: route.query.style || "simple",
   listingTemplateId: "",
@@ -715,6 +939,10 @@ const mappingRows = computed(() => (excel.preview?.headers || []).map((header) =
 const excelPercent = computed(() => {
   if (!excel.batch?.count) return 0;
   return Math.min(100, Math.round((excelProgress.value.done / excel.batch.count) * 100));
+});
+const docPercent = computed(() => {
+  if (!doc.batch?.count) return 0;
+  return Math.min(100, Math.round((docProgress.value.done / doc.batch.count) * 100));
 });
 const familySpecLabels = computed(() => (sheetPlan.value.sheet?.spec_columns || []).map((item) => item.label).filter(Boolean));
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
@@ -791,6 +1019,7 @@ function applyExcelImageMode(raw, photo, empty) {
 
 function pathToTab(path) {
   if (path === "ai") return "ai";
+  if (path === "doc") return "doc";
   if (path === "excel" || path === "full") return "excel";
   return "single";
 }
@@ -823,21 +1052,45 @@ function sessionPayload() {
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
     },
-    categoryName: sheetPlan.value.category_name || "",
-    rowCount: excel.preview?.row_count || excel.batch?.count || batch.value?.count || 0,
+    doc: {
+      categoryId: doc.categoryId,
+      categoryName: doc.categoryName,
+      columns: docGrid.columns,
+      rows: docGrid.rows,
+      row_issues: docGrid.row_issues,
+      warnings: docGrid.warnings,
+      row_count: docGrid.row_count,
+      ready_count: docGrid.ready_count,
+      source: docGrid.source,
+      batch: doc.batch,
+      imageMode: excelImageMode.value,
+      photoPolicy: excel.photoPolicy,
+      emptyPolicy: excel.emptyPolicy,
+    },
+    categoryName: sheetPlan.value.category_name || doc.categoryName || "",
+    rowCount:
+      docGrid.row_count ||
+      docGrid.rows.length ||
+      excel.preview?.row_count ||
+      excel.batch?.count ||
+      doc.batch?.count ||
+      batch.value?.count ||
+      0,
     imageJobId: imageJob.value?.id || "",
-    batchId: batch.value?.batch_id || excel.batch?.batch_id || "",
+    batchId: batch.value?.batch_id || excel.batch?.batch_id || doc.batch?.batch_id || "",
   };
 }
 
 function currentStep() {
   if (tab.value === "ai") return aiStep.value;
+  if (tab.value === "doc") return docStep.value;
   if (tab.value === "excel") return excelStep.value;
   return photoStep.value;
 }
 
 function currentReached() {
   if (tab.value === "ai") return aiReached.value;
+  if (tab.value === "doc") return docReached.value;
   if (tab.value === "excel") return excelReached.value;
   return photoReached.value;
 }
@@ -936,10 +1189,24 @@ function applySession(session) {
     excel.batch = payload.excel.batch || null;
     applyExcelImageMode(payload.excel.imageMode, payload.excel.photoPolicy, payload.excel.emptyPolicy);
   }
+  if (payload.doc) {
+    doc.categoryId = payload.doc.categoryId || "";
+    doc.categoryName = payload.doc.categoryName || payload.categoryName || "";
+    doc.batch = payload.doc.batch || null;
+    docGrid.columns = payload.doc.columns || [];
+    docGrid.rows = payload.doc.rows || [];
+    docGrid.row_issues = payload.doc.row_issues || [];
+    docGrid.warnings = payload.doc.warnings || [];
+    docGrid.row_count = payload.doc.row_count || docGrid.rows.length;
+    docGrid.ready_count = payload.doc.ready_count || 0;
+    docGrid.source = payload.doc.source || "";
+    applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
+  }
   files.value = filesFromSession(session, "photos");
   batchFiles.value = filesFromSession(session, "batch");
   excelFile.value = filesFromSession(session, "excel");
   excelImages.value = filesFromSession(session, "excel_images");
+  docFiles.value = filesFromSession(session, "doc");
   imageJob.value = payload.imageJobId ? { id: payload.imageJobId, status: "queued", slots: [] } : null;
   batch.value = payload.batchId && tab.value === "single" ? { batch_id: payload.batchId, count: payload.rowCount || 0 } : null;
   if (tab.value === "ai") {
@@ -952,6 +1219,9 @@ function applySession(session) {
       excel.style = "simple";
       excelStep.value = Math.min(excelStep.value, excelSteps.length - 1);
     }
+  } else if (tab.value === "doc") {
+    docStep.value = session.step || 0;
+    docReached.value = session.reached || 0;
   } else {
     photoStep.value = session.step || 0;
     photoReached.value = session.reached || 0;
@@ -967,6 +1237,21 @@ async function startPath(path) {
       excel.style = "simple";
       excelStep.value = 0;
       excelReached.value = 0;
+    }
+    if (sessionPath === "doc") {
+      docStep.value = 0;
+      docReached.value = 0;
+      doc.categoryId = "";
+      doc.categoryName = "";
+      doc.batch = null;
+      docGrid.columns = [];
+      docGrid.rows = [];
+      docGrid.row_issues = [];
+      docGrid.warnings = [];
+      docGrid.row_count = 0;
+      docGrid.ready_count = 0;
+      docGrid.source = "";
+      docFiles.value = [];
     }
     applySession(created);
     router.replace({ query: { session: created.id } });
@@ -995,9 +1280,18 @@ async function resumeSession(id) {
       excelTimer = setInterval(pollExcel, 3000);
       await pollExcel();
     }
+    if (doc.batch?.batch_id) {
+      clearInterval(docTimer);
+      docTimer = setInterval(pollDoc, 3000);
+      await pollDoc();
+    }
     if (excel.categoryId) {
       await loadSheetPlan();
       loadOfficialAttrs();
+    }
+    if (doc.categoryId) {
+      await loadSheetPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+      loadOfficialAttrs(true);
     }
   } catch (error) {
     const msg = String(error.message || "");
@@ -1111,6 +1405,15 @@ watch(
     saveTimer = setTimeout(persistSession, 400);
   },
 );
+watch(
+  () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.rows],
+  () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistSession, 500);
+  },
+  { deep: true },
+);
+watch(docFiles, () => syncKind("doc", docFiles.value), { deep: true });
 
 function onReferenceFile(file) {
   aiForm.referenceFile = file?.raw || null;
@@ -1220,12 +1523,14 @@ async function importSimple() {
   if (excel.preview || sessionId.value) await importExcel();
 }
 
-async function loadSheetPlan() {
+async function loadSheetPlan(override = null) {
+  const categoryId = override?.categoryId ?? excel.categoryId ?? "";
+  const categoryName = override?.categoryName ?? excel.categoryName ?? "";
   try {
     sheetPlan.value = await api.excelSheetPlan({
       shop_id: store.shopId || "",
-      category_id: excel.categoryId || "",
-      category_name: excel.categoryName || "",
+      category_id: categoryId,
+      category_name: categoryName,
       style: excel.style || "simple",
     });
   } catch (error) {
@@ -1235,8 +1540,8 @@ async function loadSheetPlan() {
       if (store.shopId) {
         sheetPlan.value = await api.excelSheetPlan({
           shop_id: store.shopId,
-          category_id: excel.categoryId || "",
-          category_name: excel.categoryName || "",
+          category_id: categoryId,
+          category_name: categoryName,
           style: excel.style || "simple",
         });
         return;
@@ -1244,6 +1549,18 @@ async function loadSheetPlan() {
     }
     throw error;
   }
+}
+
+function syncDocColumnsFromPlan() {
+  const preview = sheetPlan.value.preview?.columns || [];
+  if (!preview.length) return;
+  docGrid.columns = preview.map((col) => ({
+    id: col.id,
+    label: col.label,
+    required: col.required,
+    options: col.options,
+    kind: col.options?.length ? "select" : "text",
+  }));
 }
 
 async function advanceFromCategoryStep() {
@@ -1270,21 +1587,153 @@ function backFromGoStep() {
   persistSession();
 }
 
-async function loadOfficialAttrs() {
-  if (!store.shopId || !excel.categoryId) return;
+async function loadOfficialAttrs(forDoc = false) {
+  const categoryId = forDoc ? doc.categoryId : excel.categoryId;
+  if (!store.shopId || !categoryId) return;
   officialLoading.value = true;
   try {
-    const data = await api.officialExcelAttrs(store.shopId, excel.categoryId);
+    const data = await api.officialExcelAttrs(store.shopId, categoryId);
     sheetPlan.value = {
       ...sheetPlan.value,
       ai_attrs: data.ai_attrs || [],
       ai_fills: data.ai_fills || sheetPlan.value.ai_fills,
     };
+    if (forDoc) syncDocColumnsFromPlan();
   } catch {
     /* cached sheet-plan already has whatever we have locally */
+    if (forDoc) syncDocColumnsFromPlan();
   } finally {
     officialLoading.value = false;
   }
+}
+
+function openDocCategory() {
+  if (!store.shopId) {
+    ElMessage.warning("先登录一个店铺");
+    return;
+  }
+  categoryTarget.value = "doc";
+  categoryBrowser.value = true;
+}
+
+function advanceDoc(index) {
+  docReached.value = Math.max(docReached.value, index);
+  docStep.value = index;
+  persistSession();
+}
+
+async function parseDocuments() {
+  if (!doc.categoryId) {
+    ElMessage.warning("先选叶子类目");
+    return;
+  }
+  if (!docFiles.value.some((item) => item.raw)) {
+    ElMessage.warning("先上传资料");
+    return;
+  }
+  const body = new FormData();
+  body.append("shop_id", store.shopId || "");
+  body.append("category_id", doc.categoryId);
+  body.append("category_name", doc.categoryName || sheetPlan.value.category_name || "");
+  body.append("image_mode", excelImageMode.value);
+  docFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
+  docGrid.loading = true;
+  try {
+    const result = await api.excelDocParse(body);
+    docGrid.columns = result.columns || [];
+    docGrid.rows = result.rows || [];
+    docGrid.row_issues = result.row_issues || [];
+    docGrid.warnings = result.warnings || [];
+    docGrid.row_count = result.row_count || docGrid.rows.length;
+    docGrid.ready_count = result.ready_count || 0;
+    docGrid.source = result.source || "";
+    await persistSession();
+    advanceDoc(2);
+    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，可直接在表里改`);
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    docGrid.loading = false;
+  }
+}
+
+async function recheckDocGrid() {
+  if (!docGrid.rows.length) return;
+  const body = new FormData();
+  body.append("shop_id", store.shopId || "");
+  body.append("category_id", doc.categoryId);
+  body.append("image_mode", excelImageMode.value);
+  body.append("rows", JSON.stringify(docGrid.rows));
+  docGrid.checking = true;
+  try {
+    const result = await api.excelGridCheck(body);
+    docGrid.row_count = result.row_count || docGrid.rows.length;
+    docGrid.ready_count = result.ready_count || 0;
+    docGrid.row_issues = result.row_issues || [];
+    await persistSession();
+    ElMessage.success(`校验完成：${docGrid.ready_count}/${docGrid.row_count} 个价量齐`);
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    docGrid.checking = false;
+  }
+}
+
+function addDocRow() {
+  const row = { line: docGrid.rows.length + 2 };
+  (docGrid.columns.length ? docGrid.columns : sheetPlan.value.preview?.columns || []).forEach((col) => {
+    row[col.id] = "";
+  });
+  docGrid.rows.push(row);
+  docGrid.row_count = docGrid.rows.length;
+  persistSession();
+}
+
+function removeDocRow(index) {
+  docGrid.rows.splice(index, 1);
+  docGrid.row_count = docGrid.rows.length;
+  persistSession();
+}
+
+async function importDocRows() {
+  if (!docGrid.rows.length) {
+    ElMessage.warning("表里还没有商品");
+    return;
+  }
+  const body = new FormData();
+  body.append("shop_id", store.shopId);
+  body.append("category_id", doc.categoryId);
+  body.append("session_id", sessionId.value);
+  body.append("image_mode", excelImageMode.value);
+  body.append("rows", JSON.stringify(docGrid.rows));
+  excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
+  docGrid.loading = true;
+  try {
+    doc.batch = await api.excelImportRows(body);
+    docProgress.value = { done: 0 };
+    sessionId.value = "";
+    clearInterval(docTimer);
+    docTimer = setInterval(pollDoc, 3000);
+    ElMessage.success(`已接收 ${doc.batch.count} 个商品，后台在成稿`);
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    docGrid.loading = false;
+  }
+}
+
+async function pollDoc() {
+  if (!doc.batch) return;
+  try {
+    docProgress.value = await api.batchProgress(doc.batch.batch_id, { total: doc.batch.count });
+    if (docProgress.value.complete) clearInterval(docTimer);
+  } catch {
+    clearInterval(docTimer);
+  }
+}
+
+function goDocBatchDrafts(filter = "pending") {
+  router.push({ path: "/drafts", query: { batch_id: doc.batch.batch_id, filter } });
 }
 
 function openCategory() {
@@ -1306,6 +1755,19 @@ function openAiCategory() {
 }
 
 async function pickCategory(node) {
+  if (categoryTarget.value === "doc") {
+    doc.categoryId = node.category_id;
+    doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
+    try {
+      await loadSheetPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+      syncDocColumnsFromPlan();
+      ElMessage.success(`已选「${sheetPlan.value.category_name || doc.categoryName}」，上传资料后 AI 会按这些列填表`);
+      loadOfficialAttrs(true);
+    } catch (error) {
+      ElMessage.error(error.message);
+    }
+    return;
+  }
   if (categoryTarget.value === "ai") {
     aiForm.categoryId = node.category_id;
     aiForm.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
@@ -1417,6 +1879,7 @@ function goBatchDrafts(filter = "pending") {
 onUnmounted(() => {
   clearInterval(timer);
   clearInterval(excelTimer);
+  clearInterval(docTimer);
   clearInterval(imageTimer);
 });
 
@@ -1556,8 +2019,16 @@ async function poll() {
 .path-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.path-grid-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .path-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (min-width: 960px) {
+  .path-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 @media (min-width: 960px) {
   .path-grid-3 {
@@ -1879,5 +2350,56 @@ async function poll() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.doc-grid-toolbar {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.doc-grid-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  max-height: 520px;
+}
+
+.doc-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.doc-grid th,
+.doc-grid td {
+  padding: 6px 8px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.doc-grid th {
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.doc-grid .need {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #ffcdce;
+}
+
+.doc-grid td:first-child,
+.doc-grid th:first-child {
+  color: var(--muted);
+  width: 36px;
+  text-align: center;
 }
 </style>

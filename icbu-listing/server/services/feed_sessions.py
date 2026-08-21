@@ -16,6 +16,10 @@ PATHS = {
     "photo": {"label": "有实拍", "steps": ("上传图片", "填价格", "生成草稿")},
     "ai": {"label": "平台画图", "steps": ("写出品名", "生成套图", "填价格", "生成草稿")},
     "excel": {"label": "填表批量", "steps": ("选类目", "下载表格", "传回表格", "图怎么处理", "开始成稿")},
+    "doc": {
+        "label": "资料解析",
+        "steps": ("选类目", "上传资料", "核对编辑", "图怎么处理", "开始成稿"),
+    },
     "full": {
         "label": "填表批量（旧）",
         "steps": ("选类目", "下载表格", "传回表格", "图怎么处理", "开始成稿"),
@@ -46,6 +50,13 @@ def _title_for(path: str, payload: dict[str, Any], files: list[dict[str, Any]]) 
         if path == "full":
             return name or "完全自己填"
         return name or "填表批量"
+    if path == "doc":
+        doc = payload.get("doc") or {}
+        name = str(payload.get("categoryName") or doc.get("categoryName") or "").strip()
+        count = len(doc.get("rows") or []) or payload.get("rowCount")
+        if name and count:
+            return f"{name} · {count} 个"
+        return name or "资料解析"
     sku = str((payload.get("form") or {}).get("sku") or "").strip()
     photos = [item for item in files if item.get("kind") in {"photos", "batch"}]
     if sku:
