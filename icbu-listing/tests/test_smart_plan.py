@@ -109,6 +109,8 @@ class SmartPlanApiTests(unittest.TestCase):
         self.assertIn("sku", ids)
         self.assertIn("price", ids)
         self.assertIn("moq", ids)
+        self.assertGreaterEqual(len(plan.get("review_checklist") or []), 4)
+        self.assertEqual(plan.get("publishing_skill"), "aidi1723/alibaba-icbu-publishing-skill")
 
     def test_smart_template_download(self) -> None:
         client = signup("smart-xlsx")

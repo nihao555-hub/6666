@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Shop
 from . import catalog, defaults as defaults_service, excel_import, schema_labels, templates as template_service
+from .icbu_publishing_skill import checklist_for_review, skill_prompt_block
 from .review_enrich import schema_inventory_summary
 from .excel_import import SKIP_ATTR_IDS, USER_FILLS
 
@@ -64,6 +65,9 @@ Pick the smallest set of columns that lets AI fill the rest after upload:
 - images is optional; include it when sellers usually attach filenames or URLs in bulk sheets.
 
 Title formula (for your reasoning only, applied at review): Core Product + Type + Performance + Scene + OEM
+
+Publishing skill rules (aidi1723/alibaba-icbu-publishing-skill, MIT):
+{skill_rules}
 
 Return JSON only:
 {{
@@ -293,6 +297,7 @@ def _llm_user_columns(
             ensure_ascii=False,
         ),
         candidates=json.dumps(compact, ensure_ascii=False),
+        skill_rules=skill_prompt_block(),
     )
     payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.1)
     raw_ids = payload.get("user_columns") or []
@@ -387,6 +392,8 @@ def build_plan(
         "ai_fills": ai_fills,
         "guarantee": excel_import.fill_policy([], {"attr_columns": required_attrs})["guarantee"],
         "review_note": "标题/关键词/卖点在审核表前几列由 AI 预填，可手改；下载表只填事实字段。",
+        "review_checklist": checklist_for_review(),
+        "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
     }
 
 

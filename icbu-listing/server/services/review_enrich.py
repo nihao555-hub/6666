@@ -14,6 +14,8 @@ from typing import Any, Mapping, Sequence
 
 from ai import AiClient, AiUnavailable, Understanding  # noqa: E402
 
+from .icbu_publishing_skill import KEYWORD_RULES, TITLE_RULES, skill_prompt_block
+
 TITLE_FORMULA = (
     "Core Product + Structure/Type + 1-2 Performance Words + Scene + Custom/OEM support word"
 )
@@ -93,6 +95,7 @@ def suggest_copy_for_row(
         "moq": str(row.get("moq") or "").strip(),
         "category": category_name,
         "title_formula": TITLE_FORMULA,
+        "publishing_skill_rules": skill_prompt_block(),
     }
     copy = ai.write_copy(understanding, extra_facts=extra)
     return {
