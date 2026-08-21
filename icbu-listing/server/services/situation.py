@@ -123,15 +123,14 @@ def _primary(snap: Snapshot) -> dict[str, Any]:
 
 def _alternatives(snap: Snapshot, current: str) -> list[dict[str, str]]:
     options = [
-        {"id": "photos", "label": "只有实拍图", "to": "/feed", "hint": "进投料先选「有实拍」。按文件名前缀批量归货。"},
-        {"id": "ai_images", "label": "没实拍：平台生成套图", "to": "/feed", "hint": "进投料先选「平台画图」。写出品名，平台画 6 张再填价。"},
-        {"id": "excel", "label": "下载表格批量上品", "to": "/feed", "hint": "进投料先选「填表批量」。一行一个商品，做到一半也能回来接着做。"},
+        {"id": "photos", "label": "只有实拍图", "to": "/feed", "hint": "进投料先选「有实拍」。按文件名前缀批量归货，不用先选类目。"},
+        {"id": "ai_images", "label": "没实拍：平台生成套图", "to": "/feed", "hint": "进投料先选「平台画图」。单条上品，写出品名，平台画 6 张再填价。"},
+        {"id": "batch", "label": "批量上品", "to": "/feed", "hint": "进投料先选「批量上品」。先选叶子类目，上传资料或表格，前台改完再成稿。"},
         {"id": "clone", "label": "店里已有同类目在售", "to": "/drafts?tab=live", "hint": "从在售拉回来改，保留类目和属性。"},
         {"id": "catalogue", "label": "货已在商品库", "to": "/products", "hint": "勾商品 × 勾店铺，一键铺多店。"},
-        {"id": "official", "label": "按官方：先选类目再填表", "to": "/feed?tab=excel&style=alibaba", "hint": "和 My Alibaba 批量上传同一思路，但 40 个红星字段由 AI 填。"},
     ]
     skip = {
-        "no_shop": {"photos", "excel", "clone", "catalogue", "official", "ai_images"},
+        "no_shop": {"photos", "batch", "clone", "catalogue", "ai_images"},
         "review_reds": set(),
         "review_ai": set(),
         "publish_ready": set(),

@@ -50,8 +50,7 @@ class SituationTests(unittest.TestCase):
         result = recommend(Snapshot(shops=1, defaults_untouched=False, online_count=0))
         self.assertEqual(result["id"], "new_shop_photos")
         ids = [item["id"] for item in result["alternatives"]]
-        self.assertIn("excel", ids)
-        self.assertIn("official", ids)
+        self.assertIn("batch", ids)
         self.assertIn("ai_images", ids)
         self.assertNotIn("clone", ids)
         self.assertNotIn("photos", ids)

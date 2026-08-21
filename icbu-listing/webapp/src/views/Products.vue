@@ -9,7 +9,7 @@
         <el-button :disabled="!selected.length" type="primary" @click="openDistribute">
           铺到店铺（{{ selected.length }}）
         </el-button>
-        <el-button @click="$router.push({ path: '/feed', query: { tab: 'excel' } })">Excel 入库</el-button>
+        <el-button @click="$router.push('/feed')">批量上品</el-button>
         <el-button @click="adding = true">入库新商品</el-button>
       </div>
     </div>

@@ -117,7 +117,7 @@ class FeedSessionTests(unittest.TestCase):
     def test_drop_hides_the_unfinished_path(self) -> None:
         client = signup("feed-drop@example.com")
         session = client.post("/api/v1/feed-sessions", json={"path": "excel"}).json()
-        self.assertEqual(session["path_label"], "填表批量")
+        self.assertEqual(session["path_label"], "批量上品")
         moved = client.patch(f"/api/v1/feed-sessions/{session['id']}", json={"step": 3, "reached": 3}).json()
         self.assertEqual(moved["step_label"], "图怎么处理")
         self.assertEqual(client.delete(f"/api/v1/feed-sessions/{session['id']}").status_code, 200)

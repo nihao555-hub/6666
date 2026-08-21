@@ -20,27 +20,22 @@
     <template v-if="!sessionId">
       <div class="chooser">
         <h3>先选一种上品方式</h3>
-        <p class="muted">四条路最后都是：你出图、单价、起订量；没写的数系统不会编。</p>
-        <div class="path-grid path-grid-4">
+        <p class="muted">三条路：有实拍、平台画图不用先选类目；批量上品必须先选叶子类目。</p>
+        <div class="path-grid path-grid-3">
           <button class="path-card" @click="startPath('photo')">
             <small>默认走这条</small>
             <b>有实拍</b>
-            <p class="muted">手机或工厂已经拍好了。上传图，再填单价和起订量。</p>
+            <p class="muted">手机或工厂已经拍好了。上传图，再填单价和起订量。AI 看图定类目。</p>
           </button>
           <button class="path-card" @click="startPath('ai')">
             <small>一张实拍都没有</small>
             <b>平台画图</b>
-            <p class="muted">只写品名（最好再贴一张参考图），平台画 6 张后再填价。生成图会标黄，不是实拍。</p>
-          </button>
-          <button class="path-card" @click="startPath('excel')">
-            <small>自己填短表</small>
-            <b>填表批量</b>
-            <p class="muted">短表一行一个货：货号、价、起订量、图。必填属性在表里，标题和详描 AI 补。</p>
+            <p class="muted">单条上品：写品名，平台画 6 张再填价。生成图会标黄，不是实拍。</p>
           </button>
           <button class="path-card" @click="startPath('doc')">
-            <small>有报价单 / 目录 / 表格</small>
-            <b>资料解析</b>
-            <p class="muted">上传现有资料，AI 填好整表，前台直接改，再批量成稿。不用手抄短表。</p>
+            <small>报价单 / 表格 / 目录</small>
+            <b>批量上品</b>
+            <p class="muted">先选类目，上传资料或表格，AI 填好商品表，前台改完再批量成稿。</p>
           </button>
         </div>
       </div>
@@ -346,281 +341,41 @@
       </div>
     </template>
 
-    <!-- 表格批量 -->
-    <template v-else-if="tab === 'excel'">
-      <FishboneSteps v-model="excelStep" :steps="excelSteps" :reached="excelReached" />
-
-      <div v-if="excelStep === 0" class="step-panel">
-        <h3>这批货是哪一类</h3>
-        <p class="muted">整表共用一个叶子类目。选完后下载短表，一行一个商品。</p>
-        <div style="margin-top: 16px">
-          <el-button @click="openCategory">{{ sheetPlan.category_name || excel.categoryName || "选择类目" }}</el-button>
-          <p v-if="sheetPlan.sheet?.family_id === 'leaf' && schemaColumnLabels.length" class="muted" style="margin-top: 10px">
-            表里还会带上这个类目的必填属性：{{ schemaColumnLabels.join("、") }}
-          </p>
-          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在拉类目属性…</p>
-        </div>
-        <div class="step-actions">
-          <el-button type="primary" :disabled="!excel.categoryId" @click="advanceFromCategoryStep">下一步，下载表格</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="excelDownloadStep" class="step-panel">
-        <h3>下载「{{ sheetPlan.sheet?.title || "填写表" }}」</h3>
-        <p class="muted">只填货号、单价、起订量；有图可写文件名或链接。标题、关键词、详描和选填属性交给 AI，导入后逐条审一下。</p>
-        <div class="sheet-preview" v-if="previewColumns.length">
-          <table>
-            <thead>
-              <tr>
-                <th
-                  v-for="col in previewColumns"
-                  :key="col.id"
-                  :style="sheetPlan.sheet?.header_color ? { background: `#${sheetPlan.sheet.header_color}` } : {}"
-                >
-                  {{ col.label }}<span v-if="col.required" class="need">必填</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="is-sample">
-                <td v-for="col in previewColumns" :key="col.id">{{ col.example || "—" }}</td>
-              </tr>
-              <tr>
-                <td v-for="col in previewColumns" :key="`${col.id}-empty`">
-                  <span class="muted">{{ col.id === "sku" ? "从这行开始写" : "" }}</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="step-actions" style="margin-top: 16px">
-          <el-button @click="backFromDownloadStep">上一步</el-button>
-          <el-button type="primary" @click="downloadAndAdvance">下载填写表</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="excelUploadStep" class="step-panel">
-        <h3>填完传回来</h3>
-        <p class="muted">灰色那行是示例，导入时会自动跳过。从下一行开始写你的货。</p>
-        <el-upload
-          v-model:file-list="excelFile"
-          :auto-upload="false"
-          :limit="1"
-          accept=".xlsx,.xlsm,.xls"
-          drag
-          style="margin-top: 14px"
-          @change="onExcelPicked"
-        >
-          <div style="padding: 22px 0">把填好的表格拖到这里</div>
-        </el-upload>
-        <el-alert
-          v-for="warning in excel.preview?.warnings || []"
-          :key="warning"
-          type="warning"
-          :title="warning"
-          :closable="false"
-          style="margin: 12px 0 0"
-        />
-        <div v-if="excel.preview?.row_issues?.length" class="row-issues">
-          <b>成稿前先看这几行</b>
-          <p class="muted">红的要改完再传。黄的只是提醒。</p>
-          <ul>
-            <li v-for="(issue, index) in excel.preview.row_issues.slice(0, 12)" :key="index">
-              <span :class="['dot', issue.level]"></span>
-              第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
-            </li>
-          </ul>
-        </div>
-        <p v-if="excel.preview" class="muted" style="margin-top: 12px">
-          识别到 {{ excel.preview.row_count }} 个商品，其中 {{ excel.preview.ready_count }} 个价和起订量齐了。
-          <template v-if="excel.preview.image_stats">
-            表里有图 {{ excel.preview.image_stats.with_sheet_images }} 个
-            <template v-if="excel.preview.image_stats.partial_sheet_images">
-              （{{ excel.preview.image_stats.partial_sheet_images }} 个不满 6 张）
-            </template>
-            ，没图 {{ excel.preview.image_stats.without_sheet_images }} 个。
-          </template>
-        </p>
-        <div class="step-actions">
-          <el-button @click="backFromUploadStep">上一步</el-button>
-          <el-button type="primary" :disabled="!excelFile.length" @click="advanceExcel(excelImageStepIndex)">下一步，图怎么处理</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="excelImageStep" class="step-panel">
-        <h3>这批图怎么处理</h3>
-        <p class="muted">一张表里可以有的行有图、有的没图，图多图少都按下面两句话走，不按张数分路。</p>
-        <div class="policy-block">
-          <small>有图的行</small>
-          <div class="path-grid">
-            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'keep' }" @click="excel.photoPolicy = 'keep'">
-              <small>工厂图已经能用</small>
-              <b>原图上架</b>
-              <p class="muted">有几张用几张，不改、不补。适合已经修好的实拍。</p>
-            </button>
-            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'complete' }" @click="excel.photoPolicy = 'complete'">
-              <small>推荐，想提高转化</small>
-              <b>原图留下，再补转化位</b>
-              <p class="muted">实拍不动。缺的白底主图、细节、使用、外箱等由平台补，补的标黄。</p>
-            </button>
-            <button type="button" class="path-card" :class="{ 'is-active': excel.photoPolicy === 'boost' }" @click="excel.photoPolicy = 'boost'">
-              <small>图太乱，要重做</small>
-              <b>当参考，重画转化套图</b>
-              <p class="muted">原图只用来认货，6 张都重画并标黄，不准冒充实拍。</p>
-            </button>
-          </div>
-        </div>
-        <div class="policy-block">
-          <small>没图的行</small>
-          <div class="path-grid path-grid-2">
-            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'draw' }" @click="excel.emptyPolicy = 'draw'">
-              <small>一张实拍都没有</small>
-              <b>按品名画套图</b>
-              <p class="muted">画 6 张并标黄。没写的尺寸、装箱量、认证一律不画。</p>
-            </button>
-            <button type="button" class="path-card" :class="{ 'is-active': excel.emptyPolicy === 'skip' }" @click="excel.emptyPolicy = 'skip'">
-              <small>只要有实拍的货</small>
-              <b>跳过没图的行</b>
-              <p class="muted">对不上图就不做成稿。</p>
-            </button>
-          </div>
-        </div>
-        <el-alert
-          v-if="excel.photoPolicy !== 'keep' || excel.emptyPolicy === 'draw'"
-          type="warning"
-          show-icon
-          :closable="false"
-          title="生成图不是实拍"
-          description="补上或重画的图会标黄。没写的尺寸、装箱量、认证一律不画。出图要时间，额度不够会停在那一行。"
-          style="margin-top: 14px"
-        />
-        <p class="muted" style="margin-top: 16px">{{ excelImageUploadHint }}</p>
-        <el-upload
-          v-model:file-list="excelImages"
-          :auto-upload="false"
-          multiple
-          accept="image/*"
-          drag
-          style="margin-top: 10px"
-        >
-          <div style="padding: 22px 0">有本地图就拖进来，按货号命名，例如 SKU-1001.jpg 或 SKU-1001_1.jpg</div>
-        </el-upload>
-        <div class="step-actions">
-          <el-button @click="backFromImageStep">上一步</el-button>
-          <el-button type="primary" @click="advanceExcel(excelGoStepIndex)">下一步，开始成稿</el-button>
-        </div>
-      </div>
-
-      <div v-else-if="excelGoStep" class="step-panel">
-        <h3>成稿之后还要人审</h3>
-        <p class="muted">填完短表不能撒手。{{ excelGoHint }} 导入后逐条核对，点「审过了」才能发。</p>
-        <div class="step-actions">
-          <el-button @click="backFromGoStep">上一步</el-button>
-          <el-button
-            type="primary"
-            :loading="excel.loading"
-            :disabled="!excelFile.length || !store.shopId || !excel.categoryId"
-            @click="importSimple"
-          >
-            批量成稿
-          </el-button>
-        </div>
-        <div v-if="excel.batch" style="margin-top: 18px">
-          <p>
-            共 {{ excel.batch.count }} 个商品，已成稿 {{ excelProgress.done }}/{{ excel.batch.count }}。
-            <template v-if="excelProgress.complete">
-              待审 {{ excelProgress.pending || 0 }} · 待改 {{ excelProgress.counts?.red || 0 }} · 已审可发 {{ excelProgress.ready || 0 }}。
-            </template>
-            <template v-else> 后台还在跑，可以关掉页面。</template>
-          </p>
-          <el-progress :percentage="excelPercent" :stroke-width="10" />
-          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
-            <el-button
-              type="primary"
-              :disabled="!excelProgress.complete"
-              @click="goBatchDrafts('pending')"
-            >
-              去审这一批
-            </el-button>
-            <el-button v-if="excelProgress.complete && excelProgress.ready" @click="goBatchDrafts('ready')">
-              看已审可发（{{ excelProgress.ready }}）
-            </el-button>
-          </div>
-        </div>
-      </div>
-
-      <details v-if="tab === 'excel'" class="erp-more">
-        <summary>已有领星 / 店小秘 / 马帮的现成表</summary>
-        <el-radio-group v-model="excel.style" class="style-grid" @change="onStyleChange">
-          <el-radio-button v-for="item in otherStyles" :key="item.id" :value="item.id">
-            {{ item.label }}
-          </el-radio-button>
-        </el-radio-group>
-        <p class="muted" style="margin: 12px 0 16px">{{ currentStyle?.summary }}</p>
-        <el-form label-width="88px" style="max-width: 640px">
-          <el-form-item v-if="currentStyle?.needs_listing_template" label="刊登模板">
-            <el-select v-model="excel.listingTemplateId" placeholder="先选一个类目模板" style="width: 320px">
-              <el-option
-                v-for="item in listingTemplates"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="模板">
-            <el-button @click="downloadTemplate">下载 {{ currentStyle?.label || "" }} 模板</el-button>
-          </el-form-item>
-          <el-form-item label="填好的表">
-            <el-upload v-model:file-list="excelFile" :auto-upload="false" :limit="1" accept=".xlsx,.xlsm,.xls">
-              <el-button>选择表格</el-button>
-            </el-upload>
-          </el-form-item>
-          <el-form-item label="配套图片">
-            <el-upload v-model:file-list="excelImages" :auto-upload="false" multiple accept="image/*">
-              <el-button>选择图片</el-button>
-            </el-upload>
-          </el-form-item>
-          <el-button :loading="excel.loading" :disabled="!excelFile.length" @click="previewExcel">探测表头</el-button>
-          <el-button type="primary" :loading="excel.loading" :disabled="!excel.preview" @click="importExcel">
-            确认导入
-          </el-button>
-        </el-form>
-        <el-table v-if="excel.style !== 'simple' && excel.preview" :data="mappingRows" size="small" style="max-width: 640px; margin-top: 12px">
-          <el-table-column prop="header" label="表格列" />
-          <el-table-column label="对到">
-            <template #default="{ row }">
-              <el-select v-model="excel.mapping[row.header]" clearable placeholder="忽略这一列">
-                <el-option v-for="field in excel.preview.fields" :key="field.id" :label="field.label" :value="field.id" />
-              </el-select>
-            </template>
-          </el-table-column>
-        </el-table>
-      </details>
-    </template>
-
-    <!-- 资料解析：上传文档 → AI 填表 → 前台可改 → 成稿 -->
+    <!-- 批量上品：选类目 → 导入资料 → 核对编辑 → 成稿 -->
     <template v-else-if="tab === 'doc'">
       <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
         <h3>这批货是哪一类</h3>
-        <p class="muted">整批共用一个叶子类目。AI 会把资料里的字段对齐到该类目的短表列（含官方必填属性）。</p>
+        <p class="muted">批量上品整批共用一个叶子类目。有实拍、平台画图不用先选类目。</p>
         <div style="margin-top: 16px">
           <el-button @click="openDocCategory">{{ doc.categoryName || sheetPlan.category_name || "选择类目" }}</el-button>
-          <p v-if="docGrid.columns.length" class="muted" style="margin-top: 10px">
-            解析后将按 {{ docGrid.columns.length }} 列填表：{{ docGrid.columns.slice(0, 8).map((c) => c.label).join("、") }}
-            <template v-if="docGrid.columns.length > 8">…</template>
+          <p v-if="officialLoading" class="muted" style="margin-top: 6px">正在拉类目属性…</p>
+          <p v-else-if="schemaColumnLabels.length" class="muted" style="margin-top: 10px">
+            表里会带上必填属性：{{ schemaColumnLabels.join("、") }}
           </p>
         </div>
+        <div v-if="doc.categoryId" class="category-next-box">
+          <b>选完类目后，批量上品可以走：</b>
+          <ul>
+            <li><b>上传资料</b> — 报价单、目录、已有 xlsx/csv（表格直接识别；照片/PDF 由 AI 提取）</li>
+            <li><b>下载短表</b> — 离线填货号、价、起订量、必填属性，填好再上传解析</li>
+            <li><b>没图的行</b> — 后面可选按品名画套图，或跳过</li>
+          </ul>
+          <p class="muted">标题、关键词、选填属性 AI 补；信息质量分 5.0 且审过才能发。</p>
+        </div>
         <div class="step-actions">
-          <el-button type="primary" :disabled="!doc.categoryId" @click="advanceDoc(1)">下一步，上传资料</el-button>
+          <el-button type="primary" :disabled="!doc.categoryId" @click="advanceDoc(1)">下一步，导入资料</el-button>
         </div>
       </div>
 
       <div v-else-if="docStep === 1" class="step-panel">
-        <h3>上传报价单 / 目录 / 表格</h3>
-        <p class="muted">支持 xlsx、csv、图片、txt。已有表格会直接识别；报价单照片或 PDF 文字由 AI 提取填进下一张表。</p>
+        <h3>导入资料</h3>
+        <p class="muted">支持 xlsx、csv、图片、txt、pdf，可多文件。领星 / 店小秘 / 马帮表头也能识别。</p>
+        <div class="toolbar" style="margin: 12px 0">
+          <el-button :disabled="!doc.categoryId" @click="downloadDocTemplate">下载空白短表</el-button>
+          <span class="muted">离线填好再拖回来，和上传报价单走同一条路</span>
+        </div>
         <el-upload
           v-model:file-list="docFiles"
           :auto-upload="false"
@@ -820,8 +575,6 @@ const photoStep = ref(0);
 const photoReached = ref(0);
 const aiStep = ref(0);
 const aiReached = ref(0);
-const excelStep = ref(0);
-const excelReached = ref(0);
 const docStep = ref(0);
 const docReached = ref(0);
 
@@ -836,19 +589,12 @@ const aiSteps = [
   { key: "price", label: "填价格" },
   { key: "draft", label: "生成草稿" },
 ];
-const excelSteps = [
-  { key: "cat", label: "选类目" },
-  { key: "dl", label: "下载表格" },
-  { key: "up", label: "传回表格" },
-  { key: "img", label: "图怎么处理" },
-  { key: "go", label: "成稿人审" },
-];
 const docSteps = [
   { key: "cat", label: "选类目" },
-  { key: "up", label: "上传资料" },
+  { key: "up", label: "导入资料" },
   { key: "edit", label: "核对编辑" },
   { key: "img", label: "图怎么处理" },
-  { key: "go", label: "开始成稿" },
+  { key: "go", label: "批量成稿" },
 ];
 const templates = ref({ families: [], sources: [] });
 const imageJob = ref(null);
@@ -866,16 +612,13 @@ const aiForm = reactive({
   categoryId: "",
   categoryName: "",
 });
-const categoryTarget = ref("excel");
+const categoryTarget = ref("doc");
 const loading = ref(false);
 const files = ref([]);
 const batchFiles = ref([]);
 const batch = ref(null);
 const progress = ref({ done: 0 });
 const form = reactive({ sku: "", price: "", moq: "", note: "" });
-const styles = ref([]);
-const listingTemplates = ref([]);
-const excelFile = ref([]);
 const excelImages = ref([]);
 const docFiles = ref([]);
 const doc = reactive({
@@ -897,54 +640,16 @@ const docGrid = reactive({
 const docProgress = ref({ done: 0 });
 let docTimer = null;
 const excel = reactive({
-  style: route.query.style || "simple",
-  listingTemplateId: "",
-  categoryId: route.query.category || "",
-  categoryName: "",
-  createDrafts: true,
-  loading: false,
-  preview: null,
-  mapping: {},
-  batch: null,
   photoPolicy: "complete",
   emptyPolicy: "draw",
 });
 const sheetPlan = ref({ user_fills: [], shop_fills: [], ai_fills: [], redline: [], guarantee: "", ai_attrs: [], category_name: "", preview: null, sheet: null });
 const officialLoading = ref(false);
 const categoryBrowser = ref(false);
-const excelProgress = ref({ done: 0 });
 let timer = null;
-let excelTimer = null;
+let docTimer = null;
 let imageTimer = null;
 
-const currentStyle = computed(() => styles.value.find((item) => item.id === excel.style));
-const otherStyles = computed(() => styles.value.filter((item) => item.id !== "simple" && item.id !== "full_schema"));
-const policy = computed(() => ({
-  user_fills: sheetPlan.value.user_fills?.length ? sheetPlan.value.user_fills : currentStyle.value?.policy?.user_fills || [],
-  shop_fills: sheetPlan.value.shop_fills?.length ? sheetPlan.value.shop_fills : currentStyle.value?.policy?.shop_fills || [],
-  ai_fills: sheetPlan.value.ai_fills?.length ? sheetPlan.value.ai_fills : currentStyle.value?.policy?.ai_fills || [],
-  redline: sheetPlan.value.redline?.length ? sheetPlan.value.redline : currentStyle.value?.policy?.redline || [],
-  guarantee:
-    sheetPlan.value.guarantee ||
-    currentStyle.value?.policy?.guarantee ||
-    "不能保证 AI 零出错。红线不让它编，对不上发不出，没人审过发不出。",
-}));
-const previewColumns = computed(() => sheetPlan.value.preview?.columns || policy.value.user_fills.map((item) => ({
-  id: item.id,
-  label: item.label,
-  required: item.required,
-  example: "",
-})));
-const mappingRows = computed(() => (excel.preview?.headers || []).map((header) => ({ header })));
-const excelPercent = computed(() => {
-  if (!excel.batch?.count) return 0;
-  return Math.min(100, Math.round((excelProgress.value.done / excel.batch.count) * 100));
-});
-const docPercent = computed(() => {
-  if (!doc.batch?.count) return 0;
-  return Math.min(100, Math.round((docProgress.value.done / doc.batch.count) * 100));
-});
-const familySpecLabels = computed(() => (sheetPlan.value.sheet?.spec_columns || []).map((item) => item.label).filter(Boolean));
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const schemaColumnLabels = computed(() =>
   (sheetPlan.value.preview?.columns || [])
@@ -952,19 +657,7 @@ const schemaColumnLabels = computed(() =>
     .map((col) => col.label)
     .filter(Boolean),
 );
-const officialAttrLabels = computed(() =>
-  (sheetPlan.value.ai_attrs || [])
-    .map((item) => item.header || item.label || item.name)
-    .filter(Boolean)
-    .slice(0, 8),
-);
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
-const excelDownloadStep = computed(() => excelStep.value === 1);
-const excelUploadStep = computed(() => excelStep.value === 2);
-const excelImageStep = computed(() => excelStep.value === 3);
-const excelGoStep = computed(() => excelStep.value === 4);
-const excelImageStepIndex = computed(() => 3);
-const excelGoStepIndex = computed(() => 4);
 const excelImageUploadHint = computed(() => {
   if (excel.photoPolicy === "boost") {
     return "有本地图或表里的链接都只当认货参考。没图的行看下面第二条。";
@@ -982,6 +675,10 @@ const excelGoHint = computed(() => {
   }[excel.photoPolicy] || "有图的按你选的规则处理";
   const emptyText = excel.emptyPolicy === "skip" ? "没图的跳过" : "没图的按品名画套图并标黄";
   return `${photoText}，${emptyText}。后台一条一条过。`;
+});
+const docPercent = computed(() => {
+  if (!doc.batch?.count) return 0;
+  return Math.min(100, Math.round((docProgress.value.done / doc.batch.count) * 100));
 });
 const percent = computed(() => {
   if (!batch.value?.count) return 0;
@@ -1019,9 +716,22 @@ function applyExcelImageMode(raw, photo, empty) {
 
 function pathToTab(path) {
   if (path === "ai") return "ai";
-  if (path === "doc") return "doc";
-  if (path === "excel" || path === "full") return "excel";
+  if (path === "doc" || path === "excel" || path === "full") return "doc";
   return "single";
+}
+
+function migrateLegacyExcelSession(session, payload) {
+  if (session.path !== "excel" && session.path !== "full") return;
+  const ep = payload.excel || {};
+  if (!doc.categoryId && ep.categoryId) {
+    doc.categoryId = ep.categoryId;
+    doc.categoryName = ep.categoryName || payload.categoryName || "";
+  }
+  if (!doc.batch && ep.batch) doc.batch = ep.batch;
+  applyExcelImageMode(ep.imageMode, ep.photoPolicy, ep.emptyPolicy);
+  const stepMap = { 0: 0, 1: 1, 2: 1, 3: 3, 4: 4 };
+  docStep.value = stepMap[session.step ?? 0] ?? 0;
+  docReached.value = Math.max(session.reached ?? 0, docStep.value);
 }
 
 function sessionPayload() {
@@ -1041,13 +751,9 @@ function sessionPayload() {
       categoryName: aiForm.categoryName,
     },
     excel: {
-      style: excel.style,
-      listingTemplateId: excel.listingTemplateId,
-      categoryId: excel.categoryId,
-      categoryName: excel.categoryName,
-      mapping: excel.mapping,
-      preview: excel.preview,
-      batch: excel.batch,
+      categoryId: doc.categoryId,
+      categoryName: doc.categoryName,
+      batch: doc.batch,
       imageMode: excelImageMode.value,
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
@@ -1071,27 +777,23 @@ function sessionPayload() {
     rowCount:
       docGrid.row_count ||
       docGrid.rows.length ||
-      excel.preview?.row_count ||
-      excel.batch?.count ||
       doc.batch?.count ||
       batch.value?.count ||
       0,
     imageJobId: imageJob.value?.id || "",
-    batchId: batch.value?.batch_id || excel.batch?.batch_id || doc.batch?.batch_id || "",
+    batchId: batch.value?.batch_id || doc.batch?.batch_id || "",
   };
 }
 
 function currentStep() {
   if (tab.value === "ai") return aiStep.value;
   if (tab.value === "doc") return docStep.value;
-  if (tab.value === "excel") return excelStep.value;
   return photoStep.value;
 }
 
 function currentReached() {
   if (tab.value === "ai") return aiReached.value;
   if (tab.value === "doc") return docReached.value;
-  if (tab.value === "excel") return excelReached.value;
   return photoReached.value;
 }
 
@@ -1180,13 +882,6 @@ function applySession(session) {
     planning: false,
   });
   if (payload.excel) {
-    excel.style = payload.excel.style || excel.style;
-    excel.listingTemplateId = payload.excel.listingTemplateId || "";
-    excel.categoryId = payload.excel.categoryId || "";
-    excel.categoryName = payload.excel.categoryName || payload.categoryName || "";
-    excel.mapping = payload.excel.mapping || {};
-    excel.preview = payload.excel.preview || null;
-    excel.batch = payload.excel.batch || null;
     applyExcelImageMode(payload.excel.imageMode, payload.excel.photoPolicy, payload.excel.emptyPolicy);
   }
   if (payload.doc) {
@@ -1204,7 +899,6 @@ function applySession(session) {
   }
   files.value = filesFromSession(session, "photos");
   batchFiles.value = filesFromSession(session, "batch");
-  excelFile.value = filesFromSession(session, "excel");
   excelImages.value = filesFromSession(session, "excel_images");
   docFiles.value = filesFromSession(session, "doc");
   imageJob.value = payload.imageJobId ? { id: payload.imageJobId, status: "queued", slots: [] } : null;
@@ -1212,16 +906,13 @@ function applySession(session) {
   if (tab.value === "ai") {
     aiStep.value = session.step || 0;
     aiReached.value = session.reached || 0;
-  } else if (tab.value === "excel") {
-    excelStep.value = session.step || 0;
-    excelReached.value = session.reached || 0;
-    if (session.path === "full") {
-      excel.style = "simple";
-      excelStep.value = Math.min(excelStep.value, excelSteps.length - 1);
-    }
   } else if (tab.value === "doc") {
-    docStep.value = session.step || 0;
-    docReached.value = session.reached || 0;
+    if (session.path === "excel" || session.path === "full") {
+      migrateLegacyExcelSession(session, payload);
+    } else {
+      docStep.value = session.step || 0;
+      docReached.value = session.reached || 0;
+    }
   } else {
     photoStep.value = session.step || 0;
     photoReached.value = session.reached || 0;
@@ -1231,13 +922,8 @@ function applySession(session) {
 
 async function startPath(path) {
   try {
-    const sessionPath = path === "full" ? "excel" : path;
+    const sessionPath = path === "excel" || path === "full" ? "doc" : path;
     const created = await api.createFeedSession({ path: sessionPath, shop_id: store.shopId || "" });
-    if (sessionPath === "excel") {
-      excel.style = "simple";
-      excelStep.value = 0;
-      excelReached.value = 0;
-    }
     if (sessionPath === "doc") {
       docStep.value = 0;
       docReached.value = 0;
@@ -1275,23 +961,14 @@ async function resumeSession(id) {
       timer = setInterval(poll, 3000);
       await poll();
     }
-    if (excel.batch?.batch_id) {
-      clearInterval(excelTimer);
-      excelTimer = setInterval(pollExcel, 3000);
-      await pollExcel();
-    }
     if (doc.batch?.batch_id) {
       clearInterval(docTimer);
       docTimer = setInterval(pollDoc, 3000);
       await pollDoc();
     }
-    if (excel.categoryId) {
-      await loadSheetPlan();
-      loadOfficialAttrs();
-    }
     if (doc.categoryId) {
       await loadSheetPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-      loadOfficialAttrs(true);
+      loadOfficialAttrs();
     }
   } catch (error) {
     const msg = String(error.message || "");
@@ -1336,12 +1013,6 @@ function advancePhoto(index) {
   persistSession();
 }
 
-function advanceExcel(index) {
-  excelReached.value = Math.max(excelReached.value, index);
-  excelStep.value = index;
-  persistSession();
-}
-
 function advanceAi(index) {
   aiReached.value = Math.max(aiReached.value, index);
   aiStep.value = index;
@@ -1351,18 +1022,6 @@ function advanceAi(index) {
 onMounted(async () => {
   try {
     templates.value = await api.imageTemplates();
-  } catch (error) {
-    ElMessage.error(error.message);
-  }
-  try {
-    styles.value = await api.excelStyles();
-    listingTemplates.value = store.shopId ? await api.templates({ shop_id: store.shopId }) : [];
-    onStyleChange();
-    await loadSheetPlan();
-    if (excel.categoryId) {
-      excelReached.value = Math.max(excelReached.value, 1);
-      loadOfficialAttrs();
-    }
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -1396,7 +1055,6 @@ watch(
 );
 watch(files, () => syncKind("photos", files.value), { deep: true });
 watch(batchFiles, () => syncKind("batch", batchFiles.value), { deep: true });
-watch(excelFile, () => syncKind("excel", excelFile.value), { deep: true });
 watch(excelImages, () => syncKind("excel_images", excelImages.value), { deep: true });
 watch(
   () => [excel.photoPolicy, excel.emptyPolicy],
@@ -1506,32 +1164,15 @@ async function submitGenerated() {
   }
 }
 
-function onStyleChange() {
-  excel.createDrafts = Boolean(currentStyle.value?.create_drafts_default);
-  excel.preview = null;
-}
-
-async function onExcelPicked() {
-  if ((excel.style === "simple" || excel.style === "full_schema") && excelFile.value[0]?.raw) {
-    await previewExcel();
-  }
-}
-
-async function importSimple() {
-  excel.createDrafts = true;
-  if (!excel.preview && excelFile.value[0]?.raw) await previewExcel();
-  if (excel.preview || sessionId.value) await importExcel();
-}
-
 async function loadSheetPlan(override = null) {
-  const categoryId = override?.categoryId ?? excel.categoryId ?? "";
-  const categoryName = override?.categoryName ?? excel.categoryName ?? "";
+  const categoryId = override?.categoryId ?? doc.categoryId ?? "";
+  const categoryName = override?.categoryName ?? doc.categoryName ?? "";
   try {
     sheetPlan.value = await api.excelSheetPlan({
       shop_id: store.shopId || "",
       category_id: categoryId,
       category_name: categoryName,
-      style: excel.style || "simple",
+      style: "simple",
     });
   } catch (error) {
     const msg = String(error.message || "");
@@ -1542,7 +1183,7 @@ async function loadSheetPlan(override = null) {
           shop_id: store.shopId,
           category_id: categoryId,
           category_name: categoryName,
-          style: excel.style || "simple",
+          style: "simple",
         });
         return;
       }
@@ -1563,45 +1204,20 @@ function syncDocColumnsFromPlan() {
   }));
 }
 
-async function advanceFromCategoryStep() {
-  advanceExcel(1);
-}
-
-function backFromDownloadStep() {
-  excelStep.value = 0;
-  persistSession();
-}
-
-function backFromUploadStep() {
-  excelStep.value = 1;
-  persistSession();
-}
-
-function backFromImageStep() {
-  excelStep.value = 2;
-  persistSession();
-}
-
-function backFromGoStep() {
-  excelStep.value = 3;
-  persistSession();
-}
-
-async function loadOfficialAttrs(forDoc = false) {
-  const categoryId = forDoc ? doc.categoryId : excel.categoryId;
-  if (!store.shopId || !categoryId) return;
+async function loadOfficialAttrs() {
+  if (!store.shopId || !doc.categoryId) return;
   officialLoading.value = true;
   try {
-    const data = await api.officialExcelAttrs(store.shopId, categoryId);
+    const data = await api.officialExcelAttrs(store.shopId, doc.categoryId);
     sheetPlan.value = {
       ...sheetPlan.value,
       ai_attrs: data.ai_attrs || [],
       ai_fills: data.ai_fills || sheetPlan.value.ai_fills,
     };
-    if (forDoc) syncDocColumnsFromPlan();
+    syncDocColumnsFromPlan();
   } catch {
     /* cached sheet-plan already has whatever we have locally */
-    if (forDoc) syncDocColumnsFromPlan();
+    syncDocColumnsFromPlan();
   } finally {
     officialLoading.value = false;
   }
@@ -1736,13 +1352,16 @@ function goDocBatchDrafts(filter = "pending") {
   router.push({ path: "/drafts", query: { batch_id: doc.batch.batch_id, filter } });
 }
 
-function openCategory() {
-  if (!store.shopId) {
-    ElMessage.warning("先登录一个店铺");
+function downloadDocTemplate() {
+  if (!doc.categoryId) {
+    ElMessage.warning("先选叶子类目");
     return;
   }
-  categoryTarget.value = "excel";
-  categoryBrowser.value = true;
+  window.location.href = api.excelTemplateUrl("simple", "", {
+    categoryId: doc.categoryId,
+    shopId: store.shopId,
+    categoryName: doc.categoryName || sheetPlan.value.category_name,
+  });
 }
 
 function openAiCategory() {
@@ -1762,7 +1381,7 @@ async function pickCategory(node) {
       await loadSheetPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
       syncDocColumnsFromPlan();
       ElMessage.success(`已选「${sheetPlan.value.category_name || doc.categoryName}」，上传资料后 AI 会按这些列填表`);
-      loadOfficialAttrs(true);
+      loadOfficialAttrs();
     } catch (error) {
       ElMessage.error(error.message);
     }
@@ -1782,103 +1401,11 @@ async function pickCategory(node) {
         aiForm.familyId = planned.family?.id || "";
       })
       .catch(() => {});
-    return;
   }
-  excel.style = "simple";
-  excel.categoryId = node.category_id;
-  excel.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
-  try {
-    await loadSheetPlan();
-    ElMessage.success(`已选「${sheetPlan.value.category_name || excel.categoryName}」，下载表将带上该类目必填属性`);
-    advanceExcel(1);
-    loadOfficialAttrs();
-  } catch (error) {
-    ElMessage.error(error.message);
-  }
-}
-
-function downloadTemplate() {
-  window.location.href = api.excelTemplateUrl(excel.style, excel.listingTemplateId, {
-    categoryId: excel.categoryId,
-    shopId: store.shopId,
-    categoryName: excel.categoryName || sheetPlan.value.category_name,
-  });
-}
-
-function downloadAndAdvance() {
-  downloadTemplate();
-  advanceExcel(2);
-}
-
-async function previewExcel() {
-  if (!excelFile.value[0]?.raw) {
-    ElMessage.warning("先选一个表格");
-    return;
-  }
-  const body = new FormData();
-  body.append("style", excel.style);
-  body.append("shop_id", store.shopId || "");
-  body.append("category_id", excel.categoryId || "");
-  body.append("image_mode", excelImageMode.value);
-  body.append("file", excelFile.value[0].raw);
-  excel.loading = true;
-  try {
-    excel.preview = await api.excelPreview(body);
-    excel.mapping = { ...(excel.preview.mapping || {}) };
-    await persistSession();
-    ElMessage.success(`识别到 ${excel.preview.row_count} 个商品`);
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    excel.loading = false;
-  }
-}
-
-async function importExcel() {
-  if (!excelFile.value[0]?.raw && !sessionId.value) return;
-  const body = new FormData();
-  body.append("style", excel.style);
-  body.append("shop_id", store.shopId || "");
-  body.append("mapping", JSON.stringify(excel.mapping));
-  body.append("create_drafts", excel.createDrafts ? "true" : "false");
-  body.append("listing_template_id", excel.listingTemplateId);
-  body.append("category_id", excel.categoryId);
-  body.append("session_id", sessionId.value);
-  body.append("image_mode", excelImageMode.value);
-  if (excelFile.value[0]?.raw) body.append("file", excelFile.value[0].raw);
-  excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
-  excel.loading = true;
-  try {
-    excel.batch = await api.excelImport(body);
-    excelProgress.value = { done: 0 };
-    sessionId.value = "";
-    clearInterval(excelTimer);
-    excelTimer = setInterval(pollExcel, 3000);
-    ElMessage.success(`已接收 ${excel.batch.count} 个商品，后台在成稿`);
-  } catch (error) {
-    ElMessage.error(error.message);
-  } finally {
-    excel.loading = false;
-  }
-}
-
-async function pollExcel() {
-  if (!excel.batch) return;
-  try {
-    excelProgress.value = await api.batchProgress(excel.batch.batch_id, { total: excel.batch.count });
-    if (excelProgress.value.complete) clearInterval(excelTimer);
-  } catch {
-    clearInterval(excelTimer);
-  }
-}
-
-function goBatchDrafts(filter = "pending") {
-  router.push({ path: "/drafts", query: { batch_id: excel.batch.batch_id, filter } });
 }
 
 onUnmounted(() => {
   clearInterval(timer);
-  clearInterval(excelTimer);
   clearInterval(docTimer);
   clearInterval(imageTimer);
 });
@@ -2019,15 +1546,12 @@ async function poll() {
 .path-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.path-grid-4 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
 .path-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 @media (min-width: 960px) {
-  .path-grid-4 {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .path-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (min-width: 960px) {
@@ -2350,6 +1874,24 @@ async function poll() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.category-next-box {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--gray3);
+}
+
+.category-next-box ul {
+  margin: 10px 0 8px;
+  padding-left: 18px;
+  color: var(--ink-2);
+}
+
+.category-next-box li + li {
+  margin-top: 6px;
 }
 
 .doc-grid-toolbar {
