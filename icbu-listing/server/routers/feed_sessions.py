@@ -115,6 +115,8 @@ def download_file(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> FileResponse:
+    reload_db_from_blob()
+    db.expire_all()
     row = sessions.get_owned(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")

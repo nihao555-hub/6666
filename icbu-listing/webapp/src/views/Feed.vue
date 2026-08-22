@@ -399,8 +399,9 @@ import { store } from "../store";
 
 const router = useRouter();
 const route = useRoute();
+const DEAD_SESSIONS_KEY = "icbu-dead-feed-sessions";
 const sessionId = ref("");
-const deadSessionIds = new Set();
+const deadSessionIds = loadDeadSessionIds();
 const openSessionIds = ref(new Set());
 let sessionEnsurePromise = null;
 let startPathPromise = null;
@@ -781,31 +782,82 @@ async function loadOpenSessions() {
   if (!store.user) return;
   try {
     const data = await api.feedSessions(store.shopId);
-    openSessions.value = (data.sessions || []).filter((item) =>
-      ["doc", "excel", "full"].includes(item.path),
+    openSessions.value = (data.sessions || []).filter(
+      (item) => ["doc", "excel", "full"].includes(item.path) && !deadSessionIds.has(item.id),
     );
-    openSessionIds.value = new Set(openSessions.value.map((item) => item.id));
+    mergeOpenSessionIds(openSessions.value.map((item) => item.id));
   } catch {
     openSessions.value = [];
-    openSessionIds.value = new Set();
   }
+}
+
+function mergeOpenSessionIds(ids) {
+  const merged = new Set(openSessionIds.value);
+  ids.forEach((id) => {
+    if (id && !deadSessionIds.has(id)) merged.add(id);
+  });
+  if (sessionId.value && !deadSessionIds.has(sessionId.value)) {
+    merged.add(sessionId.value);
+  }
+  openSessionIds.value = merged;
+}
+
+function loadDeadSessionIds() {
+  const dead = new Set();
+  try {
+    const raw = sessionStorage.getItem(DEAD_SESSIONS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) {
+      parsed.forEach((id) => {
+        if (id) dead.add(String(id));
+      });
+    }
+  } catch {
+    /* ignore corrupt cache */
+  }
+  return dead;
 }
 
 function rememberOpenSession(id) {
   if (!id || deadSessionIds.has(id)) return;
-  openSessionIds.value = new Set([...openSessionIds.value, id]);
+  mergeOpenSessionIds([id]);
 }
 
 function forgetSession(id) {
   if (!id) return;
   deadSessionIds.add(id);
+  try {
+    sessionStorage.setItem(DEAD_SESSIONS_KEY, JSON.stringify([...deadSessionIds].slice(-80)));
+  } catch {
+    /* sessionStorage may be unavailable */
+  }
   const next = new Set(openSessionIds.value);
   next.delete(id);
   openSessionIds.value = next;
+  openSessions.value = openSessions.value.filter((item) => item.id !== id);
 }
 
 function isKnownOpenSession(id) {
   return Boolean(id && !deadSessionIds.has(id) && openSessionIds.value.has(id));
+}
+
+function sessionFromOpenList(id) {
+  return openSessions.value.find((item) => item.id === id) || null;
+}
+
+async function fetchSessionOnce(id) {
+  if (!id || deadSessionIds.has(id)) return null;
+  try {
+    const session = await api.feedSession(id);
+    rememberOpenSession(id);
+    return session;
+  } catch (error) {
+    if (String(error.message || "").includes("不在了")) {
+      forgetSession(id);
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function ensureFeedSession(options = {}) {
@@ -824,26 +876,36 @@ async function ensureFeedSessionImpl(options = {}) {
   }
   if (deadSessionIds.has(sessionId.value)) {
     sessionId.value = "";
+    if (route.query.session) router.replace({ query: {} });
     await startPath();
     return Boolean(sessionId.value);
   }
   if (isKnownOpenSession(sessionId.value)) {
     return true;
   }
-  try {
-    await api.feedSession(sessionId.value);
+  await loadOpenSessions();
+  if (isKnownOpenSession(sessionId.value)) {
+    return true;
+  }
+  const cached = sessionFromOpenList(sessionId.value);
+  if (cached) {
     rememberOpenSession(sessionId.value);
     return true;
-  } catch (error) {
-    const msg = String(error.message || "");
-    if (!msg.includes("不在了")) throw error;
-    forgetSession(sessionId.value);
-    sessionId.value = "";
-    if (route.query.session) router.replace({ query: {} });
-    if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
-    await startPath();
-    return Boolean(sessionId.value);
   }
+  if (sessionId.value === String(route.query.session || "")) {
+    const fetched = await fetchSessionOnce(sessionId.value);
+    if (fetched) {
+      rememberOpenSession(sessionId.value);
+      return true;
+    }
+  }
+  const staleId = sessionId.value;
+  forgetSession(staleId);
+  sessionId.value = "";
+  if (route.query.session === staleId) router.replace({ query: {} });
+  if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
+  await startPath();
+  return Boolean(sessionId.value);
 }
 
 async function persistSession() {
@@ -997,53 +1059,53 @@ async function resumeSession(id) {
     await startPath();
     return;
   }
-  try {
-    const session = await api.feedSession(id);
-    applySession(session);
-    router.replace({ query: { session: id } });
-    if (doc.batch?.batch_id) {
-      clearInterval(docTimer);
-      docTimer = setInterval(pollDoc, 3000);
-      await pollDoc();
+  await loadOpenSessions();
+  let session = sessionFromOpenList(id);
+  if (!session) {
+    session = await fetchSessionOnce(id);
+  }
+  if (!session) {
+    if (route.query.session === id) router.replace({ query: {} });
+    const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
+    if (fallback && fallback.id !== id) {
+      await resumeSession(fallback.id);
+    } else {
+      await startPath();
     }
-    if (doc.categoryId) {
-      await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-      ensureGridPolling();
-      if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
-        void runReviewAssist(true);
-      }
+    return;
+  }
+  applySession(session);
+  rememberOpenSession(id);
+  router.replace({ query: { session: id } });
+  if (doc.batch?.batch_id) {
+    clearInterval(docTimer);
+    docTimer = setInterval(pollDoc, 3000);
+    await pollDoc();
+  }
+  if (doc.categoryId) {
+    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    ensureGridPolling();
+    if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+      void runReviewAssist(true);
     }
-  } catch (error) {
-    const msg = String(error.message || "");
-    if (msg.includes("不在了")) {
-      forgetSession(id);
-      if (sessionId.value === id) sessionId.value = "";
-      if (route.query.session === id) router.replace({ query: {} });
-      await loadOpenSessions();
-      const fallback = openSessions.value.find((item) => item.id !== id && !deadSessionIds.has(item.id));
-      if (fallback) {
-        await resumeSession(fallback.id);
-      } else {
-        await startPath();
-      }
-      return;
-    }
-    ElMessage.error(error.message);
   }
 }
 
 async function dropSession(id) {
   try {
     await api.dropFeedSession(id);
-    forgetSession(id);
-    if (sessionId.value === id) {
-      sessionId.value = "";
-      router.replace({ query: {} });
-    }
-    await loadOpenSessions();
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!String(error.message || "").includes("不在了")) {
+      ElMessage.error(error.message);
+      return;
+    }
   }
+  forgetSession(id);
+  if (sessionId.value === id) {
+    sessionId.value = "";
+    router.replace({ query: {} });
+  }
+  await loadOpenSessions();
 }
 
 async function dropCurrent() {
@@ -1061,16 +1123,23 @@ async function bootSession() {
     await loadOpenSessions();
     const wanted = route.query.session ? String(route.query.session) : "";
     if (wanted) {
-      if (openSessions.value.some((item) => item.id === wanted)) {
+      if (deadSessionIds.has(wanted)) {
+        router.replace({ query: {} });
+      } else if (sessionFromOpenList(wanted) || openSessionIds.value.has(wanted)) {
         await resumeSession(wanted);
+        return;
       } else {
+        const fetched = await fetchSessionOnce(wanted);
+        if (fetched) {
+          applySession(fetched);
+          rememberOpenSession(wanted);
+          router.replace({ query: { session: wanted } });
+          await loadOpenSessions();
+          return;
+        }
         forgetSession(wanted);
         router.replace({ query: {} });
-        const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
-        if (fallback) await resumeSession(fallback.id);
-        else await startPath();
       }
-      return;
     }
     const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (latest) {
