@@ -106,6 +106,30 @@ class DocumentParseTests(unittest.TestCase):
         self.assertEqual(result["rows"][0]["sku"], "SKU-9")
         self.assertIn("sku-9.jpg", result["rows"][0]["images"].lower())
 
+    def test_co_uploaded_images_match_by_folder_name(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        ws.append(["A001", "2.50", "200", "", "", "测试品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        fake_jpg = b"\xff\xd8\xff\xe0" + b"0" * 32
+        result = document_parse.parse_documents(
+            [
+                ("batch.xlsx", payload.getvalue()),
+                ("A001/1.png", fake_jpg),
+                ("A001/2.png", fake_jpg),
+            ],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=None,
+        )
+        self.assertEqual(result["rows"][0]["sku"], "A001")
+        self.assertIn("a001/1.png", result["rows"][0]["images"].lower())
+        self.assertIn("a001/2.png", result["rows"][0]["images"].lower())
+
     def test_co_uploaded_images_skip_llm_when_spreadsheet_present(self) -> None:
         wb = Workbook()
         ws = wb.active

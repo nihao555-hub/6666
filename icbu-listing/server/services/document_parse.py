@@ -264,13 +264,7 @@ def _suffix(name: str) -> str:
 
 
 def _image_uploads(files: Sequence[tuple[str, bytes]]) -> dict[str, bytes]:
-    uploads: dict[str, bytes] = {}
-    for name, content in files:
-        if not content or _suffix(name) not in IMAGE_SUFFIXES:
-            continue
-        key = name.rsplit("/", 1)[-1].lower()
-        uploads[key] = content
-    return uploads
+    return excel_import.build_upload_index(files)
 
 
 def attach_uploaded_images(items: Sequence[dict[str, Any]], uploads: Mapping[str, bytes]) -> list[dict[str, Any]]:

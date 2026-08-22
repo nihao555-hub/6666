@@ -18,7 +18,7 @@ import io
 import re
 from dataclasses import dataclass, field
 from collections.abc import Callable
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from openpyxl import Workbook, load_workbook
@@ -1346,24 +1346,93 @@ def resolve_row_files(
     return files[:6]
 
 
+_IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"})
+
+
+def _image_suffix(name: str) -> str:
+    lower = (name or "").lower()
+    if "." not in lower:
+        return ""
+    return lower[lower.rfind(".") :]
+
+
+def normalize_sku(sku: str) -> str:
+    return (sku or "").strip().lower()
+
+
+def _stem_of(path_or_name: str) -> str:
+    base = path_or_name.replace("\\", "/").rsplit("/", 1)[-1]
+    if "." in base:
+        return base.rsplit(".", 1)[0]
+    return base
+
+
+def _file_matches_sku(path_or_name: str, sku_norm: str) -> bool:
+    if not sku_norm:
+        return False
+    path = path_or_name.replace("\\", "/").lower()
+    parts = [part for part in path.split("/") if part]
+    file_stem = _stem_of(path)
+
+    if file_stem == sku_norm or file_stem.startswith(f"{sku_norm}_") or file_stem.startswith(f"{sku_norm}-"):
+        return True
+
+    if len(parts) >= 2:
+        folder = parts[-2]
+        if folder == sku_norm or folder.startswith(f"{sku_norm}_") or folder.startswith(f"{sku_norm}-"):
+            return True
+        if len(sku_norm) >= 3 and sku_norm in folder:
+            return True
+
+    if len(sku_norm) >= 3 and sku_norm in path:
+        return True
+
+    tokens = [bit for bit in re.split(r"[^a-z0-9]+", file_stem) if bit]
+    return sku_norm in tokens
+
+
+def build_upload_index(files: Sequence[tuple[str, bytes]]) -> dict[str, bytes]:
+    """Index images by relative path and basename for flexible SKU matching."""
+    uploads: dict[str, bytes] = {}
+    for name, content in files:
+        if not content:
+            continue
+        suffix = _image_suffix(name)
+        if suffix not in _IMAGE_SUFFIXES:
+            continue
+        rel = name.replace("\\", "/").lower()
+        uploads[rel] = content
+        base = rel.rsplit("/", 1)[-1]
+        if base and base not in uploads:
+            uploads[base] = content
+    return uploads
+
+
 def match_uploads(sku: str, names: list[str], uploads: dict[str, bytes]) -> list[tuple[str, bytes]]:
-    """Match extra files by exact name, then by SKU prefix (factory habit)."""
+    """Match uploads by sheet names, folder names, or SKU appearing in the path."""
     matched: list[tuple[str, bytes]] = []
     used: set[str] = set()
+    sku_norm = normalize_sku(sku)
+
     for name in names:
-        key = name.lower()
+        key = name.replace("\\", "/").lower()
         if key in uploads and key not in used:
             matched.append((name, uploads[key]))
             used.add(key)
-    prefix = (sku or "").lower()
-    if prefix:
-        for filename, content in uploads.items():
+            continue
+        base = key.rsplit("/", 1)[-1]
+        if base in uploads and base not in used:
+            matched.append((name, uploads[base]))
+            used.add(base)
+
+    if sku_norm:
+        for filename in sorted(uploads.keys()):
             if filename in used:
                 continue
-            stem = filename.rsplit(".", 1)[0]
-            if stem == prefix or stem.startswith(f"{prefix}_") or stem.startswith(f"{prefix}-"):
-                matched.append((filename, content))
+            if _file_matches_sku(filename, sku_norm):
+                matched.append((filename, uploads[filename]))
                 used.add(filename)
+
     return matched
 
 

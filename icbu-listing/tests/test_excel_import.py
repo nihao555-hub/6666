@@ -94,6 +94,16 @@ class ParseTests(unittest.TestCase):
         files = resolve_row_files(ExcelRow(sku="SKU-1001"), {"sku-1001.jpg": b"only"})
         self.assertEqual(len(files), 1)
 
+    def test_uploads_match_folder_and_contains_sku(self) -> None:
+        uploads = {
+            "a001/1.png": b"one",
+            "a001/2.png": b"two",
+            "photos/产品-a001.jpg": b"three",
+            "other/x.jpg": b"nope",
+        }
+        matched = match_uploads("A001", [], uploads)
+        self.assertEqual({name for name, _ in matched}, {"a001/1.png", "a001/2.png", "photos/产品-a001.jpg"})
+
 
 class TemplateTests(unittest.TestCase):
     def test_sheet_preview_is_the_short_form_not_official_forty(self) -> None:

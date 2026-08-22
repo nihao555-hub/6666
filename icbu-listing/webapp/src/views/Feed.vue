@@ -101,11 +101,12 @@
         </div>
         <section v-if="doc.categoryId" class="image-help">
           <h4>上传表格和图片</h4>
-          <ol class="upload-flow-steps">
-            <li><b>下载并填写</b>智能表（货号、单价、起订量为必填；备注里写规格事实，AI 才有依据补属性）</li>
-            <li><b>拖入</b>填好的 xlsx 与商品图（货号 <code>SKU-1001</code> 对应 <code>SKU-1001.jpg</code>，不用写进表格）</li>
-            <li><b>解析并进入审核</b> — AI 写标题/关键词并出图，你在审核页核对后批量成稿</li>
-          </ol>
+          <p class="upload-flow-lead">不用改文件名。表格和图一起拖进来，系统按<strong>货号</strong>自动配对。</p>
+          <ul class="upload-flow-steps upload-flow-simple">
+            <li>文件名或文件夹名里<strong>包含货号</strong>即可，例如 <code>产品-A001.jpg</code>、<code>A001/1.png</code></li>
+            <li>也可点「选图片文件夹」一次导入整个目录（支持子文件夹按货号分）</li>
+            <li>填好表格后点「解析并进入审核」，AI 写文案并补图</li>
+          </ul>
           <p v-if="uploadSummary" class="upload-summary">{{ uploadSummary }}</p>
         </section>
         <div
@@ -124,8 +125,8 @@
             @change="onDocFilesChange"
           >
             <div class="upload-drop-inner">
-              <p>拖入表格 + 图片，或点击选择文件</p>
-              <p class="muted upload-drop-hint">也支持一次选整个图片文件夹</p>
+              <p>拖入填好的表格 + 商品图片</p>
+              <p class="muted upload-drop-hint">文件名或文件夹名包含货号即可，不必改成 SKU-1001.jpg</p>
               <el-button type="primary" plain @click.stop="pickImageFolder">选图片文件夹</el-button>
             </div>
           </el-upload>
@@ -394,6 +395,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { prefetchCategoryPicker } from "../categoryPickerCache";
 import CategoryPicker from "../components/CategoryPicker.vue";
 import FishboneSteps from "../components/FishboneSteps.vue";
+import { buildUploadMap, fileStorageKey, matchUploadFiles } from "../imageMatch";
 import { api } from "../api";
 import { store } from "../store";
 
@@ -1210,45 +1212,17 @@ function isSpreadsheetFile(name) {
   return [".xlsx", ".xls", ".xlsm", ".csv"].includes(fileSuffix(name));
 }
 
-function matchUploadFiles(sku, names, uploads) {
-  const matched = [];
-  const used = new Set();
-  for (const name of names) {
-    const key = String(name || "").toLowerCase();
-    if (key && uploads[key] && !used.has(key)) {
-      matched.push([name, uploads[key]]);
-      used.add(key);
-    }
-  }
-  const prefix = String(sku || "").toLowerCase();
-  if (prefix) {
-    Object.entries(uploads).forEach(([filename, raw]) => {
-      if (used.has(filename)) return;
-      const stem = filename.includes(".") ? filename.slice(0, filename.lastIndexOf(".")) : filename;
-      if (stem === prefix || stem.startsWith(`${prefix}_`) || stem.startsWith(`${prefix}-`)) {
-        matched.push([filename, raw]);
-        used.add(filename);
-      }
-    });
-  }
-  return matched;
-}
-
 function slotsFromLocalUrls(urls) {
   const slots = DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot }));
-  urls.slice(0, 6).forEach((url, index) => {
-    if (!url) return;
-    slots[index] = { ...slots[index], status: "uploaded", url };
+  (urls || []).slice(0, 6).forEach((url, index) => {
+    if (!String(url || "").trim()) return;
+    slots[index] = { ...slots[index], status: "uploaded", url: String(url).trim() };
   });
   return slots;
 }
 
 function applyLocalImageMatches(rows, files) {
-  const uploads = {};
-  files.forEach((item) => {
-    if (!item?.raw || !isImageFile(item.name)) return;
-    uploads[String(item.name).toLowerCase()] = item.raw;
-  });
+  const uploads = buildUploadMap(files);
   if (!Object.keys(uploads).length) return rows;
   return rows.map((row) => {
     const names = String(row.images || "")
@@ -1272,7 +1246,7 @@ function allUploadImageFiles() {
   const items = [];
   [...docFiles.value, ...excelImages.value].forEach((item) => {
     if (!item?.raw || !isImageFile(item.name)) return;
-    const key = String(item.name).toLowerCase();
+    const key = fileStorageKey(item.raw);
     if (seen.has(key)) return;
     seen.add(key);
     items.push(item);
@@ -1281,17 +1255,21 @@ function allUploadImageFiles() {
 }
 
 function addDocFiles(files) {
-  const existing = new Set(docFiles.value.map((item) => String(item.name).toLowerCase()));
+  const existing = new Set(docFiles.value.map((item) => fileStorageKey(item.raw || { name: item.name })));
   let added = 0;
   files.forEach((file) => {
     if (!file) return;
-    const key = String(file.name || "").toLowerCase();
+    const key = fileStorageKey(file);
     if (!key || existing.has(key)) return;
-    docFiles.value.push({ name: file.name, raw: file, status: "success" });
+    const label = file.webkitRelativePath || file.name;
+    docFiles.value.push({ name: label, raw: file, status: "success" });
     existing.add(key);
     added += 1;
   });
-  if (added) scheduleDocImageSync();
+  if (added) {
+    docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+    scheduleDocImageSync();
+  }
   return added;
 }
 
@@ -2847,6 +2825,14 @@ onUnmounted(() => {
 }
 .plan-cache-note {
   margin: 8px 0 0;
+  font-size: 12px;
+}
+.upload-flow-lead {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.upload-flow-simple code {
   font-size: 12px;
 }
 .upload-summary {
