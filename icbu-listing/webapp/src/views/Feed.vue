@@ -2244,7 +2244,7 @@ async function parseDocuments() {
   }
   uploadables.forEach((item) => body.append("files", item.raw));
   docGrid.loading = true;
-  parseStatus.value = "正在读取表格…";
+  parseStatus.value = "AI 正在读表…";
   resetReviewAiSteps();
   patchReviewStep("service", { status: "running", detail: "正在解析表格…" });
   try {

@@ -455,6 +455,8 @@ def _explain_parse_failure(
             "AI 已阅读你上传的资料，但没有提取到有效商品行。"
             "请确认表格里有货号、单价、起订量，或换更完整的报价单/表格。"
         )
+    if llm_tried and "only_sample_rows" in tags:
+        return "AI 已阅读表格，但只看到示例行。请从下一行开始填写你的商品，并保留表头。"
     if not ai_available and sheet_diagnostics:
         return "表格未能自动识别，解析 PDF/扫描件/非标准报价单需要配置 AI（OPENAI_API_KEY）。请上传标准 Excel/CSV，或配置 AI 后重试。"
 
@@ -483,11 +485,19 @@ def parse_documents(
     sheet_diagnostics: dict[str, str] = {}
     llm_tried = False
     llm_row_count = 0
+    ai_first = ai is not None
 
     for name, content in files:
         if not content:
             continue
         suffix = _suffix(name)
+        if ai_first:
+            unstructured.append((name, content))
+            if suffix in SPREADSHEET_SUFFIXES:
+                _, tag = _parse_spreadsheet(name, content, extras)
+                sheet_diagnostics[name] = tag
+            continue
+
         if suffix in SPREADSHEET_SUFFIXES:
             rows, tag = _parse_spreadsheet(name, content, extras)
             sheet_diagnostics[name] = tag
@@ -504,30 +514,27 @@ def parse_documents(
     grid_items: list[dict[str, Any]] = [row_to_grid_item(row, columns) for row in structured]
     warnings: list[str] = []
 
-    if unstructured:
-        if ai is None:
-            if not grid_items:
-                message = _explain_parse_failure(
-                    files=files,
-                    sheet_diagnostics=sheet_diagnostics,
-                    llm_tried=False,
-                    llm_row_count=0,
-                    ai_available=False,
-                )
-                if "OPENAI" in message or "配置 AI" in message:
-                    raise AiUnavailable(message)
-                raise ValueError(message)
-            warnings.append("部分文件需要 AI 解析，但未配置模型，已忽略。")
-        else:
-            llm_tried = True
-            extracted, llm_warnings = _llm_extract(ai, unstructured, columns, category_name=category_name)
-            llm_row_count = len(extracted)
-            grid_items.extend(extracted)
-            if extracted:
-                sources.append("AI 资料解析")
-            elif any(tag != "ok" for tag in sheet_diagnostics.values()):
-                warnings.append("表格规则解析未识别到行，已交给 AI 读表；若仍为空，请检查表头或补全货号/单价/起订量。")
-            warnings.extend(llm_warnings)
+    if ai_first and unstructured:
+        llm_tried = True
+        extracted, llm_warnings = _llm_extract(ai, unstructured, columns, category_name=category_name)
+        llm_row_count = len(extracted)
+        grid_items = extracted
+        if extracted:
+            sources.append("AI 资料解析")
+        warnings.extend(llm_warnings)
+    elif unstructured:
+        if not grid_items:
+            message = _explain_parse_failure(
+                files=files,
+                sheet_diagnostics=sheet_diagnostics,
+                llm_tried=False,
+                llm_row_count=0,
+                ai_available=False,
+            )
+            if "OPENAI" in message or "配置 AI" in message:
+                raise AiUnavailable(message)
+            raise ValueError(message)
+        warnings.append("部分文件需要 AI 解析，但未配置模型，已忽略。")
 
     if not grid_items:
         raise ValueError(
