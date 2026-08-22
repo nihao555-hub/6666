@@ -215,7 +215,27 @@
           <ol v-if="ecosystemBrief.assistant_steps?.length" class="ecosystem-brief-steps">
             <li v-for="(step, idx) in ecosystemBrief.assistant_steps" :key="idx">{{ step }}</li>
           </ol>
-          <div v-if="ecosystemBrief.golden_titles?.length" class="ecosystem-golden">
+          <div v-if="ecosystemBrief.golden_listings?.length" class="ecosystem-golden-listings">
+            <small>店里同品类顶级上品案例（AI 学标题结构、关键词分层、属性深度与六图完整度，不会照抄）</small>
+            <article
+              v-for="(item, idx) in ecosystemBrief.golden_listings.slice(0, 3)"
+              :key="`${item.product_id || idx}-${item.title}`"
+              class="golden-listing-card"
+            >
+              <header>
+                <span class="golden-listing-badge">案例 {{ idx + 1 }}</span>
+                <span v-if="item.quality_score" class="golden-listing-score">参考分 {{ item.quality_score }}</span>
+              </header>
+              <p class="golden-title">{{ item.title }}</p>
+              <p v-if="item.keywords?.length" class="golden-meta">关键词：{{ item.keywords.join(" · ") }}</p>
+              <p v-if="Object.keys(item.key_attrs || {}).length" class="golden-meta">
+                属性：{{ Object.entries(item.key_attrs).slice(0, 4).map(([k, v]) => `${k}=${v}`).join("；") }}
+              </p>
+              <p v-if="item.highlights" class="golden-meta">卖点：{{ item.highlights }}</p>
+              <p v-if="item.image_count" class="golden-meta">图片：{{ item.image_count }} 张已齐</p>
+            </article>
+          </div>
+          <div v-else-if="ecosystemBrief.golden_titles?.length" class="ecosystem-golden">
             <small>店里同品类在售标题（AI 参考结构与用词，不会照抄）</small>
             <p v-for="(title, idx) in ecosystemBrief.golden_titles.slice(0, 3)" :key="idx" class="golden-title">{{ title }}</p>
           </div>
@@ -2784,6 +2804,50 @@ onUnmounted(() => {
   font-size: 12px;
   line-height: 1.5;
   color: #334155;
+}
+
+.ecosystem-golden-listings {
+  margin-top: 10px;
+}
+
+.ecosystem-golden-listings > small {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted, #666);
+  font-size: 12px;
+}
+
+.golden-listing-card {
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.golden-listing-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.golden-listing-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent, #2563eb);
+}
+
+.golden-listing-score {
+  font-size: 11px;
+  color: var(--muted, #666);
+}
+
+.golden-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #475569;
 }
 
 .ecosystem-kw-tiers {

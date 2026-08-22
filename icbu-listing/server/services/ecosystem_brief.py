@@ -11,9 +11,13 @@ from typing import Any, Mapping, Sequence
 
 from sqlalchemy.orm import Session
 
+from schema import extract_values  # noqa: E402
+
 from ..models import Shop
 from . import catalog, templates
+from .clone import images_from_values, price_moq, render_xml
 from .icbu_publishing_skill import KEYWORD_RULES, TITLE_RULES, checklist_for_review, skill_prompt_block
+from .shop_categories import _listing_products
 from .shop_client import ShopNotConnected, shop_api, shop_defaults
 
 INQUIRY_TERMS = (
@@ -44,36 +48,211 @@ def _utf8_len(text: str) -> int:
     return len(str(text or "").encode("utf-8"))
 
 
-def _sample_online_titles(
+def _scalar_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("$value") or value.get("value") or "").strip()
+    return str(value or "").strip()
+
+
+def _keywords_from_values(values: Mapping[str, Any]) -> list[str]:
+    block = values.get("productKeywords") or {}
+    if not isinstance(block, dict):
+        return []
+    words: list[str] = []
+    for key in sorted(block.keys()):
+        text = _scalar_text(block[key])
+        if text:
+            words.append(text)
+    return words[:3]
+
+
+def _attrs_snapshot(values: Mapping[str, Any], *, limit: int = 6) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for group in ("icbuCatProp", "saleProp"):
+        block = values.get(group) or {}
+        if not isinstance(block, dict):
+            continue
+        for key, raw in block.items():
+            if len(out) >= limit:
+                return out
+            token = str(key or "")
+            if token.startswith("@") or token.endswith("_$"):
+                continue
+            text = _scalar_text(raw)
+            if not text:
+                continue
+            label = token.split("_")[-1] if "_" in token else token
+            out[label] = text
+    return out
+
+
+def _subject_score(subject: str, *, category_match: bool) -> int:
+    title = str(subject or "").strip()
+    if not title:
+        return 0
+    score = 10 if category_match else 0
+    lower = title.lower()
+    if 24 <= len(title) <= 120:
+        score += 12
+    elif len(title) >= 16:
+        score += 6
+    if any(term in lower for term in INQUIRY_TERMS):
+        score += 10
+    if not any(phrase in lower for phrase in SPAM_PHRASES):
+        score += 8
+    return score
+
+
+def _listing_example_score(values: Mapping[str, Any], *, subject: str = "") -> int:
+    title = str(values.get("productTitle") or subject or "").strip()
+    if not title:
+        return 0
+    score = _subject_score(title, category_match=True)
+    keywords = _keywords_from_values(values)
+    if len(keywords) >= 2:
+        score += 20
+    elif keywords:
+        score += 10
+    attrs = _attrs_snapshot(values, limit=8)
+    if len(attrs) >= 4:
+        score += 18
+    elif len(attrs) >= 2:
+        score += 10
+    image_count = len(images_from_values(values))
+    if image_count >= 6:
+        score += 16
+    elif image_count >= 3:
+        score += 8
+    highlights = _scalar_text(values.get("textDesc") or values.get("superText") or "")
+    if len(highlights) >= 40:
+        score += 8
+    price, moq = price_moq(values)
+    if price and moq:
+        score += 6
+    return score
+
+
+def _example_from_values(
+    *,
+    product_id: str,
+    category_id: str,
+    subject: str,
+    values: Mapping[str, Any],
+    score: int,
+) -> dict[str, Any]:
+    title = str(values.get("productTitle") or subject or "").strip()
+    price, moq = price_moq(values)
+    return {
+        "product_id": product_id,
+        "category_id": category_id,
+        "title": title,
+        "keywords": _keywords_from_values(values),
+        "moq": moq,
+        "price": price,
+        "highlights": _scalar_text(values.get("textDesc") or values.get("superText") or "")[:240],
+        "key_attrs": _attrs_snapshot(values),
+        "image_count": len(images_from_values(values)),
+        "quality_score": score,
+        "source": "shop_online",
+    }
+
+
+def _sample_golden_listings(
     api: Any,
+    shop: Shop,
     *,
     category_id: str,
-    limit: int = 5,
-    pages: int = 2,
-) -> list[str]:
-    """Pull subject lines from this shop's on-selling listings (same leaf when possible)."""
-    titles: list[str] = []
-    seen: set[str] = set()
-    for page in range(1, pages + 1):
+    limit: int = 3,
+    scan_pages: int = 3,
+    render_candidates: int = 8,
+) -> list[dict[str, Any]]:
+    """Pull full listing examples from this shop's on-selling products in the same leaf."""
+    language = str(shop_defaults(shop).get("language") or "en_US")
+    candidates: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for page in range(1, scan_pages + 1):
         try:
             payload = api.list_products(page, 30, "onSelling")
         except Exception:
             break
-        nested = payload.get("product_list") if isinstance(payload.get("product_list"), dict) else {}
-        items = nested.get("products") or payload.get("products") or []
+        items, _total = _listing_products(payload if isinstance(payload, dict) else {})
         for item in items:
             if not isinstance(item, Mapping):
                 continue
-            cid = str(item.get("category_id") or "")
+            product_id = str(item.get("product_id") or item.get("id") or "").strip()
+            cid = str(item.get("category_id") or "").strip()
             subject = str(item.get("subject") or "").strip()
-            if not subject or subject.lower() in seen:
+            if not product_id or product_id in seen_ids or not subject:
                 continue
+            category_match = not category_id or cid == str(category_id)
             if category_id and cid and cid != str(category_id):
                 continue
-            seen.add(subject.lower())
-            titles.append(subject)
-            if len(titles) >= limit:
-                return titles
+            seen_ids.add(product_id)
+            candidates.append(
+                {
+                    "product_id": product_id,
+                    "category_id": cid or category_id,
+                    "subject": subject,
+                    "pref_score": _subject_score(subject, category_match=category_match),
+                }
+            )
+    candidates.sort(key=lambda row: row["pref_score"], reverse=True)
+    examples: list[dict[str, Any]] = []
+    for candidate in candidates[:render_candidates]:
+        pid = candidate["product_id"]
+        cid = candidate["category_id"] or category_id
+        subject = candidate["subject"]
+        try:
+            xml = render_xml(api, cid, pid, language)
+            values = extract_values(xml)
+        except Exception:
+            values = {}
+        if values:
+            score = _listing_example_score(values, subject=subject)
+            if score < 35:
+                continue
+            examples.append(_example_from_values(product_id=pid, category_id=cid, subject=subject, values=values, score=score))
+        elif candidate["pref_score"] >= 18:
+            examples.append(
+                {
+                    "product_id": pid,
+                    "category_id": cid,
+                    "title": subject,
+                    "keywords": [],
+                    "moq": "",
+                    "price": "",
+                    "highlights": "",
+                    "key_attrs": {},
+                    "image_count": 0,
+                    "quality_score": candidate["pref_score"],
+                    "source": "shop_online_subject",
+                }
+            )
+    examples.sort(key=lambda row: int(row.get("quality_score") or 0), reverse=True)
+    deduped: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for item in examples:
+        token = str(item.get("title") or "").strip().lower()
+        if not token or token in seen_titles:
+            continue
+        seen_titles.add(token)
+        deduped.append(item)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _sample_online_titles(golden_listings: Sequence[Mapping[str, Any]], *, limit: int = 5) -> list[str]:
+    titles: list[str] = []
+    seen: set[str] = set()
+    for item in golden_listings:
+        title = str(item.get("title") or "").strip()
+        if not title or title.lower() in seen:
+            continue
+        seen.add(title.lower())
+        titles.append(title)
+        if len(titles) >= limit:
+            break
     return titles
 
 
@@ -93,10 +272,16 @@ def build_brief(
         except ShopNotConnected:
             resolved_api = None
 
-    golden_titles: list[str] = []
+    golden_listings: list[dict[str, Any]] = []
     online_count = int(shop.online_count or -1)
     if resolved_api is not None:
-        golden_titles = _sample_online_titles(resolved_api, category_id=category_id, limit=5)
+        golden_listings = _sample_golden_listings(
+            resolved_api,
+            shop,
+            category_id=category_id,
+            limit=3,
+        )
+    golden_titles = _sample_online_titles(golden_listings)
 
     shop_policy = shop_defaults(shop)
     template_row = templates.find_for(db, shop.id, category_id)
@@ -142,6 +327,7 @@ def build_brief(
         "category_name": category_name,
         "online_count": online_count,
         "golden_titles": golden_titles,
+        "golden_listings": golden_listings,
         "template_name": template_name,
         "shop_policy_keys": [key for key, value in shop_policy.items() if str(value or "").strip()],
         "template_field_keys": [key for key, value in template_fields.items() if str(value or "").strip()],
@@ -151,20 +337,20 @@ def build_brief(
         "assistant_steps": assistant_steps,
         "review_checklist": checklist_for_review(),
         "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
-        "tips": _tips_for_shop(online_count, golden_titles, template_name, category_name),
+        "tips": _tips_for_shop(online_count, golden_listings, template_name, category_name),
     }
 
 
 def _tips_for_shop(
     online_count: int,
-    golden_titles: Sequence[str],
+    golden_listings: Sequence[Mapping[str, Any]],
     template_name: str,
     category_name: str,
 ) -> str:
     bits: list[str] = []
     label = category_name or "本类目"
-    if golden_titles:
-        bits.append(f"参考店里同品类在售标题写法（已采样 {len(golden_titles)} 条）")
+    if golden_listings:
+        bits.append(f"已采样 {len(golden_listings)} 条店里同品类顶级上品案例供 AI 学习（标题/关键词/属性/六图结构）")
     elif online_count > 0:
         bits.append("店里有在售商品，可先上「在线商品」页学成模板/默认")
     else:
@@ -189,6 +375,29 @@ def prompt_block(brief: Mapping[str, Any]) -> str:
         lines.append("- Shop's live listing title patterns on Alibaba (match tone/structure, do not copy verbatim):")
         for title in titles[:5]:
             lines.append(f"  · {title}")
+    listings = brief.get("golden_listings") or []
+    if listings:
+        lines.append(
+            "- Top reference listings from this shop on Alibaba International "
+            "(match depth, keyword tiers, attribute coverage, and image completeness — never copy verbatim):"
+        )
+        for index, item in enumerate(listings[:3], start=1):
+            lines.append(f"  Example {index}:")
+            if item.get("title"):
+                lines.append(f"    title: {item['title']}")
+            keywords = item.get("keywords") or []
+            if keywords:
+                lines.append(f"    keywords: {', '.join(str(word) for word in keywords[:3])}")
+            attrs = item.get("key_attrs") or {}
+            if attrs:
+                pairs = ", ".join(f"{key}={value}" for key, value in list(attrs.items())[:5])
+                lines.append(f"    key_attrs: {pairs}")
+            if item.get("highlights"):
+                lines.append(f"    highlights: {str(item['highlights'])[:160]}")
+            if item.get("moq") or item.get("price"):
+                lines.append(f"    trade: MOQ {item.get('moq') or '?'} @ USD {item.get('price') or '?'}")
+            if item.get("image_count"):
+                lines.append(f"    images: {item['image_count']} filled slots")
     limits = brief.get("schema_limits") or {}
     title_spec = limits.get("productTitle") or {}
     if title_spec.get("max_length"):

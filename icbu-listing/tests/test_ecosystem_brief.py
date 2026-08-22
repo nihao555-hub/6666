@@ -3,6 +3,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -40,9 +41,71 @@ class EcosystemBriefTests(unittest.TestCase):
         self.assertIn("Wholesale Flat Paint Brush", block)
         self.assertIn("Paint Brushes", block)
 
+    def test_prompt_block_includes_golden_listings(self) -> None:
+        brief = {
+            "category_name": "Paint Brushes",
+            "golden_listings": [
+                {
+                    "title": "Wholesale Flat Paint Brush 2 Inch for OEM Bulk Orders",
+                    "keywords": ["paint brush wholesale", "flat brush bulk", "oem art brush"],
+                    "key_attrs": {"Material": "Bristle", "Handle": "Wood"},
+                    "highlights": "Factory direct paint brush for wholesale buyers.",
+                    "moq": "500",
+                    "price": "1.80",
+                    "image_count": 6,
+                }
+            ],
+        }
+        block = ecosystem_brief.prompt_block(brief)
+        self.assertIn("Example 1", block)
+        self.assertIn("paint brush wholesale", block)
+        self.assertIn("Material=Bristle", block)
+
     def test_build_brief_without_api(self) -> None:
         shop = Shop(name="测试店", platform="alibaba_icbu")
         brief = ecosystem_brief.build_brief(object(), shop, category_id="123", category_name="画笔")
         self.assertEqual(brief["category_id"], "123")
         self.assertIn("assistant_steps", brief)
         self.assertIn("keyword_strategy", brief)
+        self.assertEqual(brief["golden_listings"], [])
+
+    def test_sample_golden_listings_from_rendered_shop_listing(self) -> None:
+        shop = Shop(name="测试店", platform="alibaba_icbu", defaults_json='{"language":"en_US"}')
+        api = MagicMock()
+        api.list_products.return_value = {
+            "result": {
+                "total_item": 1,
+                "products": [
+                    {
+                        "product_id": "9001",
+                        "category_id": "123",
+                        "subject": "Wholesale Flat Paint Brush 2 Inch OEM Bulk Supply",
+                    }
+                ],
+            }
+        }
+        api.schema_render.return_value = {
+            "result": {
+                "data": """
+                <itemSchema>
+                  <field id="productTitle" type="input"><value>Wholesale Flat Paint Brush 2 Inch OEM Bulk Supply</value></field>
+                  <field id="productKeywords" type="complex">
+                    <complex-value>
+                      <field id="productKeywords_0" type="input"><value>paint brush wholesale</value></field>
+                      <field id="productKeywords_1" type="input"><value>flat brush bulk</value></field>
+                    </complex-value>
+                  </field>
+                  <field id="textDesc" type="input"><value>Factory direct brush for wholesale buyers.</value></field>
+                </itemSchema>
+                """
+            }
+        }
+
+        listings = ecosystem_brief._sample_golden_listings(api, shop, category_id="123", limit=2)
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0]["title"], "Wholesale Flat Paint Brush 2 Inch OEM Bulk Supply")
+        self.assertGreaterEqual(listings[0]["quality_score"], 35)
+
+
+if __name__ == "__main__":
+    unittest.main()

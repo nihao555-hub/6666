@@ -104,6 +104,7 @@ def suggest_copy_for_row(
         "publishing_skill_rules": publishing_rules,
         "alibaba_ecosystem_tips": str((ecosystem_brief or {}).get("tips") or ""),
         "shop_golden_title_examples": (ecosystem_brief or {}).get("golden_titles") or [],
+        "shop_golden_listing_examples": (ecosystem_brief or {}).get("golden_listings") or [],
     }
     copy = ai.write_copy(understanding, extra_facts=extra)
     result = {
