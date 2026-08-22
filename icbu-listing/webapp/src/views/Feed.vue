@@ -18,7 +18,7 @@
     </div>
 
     <template v-else-if="sessionId">
-      <div v-if="otherSessions.length" class="resume-inline">
+      <div v-if="otherSessions.length && docStep !== 1" class="resume-inline">
         <button
           v-for="item in otherSessions"
           :key="item.id"
@@ -88,10 +88,6 @@
             下载填写表
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
-          <label class="eco-toggle">
-            <el-switch v-model="useEcosystemAssistant" size="small" @change="onEcosystemToggleChange" />
-            <span>国际站生态助手</span>
-          </label>
         </div>
         <div
           class="upload-drop-zone"
@@ -154,41 +150,32 @@
       </section>
 
       <div v-if="docStep === 1" class="step-panel audit-shell">
-        <header class="audit-header">
-          <button type="button" class="audit-back" @click="docStep = 0">← 返回</button>
-          <h3>审核</h3>
+        <header class="audit-page-head">
+          <button type="button" class="audit-back" @click="docStep = 0">← 返回上传</button>
+          <div class="audit-page-head-main">
+            <div>
+              <h2 class="audit-page-title">内容审核</h2>
+              <p class="audit-subtitle">请仔细检查 AI 生成的产品信息和图片，确认无误后即可批量发布到阿里国际站</p>
+            </div>
+            <el-button
+              type="primary"
+              :loading="docGrid.loading"
+              :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
+              @click="importDocRows"
+            >
+              批量成稿
+            </el-button>
+          </div>
         </header>
 
-        <section
-          v-if="showReviewAiTimeline"
-          class="ai-timeline ai-timeline-vertical audit-ai-timeline audit-ai-timeline-inline"
+        <div
+          v-if="reviewAssistRunning || hasPendingImageJobs()"
+          class="audit-ai-banner"
           aria-live="polite"
         >
-          <header class="ai-timeline-head">
-            <strong>AI 审核助手</strong>
-            <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
-            <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
-          </header>
-          <ol class="ai-timeline-track">
-            <li
-              v-for="(step, index) in reviewAiSteps"
-              :key="step.id"
-              class="ai-timeline-item"
-              :class="`is-${step.status}`"
-            >
-              <div class="ai-timeline-rail" aria-hidden="true">
-                <span class="ai-timeline-dot" />
-                <span v-if="index < reviewAiSteps.length - 1" class="ai-timeline-line" />
-              </div>
-              <div class="ai-timeline-content">
-                <div class="ai-timeline-row">
-                  <span class="ai-timeline-label">{{ step.label }}</span>
-                  <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
-                </div>
-              </div>
-            </li>
-          </ol>
-        </section>
+          <span v-if="reviewAssistRunning">AI 审核助手进行中…</span>
+          <span v-else>{{ docImageGenSummary }}</span>
+        </div>
 
         <section class="audit-toolbar-card">
           <div class="audit-toolbar">
@@ -201,38 +188,29 @@
                 :class="{ 'is-active': reviewFilter === item.id }"
                 @click="reviewFilter = item.id; reviewPage = 1"
               >
-                {{ item.label }}<small>{{ item.count }}</small>
+                {{ item.label }}<small>({{ item.count }})</small>
               </button>
             </div>
             <div class="audit-toolbar-right">
-              <el-input v-model="reviewSearch" clearable placeholder="搜索商品名称或关键词" class="audit-search" />
+              <el-input v-model="reviewSearch" clearable placeholder="搜索产品名称或关键词" class="audit-search" />
               <el-button plain disabled>筛选</el-button>
               <el-button plain :loading="docGrid.checking" @click="recheckDocGrid">刷新</el-button>
             </div>
           </div>
         </section>
 
-        <section class="audit-field-legend">
-          <span><i class="legend-dot is-required" />必填</span>
-          <span><i class="legend-dot is-score" />加分</span>
-        </section>
-
         <section class="audit-table-card">
           <div class="audit-table-scroll">
-            <table class="audit-table doc-grid-wide">
+            <table class="audit-table">
               <thead>
                 <tr>
                   <th class="col-check"><el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll" /></th>
-                  <th class="col-row-num">#</th>
-                  <th class="col-slots">商品图 ×6</th>
-                  <th
-                    v-for="col in docDataColumns"
-                    :key="col.id"
-                    class="col-field"
-                    :class="auditColumnClass(col)"
-                  >
-                    {{ col.label }}<span v-if="col.required" class="need">必填</span>
-                  </th>
+                  <th class="col-product">产品信息</th>
+                  <th class="col-title">标题</th>
+                  <th class="col-category">类目</th>
+                  <th class="col-keywords">关键词</th>
+                  <th class="col-price">价格 (USD)</th>
+                  <th class="col-images">图片</th>
                   <th class="col-status">状态</th>
                   <th class="col-actions">操作</th>
                 </tr>
@@ -242,7 +220,6 @@
                   v-for="view in paginatedDocRowViews"
                   :key="view.row.line || view.index"
                   :class="{
-                    'is-issue': rowHasIssues(view.row),
                     'is-selected': view.row._selected,
                     'is-approved': rowAuditStatus(view.row) === 'approved',
                     'is-rejected': rowAuditStatus(view.row) === 'rejected',
@@ -251,47 +228,42 @@
                   <td class="col-check">
                     <el-checkbox v-model="view.row._selected" />
                   </td>
-                  <td class="col-row-num">{{ view.index + 1 }}</td>
-                  <td class="col-slots">
-                    <div class="slot-strip">
-                      <div
-                        v-for="slot in rowSlots(view.row)"
-                        :key="`${view.index}-${slot.index}`"
-                        class="slot-thumb"
-                        :class="`is-${slot.status || 'empty'}`"
-                        :title="slot.name"
-                      >
-                        <img v-if="slot.url" :src="slot.url" :alt="slot.name" />
-                        <span v-else>{{ slot.index }}</span>
+                  <td class="col-product">
+                    <div class="audit-product">
+                      <div class="audit-product-thumb">
+                        <img v-if="rowProductThumb(view.row)" :src="rowProductThumb(view.row)" alt="" />
+                        <span v-else>{{ (view.row.name || view.row.sku || "?").slice(0, 1) }}</span>
+                      </div>
+                      <div class="audit-product-meta">
+                        <b>{{ view.row.name || view.row.sku || "未命名商品" }}</b>
+                        <span>ID: {{ view.row.sku || view.row.line }}</span>
                       </div>
                     </div>
                   </td>
-                  <td
-                    v-for="col in docDataColumns"
-                    :key="`${view.index}-${col.id}`"
-                    class="col-field"
-                    :class="auditColumnClass(col)"
-                  >
-                    <el-select
-                      v-if="col.options?.length"
-                      v-model="view.row[col.id]"
-                      filterable
-                      clearable
-                      :placeholder="col.required ? '请选择' : '选填'"
-                      size="small"
-                      style="width: 100%"
-                    >
-                      <el-option v-for="opt in col.options" :key="opt.value" :label="opt.label" :value="opt.label" />
-                    </el-select>
-                    <el-input
-                      v-else-if="col.id === 'title' || col.id === 'note'"
-                      v-model="view.row[col.id]"
-                      type="textarea"
-                      :rows="2"
-                      size="small"
-                      :placeholder="col.label"
-                    />
-                    <el-input v-else v-model="view.row[col.id]" size="small" :placeholder="col.label" />
+                  <td class="col-title">
+                    <span class="audit-cell-text" :title="view.row.title">{{ view.row.title || "—" }}</span>
+                  </td>
+                  <td class="col-category">
+                    <span class="audit-category">{{ doc.categoryName || smartPlan.category_name || "—" }}</span>
+                  </td>
+                  <td class="col-keywords">
+                    <span class="audit-cell-text" :title="view.row.keywords">{{ view.row.keywords || "—" }}</span>
+                  </td>
+                  <td class="col-price">
+                    <span class="audit-price">{{ formatAuditPrice(view.row.price) }}</span>
+                  </td>
+                  <td class="col-images">
+                    <div class="audit-image-strip">
+                      <div
+                        v-for="(url, imgIdx) in rowImageUrls(view.row).slice(0, 3)"
+                        :key="`${view.index}-img-${imgIdx}`"
+                        class="audit-image-thumb"
+                      >
+                        <img :src="url" alt="" />
+                      </div>
+                      <span v-if="rowImageCount(view.row) > 3" class="audit-image-more">+{{ rowImageCount(view.row) - 3 }}</span>
+                      <span v-else-if="!rowImageCount(view.row)" class="audit-image-more is-warn">无图</span>
+                    </div>
                   </td>
                   <td class="col-status">
                     <span class="audit-status" :class="`is-${rowAuditStatus(view.row)}`">{{ rowStatusLabel(view.row) }}</span>
@@ -305,7 +277,7 @@
                   </td>
                 </tr>
                 <tr v-if="!paginatedDocRowViews.length">
-                  <td :colspan="auditTableColSpan" class="review-empty">
+                  <td colspan="9" class="review-empty">
                     暂无商品<el-button text @click="reviewFilter = 'all'; reviewSearch = ''">显示全部</el-button>
                   </td>
                 </tr>
@@ -330,8 +302,8 @@
             已选择 <b>{{ docSelectedCount }}</b> 项
           </div>
           <div class="audit-footer-center">
-            <el-button @click="batchApprove">批量通过</el-button>
-            <el-button @click="batchReject">批量不通过</el-button>
+            <el-button type="primary" plain @click="batchApprove">批量通过</el-button>
+            <el-button plain @click="batchReject">批量不通过</el-button>
           </div>
           <div class="audit-footer-right">
             <el-pagination
@@ -342,14 +314,6 @@
               layout="total, prev, pager, next, sizes"
               size="small"
             />
-            <el-button
-              type="primary"
-              :loading="docGrid.loading"
-              :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
-              @click="importDocRows"
-            >
-              批量成稿
-            </el-button>
           </div>
         </footer>
 
@@ -507,7 +471,7 @@ const excel = reactive({
   emptyPolicy: "draw",
 });
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
-const useEcosystemAssistant = ref(loadEcosystemPref());
+const useEcosystemAssistant = ref(false);
 const smartPlanLoading = ref(false);
 const smartPlanShowAi = ref(false);
 const docTemplateDownloading = ref(false);
@@ -1547,17 +1511,18 @@ onMounted(async () => {
     if (store.shopId) void prefetchCategoryPicker(store.shopId);
   });
   await bootSession();
-  useEcosystemAssistant.value = loadEcosystemPref();
 });
 
+let saveTimer = null;
 watch(
-  () => store.user?.id,
-  () => {
-    useEcosystemAssistant.value = loadEcosystemPref();
+  () => docStep.value,
+  (step) => {
+    if (step === 1 && docGrid.rows.length) {
+      docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+    }
   },
 );
 
-let saveTimer = null;
 watch(
   () => [excel.photoPolicy, excel.emptyPolicy, docStep.value, doc.categoryId, docGrid.row_count],
   () => {
@@ -1834,8 +1799,10 @@ function openDocCategory() {
 
 function goToAuditStep() {
   if (!docGrid.rows.length) return;
+  docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
   docReached.value = Math.max(docReached.value, 1);
   docStep.value = 1;
+  reviewPage.value = 1;
   void persistSession({ server: true });
 }
 
@@ -1847,8 +1814,23 @@ function advanceDoc(index) {
 }
 
 function rowSlots(row) {
+  const uploads = buildUploadMap(allUploadImageFiles());
+  if (Object.keys(uploads).length) {
+    const names = String(row?.images || "")
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const matched = matchUploadFiles(row?.sku, names, uploads);
+    if (matched.length) {
+      return slotsFromLocalUrls(matched.map(([, raw]) => URL.createObjectURL(raw)));
+    }
+  }
   if (row?.image_slots?.length) return row.image_slots;
   return DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot }));
+}
+
+function rowImageUrls(row) {
+  return rowSlots(row).filter((slot) => slot.url).map((slot) => slot.url);
 }
 
 function normalizeDocRows(rows) {
@@ -4202,6 +4184,56 @@ onUnmounted(() => {
   gap: 0;
   min-height: calc(100vh - 120px);
   padding-bottom: 72px;
+}
+
+.audit-page-head {
+  padding: 4px 0 20px;
+}
+
+.audit-page-head-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.audit-page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.audit-ai-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #e6f4ff;
+  color: #1677ff;
+  font-size: 13px;
+}
+
+.audit-table .col-product {
+  min-width: 200px;
+}
+
+.audit-table .col-title {
+  min-width: 180px;
+  max-width: 240px;
+}
+
+.audit-table .col-keywords {
+  min-width: 160px;
+  max-width: 220px;
+}
+
+.audit-table .col-price {
+  white-space: nowrap;
+}
+
+.audit-table .col-images {
+  min-width: 120px;
 }
 
 .audit-header {
