@@ -57,6 +57,26 @@ class SmartPlanUnitTests(unittest.TestCase):
         self.assertEqual(chosen[:3], ["sku", "price", "moq"])
         self.assertIn("attr.icbuCatProp.p-2", chosen)
 
+    def test_finalize_restores_required_when_llm_omits(self) -> None:
+        candidates = [
+            smart_plan._core_column("sku"),
+            smart_plan._core_column("price"),
+            smart_plan._core_column("moq"),
+            smart_plan._core_column("name"),
+            smart_plan._core_column("note"),
+            {
+                "id": "attr.icbuCatProp.p-2",
+                "label": "铅芯硬度",
+                "required": True,
+                "source": "schema_required",
+            },
+        ]
+        llm_minimal = ["sku", "price", "moq"]
+        finalized = smart_plan._finalize_user_columns(candidates, llm_minimal)
+        self.assertIn("name", finalized)
+        self.assertIn("note", finalized)
+        self.assertIn("attr.icbuCatProp.p-2", finalized)
+
     def test_build_smart_template_bytes(self) -> None:
         plan = {
             "category_id": "21110712",

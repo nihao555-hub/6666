@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from ..models import CategorySmartPlan, Shop
 from . import catalog, defaults as defaults_service, excel_import, schema_labels, templates as template_service
 from .icbu_publishing_skill import checklist_for_review, skill_prompt_block
-from .review_enrich import schema_inventory_summary
+from .review_enrich import schema_inventory_summary, ai_target_columns
 from .excel_import import SKIP_ATTR_IDS, USER_FILLS
 
 CORE_IDS = ("sku", "price", "moq")
@@ -40,15 +40,15 @@ SCORE_OPTIONAL_TOP = (
     "saleType",
 )
 
-PLANNER_PROMPT = """You plan a minimal wholesale listing spreadsheet for Alibaba.com (ICBU).
+PLANNER_PROMPT = """You plan a wholesale listing spreadsheet for Alibaba.com (ICBU).
 
-Goal: the seller fills ONLY facts they know per SKU. After upload, AI must be able to
-fill every remaining official REQUIRED field and quality-relevant OPTIONAL field that
-has evidence in name/note/images/specs — never guess.
+Goal: user_columns = the COMPLETE download sheet — every fact the seller must type per SKU.
+Anything NOT in user_columns is filled by AI after upload: English title/keywords/description,
+remaining official REQUIRED attributes, and quality-score OPTIONAL fields (when name/note/images
+provide evidence). Never guess price, MOQ, brand, or origin.
 
 Business goal: attract qualified wholesale buyers (inquiry-ready search language), not
-generic traffic. User columns should capture facts that unlock good titles, keywords,
-and attribute inference later.
+generic traffic. User columns capture facts; AI columns consume those facts.
 
 Leaf category: {category_name} ({category_id})
 
@@ -64,17 +64,18 @@ Shop/category template values summary (for your reasoning only):
 Step 3 — candidate columns the seller might still need per SKU (pre-filtered shortlist with options):
 {candidates}
 
-Fields AI will complete AFTER upload (do NOT put in user_columns unless seller must supply source text):
+Fields AI will complete AFTER upload (must NOT appear in user_columns):
 {ai_completes}
 
 Hard rules:
+- user_columns is the entire seller fill obligation — do not expect extra columns beyond this sheet.
 - Always include sku, price, moq in user_columns.
-- Almost always include name and note — they are evidence for AI title/keywords/attrs.
+- Always include name and note — required evidence for AI to fill schema fields not on the sheet.
 - Include images when sellers attach filenames or URLs in bulk sheets.
 - Include every official REQUIRED attribute not covered by shop/template when the seller must pick per SKU.
-- Include optional columns only when facts typically vary per SKU and cannot be inferred from note/photos.
-- Do NOT include productTitle/productKeywords/textDesc in user_columns (review stage handles copy).
-- Prefer fewer columns; never ask for logistics/trade fields already in shop defaults or template.
+- Put an attribute in user_columns if the seller must choose it; omit only when note/photos clearly supply it.
+- Do NOT include productTitle/productKeywords/textDesc in user_columns (AI review stage).
+- Never ask for logistics/trade fields already in shop defaults or template.
 
 Title/keyword guidance (for reasoning only): Core Product + Type + Performance + Scene + OEM — inquiry-qualified B2B search terms.
 
@@ -84,8 +85,8 @@ Publishing skill rules:
 Return JSON only:
 {{
   "user_columns": ["sku", "price", "moq", "name", "note", ...],
-  "reasoning": "one short Chinese paragraph: what you kept vs what shop/template/AI covers",
-  "tips": "one sentence telling the seller what to prepare (报价单/规格/图片命名)"
+  "reasoning": "one short Chinese paragraph: download sheet vs AI-fill split",
+  "tips": "one sentence telling the seller what facts to prepare"
 }}
 """
 
@@ -123,9 +124,9 @@ def _ai_completes_block(
     schema_inventory: Mapping[str, Any],
 ) -> str:
     lines = [
-        "productTitle, productKeywords, highlights (review stage, B2B inquiry-oriented copy)",
-        "remaining required attrs when name/note/images give unambiguous option match",
-        "score-relevant optional attrs with evidence in note or specs",
+        "productTitle, productKeywords, highlights, textDesc (review stage copy)",
+        "official REQUIRED attrs not on download sheet — when name/note/images give evidence",
+        "quality-score OPTIONAL attrs not on download sheet — evidence or shop defaults",
     ]
     if covered_shop or covered_template:
         lines.append(f"trade/logistics already from shop/template: {', '.join([*covered_shop, *covered_template][:12])}")
@@ -343,6 +344,24 @@ def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[st
     return chosen
 
 
+def _finalize_user_columns(
+    candidates: Sequence[Mapping[str, Any]],
+    user_ids: Sequence[str],
+) -> list[str]:
+    """Download sheet = complete seller obligation. LLM cannot drop rule-based minimums."""
+    minimum = _rule_based_user_columns(candidates)
+    allowed = {str(col["id"]) for col in candidates}
+    ordered: list[str] = []
+    for field_id in user_ids:
+        fid = str(field_id or "").strip()
+        if fid in allowed and fid not in ordered:
+            ordered.append(fid)
+    for field_id in minimum:
+        if field_id not in ordered:
+            ordered.append(field_id)
+    return ordered
+
+
 def _llm_user_columns(
     ai: AiClient,
     *,
@@ -393,7 +412,7 @@ def _llm_user_columns(
             chosen.insert(0, required)
     reasoning = str(payload.get("reasoning") or "").strip()
     tips = str(payload.get("tips") or "").strip()
-    return chosen, reasoning, tips
+    return _finalize_user_columns(candidates, chosen), reasoning, tips
 
 
 def columns_for_ids(candidates: Sequence[Mapping[str, Any]], user_ids: Sequence[str]) -> list[dict[str, Any]]:
@@ -538,15 +557,26 @@ def build_plan(
             planner = "llm"
         except AiUnavailable:
             planner = "rules"
+    user_ids = _finalize_user_columns(candidates, user_ids)
     columns = columns_for_ids(candidates, user_ids)
-    ai_fills = [
-        {"id": "productTitle", "label": "英文标题"},
-        {"id": "productKeywords", "label": "关键词"},
-        {"id": "textDesc", "label": "详描"},
-        {"id": "superText", "label": "详描/FAQ"},
+    user_id_set = set(user_ids)
+    ai_fill_attrs = ai_target_columns(candidates, user_id_set)
+    ai_fills: list[dict[str, Any]] = [
+        {"id": "productTitle", "label": "英文标题", "group": "copy"},
+        {"id": "productKeywords", "label": "关键词", "group": "copy"},
+        {"id": "textDesc", "label": "详描", "group": "copy"},
+        {"id": "highlights", "label": "卖点摘要", "group": "copy"},
     ]
+    for col in ai_fill_attrs:
+        ai_fills.append(
+            {
+                "id": col["id"],
+                "label": col.get("label") or col["id"],
+                "group": "schema",
+                "required": bool(col.get("required")),
+            }
+        )
     required_attrs = [col for col in columns if str(col.get("id", "")).startswith("attr.") and col.get("required")]
-    optional_user = [col for col in columns if col["id"] in CORE_OPTIONAL or col.get("source") == "schema_score"]
     plan = {
         "category_id": category_id,
         "category_name": category_name,
@@ -558,12 +588,18 @@ def build_plan(
         "columns": columns,
         "column_count": len(columns),
         "required_attr_count": len(required_attrs),
+        "ai_fill_attr_count": len(ai_fill_attrs),
         "covered_by_shop": covered_shop,
         "covered_by_template": covered_template,
         "shop_fills": [dict(item) for item in excel_import.SHOP_FILLS],
         "ai_fills": ai_fills,
-        "guarantee": excel_import.fill_policy([], {"attr_columns": required_attrs})["guarantee"],
-        "review_note": "标题/关键词/卖点在审核表前几列由 AI 预填，可手改；下载表只填事实字段。",
+        "ai_fill_attrs": ai_fill_attrs,
+        "user_fill_contract": "填写表 = 你要填的全部；表外官方必填与影响信息分的选填由 AI 审核阶段补全",
+        "guarantee": (
+            "填写表列是卖家全部手填义务。上传后 AI 补：英文文案、表外官方必填、表外加分项（有依据才填）。"
+            "缺依据的必填仍发不出；价/量/品牌不代填。"
+        ),
+        "review_note": "下载表只含你要填的列；审核表会多出 AI 补的全文案与官方字段，可改后再成稿。",
         "review_checklist": checklist_for_review(),
         "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
         "planner_input": {
@@ -623,5 +659,7 @@ def build_smart_template_bytes(plan: Mapping[str, Any]) -> bytes:
             "covered_by_shop": plan.get("covered_by_shop") or [],
             "covered_by_template": plan.get("covered_by_template") or [],
             "ai_fills": plan.get("ai_fills") or [],
+            "ai_fill_attrs": plan.get("ai_fill_attrs") or [],
+            "user_fill_contract": plan.get("user_fill_contract") or "",
         },
     )

@@ -1698,12 +1698,23 @@ def build_smart_template(
             help_sheet.cell(row, 2, "类目模板")
             row += 1
     row += 1
-    help_sheet.cell(row, 1, "AI 上传后补").font = Font(bold=True)
+    help_sheet.cell(row, 1, "AI 上传后补（不在填写表）").font = Font(bold=True)
     row += 1
     for item in summary.get("ai_fills") or []:
         help_sheet.cell(row, 1, item.get("label") or item.get("id") or "")
-        help_sheet.cell(row, 2, "不进填写表，成稿后人工审")
+        group = str(item.get("group") or "")
+        if group == "copy":
+            hint = "英文文案，审核时可改"
+        elif item.get("required"):
+            hint = "官方必填，AI 从备注/图片推断"
+        else:
+            hint = "影响信息分，AI 从备注/店铺默认补"
+        help_sheet.cell(row, 2, hint)
         row += 1
+    contract = str(summary.get("user_fill_contract") or "").strip()
+    if contract:
+        row += 1
+        help_sheet.cell(row, 1, contract).font = Font(bold=True)
     help_sheet.column_dimensions["A"].width = 28
     help_sheet.column_dimensions["B"].width = 72
 
