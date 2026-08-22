@@ -60,6 +60,18 @@ def _ensure_columns() -> None:
         shop_names = {row[1] for row in shop_rows}
         if shop_rows and "online_count" not in shop_names:
             conn.exec_driver_sql("ALTER TABLE shops ADD COLUMN online_count INTEGER DEFAULT -1")
+        conn.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS category_smart_plans ("
+            "shop_id VARCHAR(32) NOT NULL, "
+            "category_id VARCHAR(40) NOT NULL, "
+            "input_hash VARCHAR(64) DEFAULT '', "
+            "planner VARCHAR(16) DEFAULT 'rules', "
+            "plan_json TEXT DEFAULT '{}', "
+            "updated_at DATETIME, "
+            "PRIMARY KEY (shop_id, category_id), "
+            "FOREIGN KEY(shop_id) REFERENCES shops (id) ON DELETE CASCADE"
+            ")"
+        )
 
 
 @event.listens_for(Session, "after_commit")

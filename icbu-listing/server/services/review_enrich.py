@@ -143,7 +143,7 @@ def enrich_rows(
 
 def order_review_columns(plan_columns: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Copy/keyword columns first, then fact columns from the download plan."""
-    by_id = {str(col["id"]): dict(col) for col in plan_columns}
+    by_id = {str(col.get("id") or ""): dict(col) for col in plan_columns if col.get("id")}
     ordered: list[dict[str, Any]] = [dict(col) for col in COPY_REVIEW_COLUMNS]
     seen = {col["id"] for col in ordered}
     for field_id in REVIEW_COLUMN_ORDER:
@@ -154,8 +154,8 @@ def order_review_columns(plan_columns: Sequence[Mapping[str, Any]]) -> list[dict
             ordered.append(col)
             seen.add(field_id)
     for col in plan_columns:
-        fid = str(col["id"])
-        if fid in seen or fid == "images":
+        fid = str(col.get("id") or "")
+        if not fid or fid in seen or fid == "images":
             continue
         ordered.append(dict(col))
         seen.add(fid)

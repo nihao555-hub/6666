@@ -82,22 +82,29 @@
           </p>
           <p v-if="uploadSummary" class="upload-summary">{{ uploadSummary }}</p>
         </section>
-        <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
-        <el-upload
-          v-model:file-list="docFiles"
-          :auto-upload="false"
-          multiple
-          :disabled="!doc.categoryId"
-          accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
-          drag
-          @change="onDocFilesChange"
+        <div
+          class="upload-drop-zone"
+          @dragover.prevent
+          @dragenter.prevent
+          @drop.prevent="onDropFiles"
         >
-          <div style="padding: 22px 0">
-            拖入表格 + 图片（可多选，或
-            <el-link type="primary" @click.stop.prevent="pickImageFolder">选整个图片文件夹</el-link>
-            ）
-          </div>
-        </el-upload>
+          <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
+          <el-upload
+            v-model:file-list="docFiles"
+            :auto-upload="false"
+            multiple
+            accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
+            drag
+            @change="onDocFilesChange"
+          >
+            <div class="upload-drop-inner">
+              <p>拖入表格 + 图片，或点击选择文件</p>
+              <p class="muted upload-drop-hint">也支持一次选整个图片文件夹</p>
+              <el-button type="primary" plain @click.stop="pickImageFolder">选图片文件夹</el-button>
+            </div>
+          </el-upload>
+          <p v-if="!doc.categoryId" class="upload-note muted">可先上传文件；解析前仍需选择叶子类目。</p>
+        </div>
         <div class="step-actions" style="margin-top: 16px">
           <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.some((item) => item.raw)" @click="parseDocuments">
             {{ parseStatus || "解析并进入审核" }}
@@ -616,6 +623,24 @@ async function loadOpenSessions() {
   }
 }
 
+async function ensureFeedSession() {
+  if (!sessionId.value) {
+    await startPath();
+    return true;
+  }
+  try {
+    await api.feedSession(sessionId.value);
+    return true;
+  } catch (error) {
+    const msg = String(error.message || "");
+    if (!msg.includes("不在了")) throw error;
+    ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
+    router.replace({ query: {} });
+    await startPath();
+    return Boolean(sessionId.value);
+  }
+}
+
 async function persistSession() {
   if (!sessionId.value || restoring.value) return;
   try {
@@ -626,8 +651,22 @@ async function persistSession() {
       payload: sessionPayload(),
     });
     currentTitle.value = saved.title || currentTitle.value;
-  } catch {
-    /* keep typing even if save is slow */
+  } catch (error) {
+    const msg = String(error.message || "");
+    if (!msg.includes("不在了")) return;
+    const ok = await ensureFeedSession();
+    if (!ok || !sessionId.value) return;
+    try {
+      const saved = await api.saveFeedSession(sessionId.value, {
+        shop_id: store.shopId || "",
+        step: currentStep(),
+        reached: currentReached(),
+        payload: sessionPayload(),
+      });
+      currentTitle.value = saved.title || currentTitle.value;
+    } catch {
+      /* keep typing even if save is slow */
+    }
   }
 }
 
@@ -723,10 +762,7 @@ async function resumeSession(id) {
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("不在了")) {
-      ElMessage.warning("这条做到一半的记录已失效，请新建批量任务");
-      sessionId.value = "";
-      router.replace({ query: {} });
-      await loadOpenSessions();
+      await ensureFeedSession();
       return;
     }
     ElMessage.error(error.message);
@@ -888,6 +924,32 @@ function allUploadImageFiles() {
   return items;
 }
 
+function addDocFiles(files) {
+  const existing = new Set(docFiles.value.map((item) => String(item.name).toLowerCase()));
+  let added = 0;
+  files.forEach((file) => {
+    if (!file) return;
+    const key = String(file.name || "").toLowerCase();
+    if (!key || existing.has(key)) return;
+    docFiles.value.push({ name: file.name, raw: file, status: "success" });
+    existing.add(key);
+    added += 1;
+  });
+  if (added) scheduleDocImageSync();
+  return added;
+}
+
+function onDropFiles(event) {
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  const added = addDocFiles(files);
+  if (added) {
+    ElMessage.success(`已添加 ${added} 个文件`);
+  } else {
+    ElMessage.info("这些文件已经在列表里了");
+  }
+}
+
 function pickImageFolder() {
   folderInput.value?.click();
 }
@@ -898,15 +960,9 @@ function onFolderPick(event) {
     ElMessage.warning("文件夹里没找到图片");
     return;
   }
-  const existing = new Set(docFiles.value.map((item) => String(item.name).toLowerCase()));
-  picked.forEach((file) => {
-    const key = file.name.toLowerCase();
-    if (existing.has(key)) return;
-    docFiles.value.push({ name: file.name, raw: file, status: "success" });
-    existing.add(key);
-  });
+  const added = addDocFiles(picked);
   event.target.value = "";
-  scheduleDocImageSync();
+  if (added) ElMessage.success(`已添加 ${added} 张图片`);
 }
 
 function onDocFilesChange() {
@@ -921,7 +977,9 @@ function scheduleDocImageSync() {
 }
 
 async function syncDocImagesToSession() {
-  if (!sessionId.value || restoring.value) return;
+  if (restoring.value) return;
+  const ok = await ensureFeedSession();
+  if (!ok || !sessionId.value) return;
   const images = allUploadImageFiles();
   if (!images.length) return;
   try {
@@ -929,8 +987,11 @@ async function syncDocImagesToSession() {
     form.append("kind", "excel_images");
     images.forEach((item) => form.append("files", item.raw, item.name));
     await api.uploadFeedSessionFiles(sessionId.value, form);
-  } catch {
-    /* optional persistence */
+  } catch (error) {
+    const msg = String(error.message || "");
+    if (msg.includes("不在了")) {
+      await ensureFeedSession();
+    }
   }
 }
 
@@ -1773,6 +1834,25 @@ onUnmounted(() => {
 }
 .hidden-folder-input {
   display: none;
+}
+.upload-drop-zone {
+  margin-top: 8px;
+}
+.upload-drop-inner {
+  padding: 22px 12px;
+}
+.upload-drop-hint {
+  margin: 8px 0 12px;
+  font-size: 12px;
+}
+.upload-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.upload-drop-zone :deep(.el-upload-dragger) {
+  width: 100%;
+  padding: 0;
+  border-style: dashed;
 }
 .slot-grid {
   display: grid;

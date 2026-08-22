@@ -536,6 +536,8 @@ async def parse_documents(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"解析失败：{exc}") from exc
 
 
 @router.post("/grid-check")

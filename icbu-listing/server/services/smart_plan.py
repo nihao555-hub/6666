@@ -384,7 +384,10 @@ def _save_cached_plan(
         row.input_hash = input_hash
         row.planner = planner
         row.plan_json = payload
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 def build_plan(
