@@ -51,22 +51,28 @@
         </div>
 
         <section v-if="smartPlanLoading" class="plan-panel plan-panel-loading">
-          <section class="ai-timeline ai-timeline-compact" aria-live="polite">
+          <section class="ai-timeline ai-timeline-vertical" aria-live="polite">
             <header class="ai-timeline-head">
               <strong>AI 正在分析类目</strong>
               <span class="ai-timeline-badge is-live">进行中</span>
             </header>
             <ol class="ai-timeline-track">
               <li
-                v-for="step in smartPlanAiSteps"
+                v-for="(step, index) in smartPlanAiSteps"
                 :key="step.id"
                 class="ai-timeline-item"
                 :class="`is-${step.status}`"
               >
-                <span class="ai-timeline-dot" aria-hidden="true" />
+                <div class="ai-timeline-rail" aria-hidden="true">
+                  <span class="ai-timeline-dot" />
+                  <span v-if="index < smartPlanAiSteps.length - 1" class="ai-timeline-line" />
+                </div>
                 <div class="ai-timeline-content">
-                  <span class="ai-timeline-label">{{ step.label }}</span>
-                  <span v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</span>
+                  <div class="ai-timeline-row">
+                    <span class="ai-timeline-label">{{ step.label }}</span>
+                    <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
+                  </div>
+                  <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
                 </div>
               </li>
             </ol>
@@ -141,7 +147,7 @@
 
         <section
           v-if="showReviewAiTimeline"
-          class="ai-timeline ai-timeline-compact audit-ai-timeline"
+          class="ai-timeline ai-timeline-vertical audit-ai-timeline"
           aria-live="polite"
         >
           <header class="ai-timeline-head">
@@ -151,15 +157,21 @@
           </header>
           <ol class="ai-timeline-track">
             <li
-              v-for="step in reviewAiSteps"
+              v-for="(step, index) in reviewAiSteps"
               :key="step.id"
               class="ai-timeline-item"
               :class="`is-${step.status}`"
             >
-              <span class="ai-timeline-dot" aria-hidden="true" />
+              <div class="ai-timeline-rail" aria-hidden="true">
+                <span class="ai-timeline-dot" />
+                <span v-if="index < reviewAiSteps.length - 1" class="ai-timeline-line" />
+              </div>
               <div class="ai-timeline-content">
-                <span class="ai-timeline-label">{{ step.label }}</span>
-                <span v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</span>
+                <div class="ai-timeline-row">
+                  <span class="ai-timeline-label">{{ step.label }}</span>
+                  <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
+                </div>
+                <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
               </div>
             </li>
           </ol>
@@ -2472,22 +2484,26 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 2px);
   background: var(--surface);
-  padding: 10px 14px 12px;
+  padding: 12px 16px 14px;
 }
 
-.ai-timeline-compact {
-  max-width: 100%;
+.ai-timeline-vertical {
+  max-width: 420px;
 }
 
 .audit-ai-timeline {
   margin: 0 0 14px;
+  max-width: 480px;
 }
 
 .ai-timeline-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 
@@ -2497,9 +2513,10 @@ onUnmounted(() => {
 }
 
 .ai-timeline-badge {
+  flex-shrink: 0;
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
 }
 
@@ -2515,7 +2532,7 @@ onUnmounted(() => {
 
 .ai-timeline-track {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 0;
   list-style: none;
   margin: 0;
@@ -2523,37 +2540,40 @@ onUnmounted(() => {
 }
 
 .ai-timeline-item {
-  position: relative;
-  flex: 1 1 120px;
-  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: stretch;
+}
+
+.ai-timeline-rail {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 0 10px 0 0;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 3px;
 }
 
-.ai-timeline-item:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  top: 7px;
-  left: calc(8px + 7px);
-  right: 4px;
-  height: 2px;
+.ai-timeline-line {
+  flex: 1;
+  width: 2px;
+  min-height: 18px;
+  margin-top: 6px;
+  border-radius: 999px;
   background: var(--line);
-  z-index: 0;
 }
 
-.ai-timeline-item.is-done:not(:last-child)::after {
-  background: var(--accent);
+.ai-timeline-item.is-done .ai-timeline-line {
+  background: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.ai-timeline-item.is-running .ai-timeline-line {
+  background: linear-gradient(to bottom, var(--accent) 0%, var(--line) 100%);
 }
 
 .ai-timeline-dot {
-  position: relative;
-  z-index: 1;
   flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  margin-top: 1px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   border: 2px solid var(--line);
   background: var(--surface);
@@ -2561,8 +2581,11 @@ onUnmounted(() => {
 }
 
 .ai-timeline-item.is-running .ai-timeline-dot {
+  width: 12px;
+  height: 12px;
   border-color: var(--accent);
-  background: var(--accent-wash);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .ai-timeline-item.is-done .ai-timeline-dot {
@@ -2572,7 +2595,7 @@ onUnmounted(() => {
 
 .ai-timeline-item.is-error .ai-timeline-dot {
   border-color: #dc2626;
-  background: #fee2e2;
+  background: #dc2626;
 }
 
 .ai-timeline-item.is-skip .ai-timeline-dot {
@@ -2582,16 +2605,25 @@ onUnmounted(() => {
 
 .ai-timeline-content {
   min-width: 0;
+  padding-bottom: 14px;
+}
+
+.ai-timeline-item:last-child .ai-timeline-content {
+  padding-bottom: 0;
+}
+
+.ai-timeline-row {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .ai-timeline-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .ai-timeline-item.is-pending .ai-timeline-label {
@@ -2599,26 +2631,39 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-.ai-timeline-detail {
+.ai-timeline-status {
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--muted);
-  line-height: 1.35;
+}
+
+.ai-timeline-item.is-running .ai-timeline-status {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.ai-timeline-item.is-done .ai-timeline-status {
+  color: #166534;
+}
+
+.ai-timeline-item.is-error .ai-timeline-status {
+  color: #dc2626;
+}
+
+.ai-timeline-detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
   word-break: break-word;
 }
 
 .ai-timeline-item.is-running .ai-timeline-detail {
-  color: var(--accent-text);
+  color: var(--ink-2, var(--ink));
 }
 
-@media (max-width: 900px) {
-  .ai-timeline-track {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .ai-timeline-item:not(:last-child)::after {
-    display: none;
-  }
+.ai-timeline-item.is-done .ai-timeline-detail {
+  color: var(--muted);
 }
 
 .plan-head {
