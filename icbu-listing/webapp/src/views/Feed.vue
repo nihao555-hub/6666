@@ -38,7 +38,7 @@
 
       <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
-      <div v-if="docStep === 0" class="step-panel">
+      <div v-if="docStep === 0 && !docGrid.loading && !reviewAssistRunning" class="step-panel">
         <h3>选类目</h3>
         <div style="margin-top: 16px">
           <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
@@ -118,7 +118,7 @@
       </div>
 
       <section
-        v-if="showReviewAiTimeline"
+        v-if="docStep === 0 && showReviewAiTimeline"
         class="ai-timeline ai-timeline-vertical audit-ai-timeline"
         aria-live="polite"
       >
@@ -154,6 +154,37 @@
           <button type="button" class="audit-back" @click="docStep = 0">← 返回</button>
           <h3>审核</h3>
         </header>
+
+        <section
+          v-if="showReviewAiTimeline"
+          class="ai-timeline ai-timeline-vertical audit-ai-timeline audit-ai-timeline-inline"
+          aria-live="polite"
+        >
+          <header class="ai-timeline-head">
+            <strong>AI 审核助手</strong>
+            <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
+            <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
+          </header>
+          <ol class="ai-timeline-track">
+            <li
+              v-for="(step, index) in reviewAiSteps"
+              :key="step.id"
+              class="ai-timeline-item"
+              :class="`is-${step.status}`"
+            >
+              <div class="ai-timeline-rail" aria-hidden="true">
+                <span class="ai-timeline-dot" />
+                <span v-if="index < reviewAiSteps.length - 1" class="ai-timeline-line" />
+              </div>
+              <div class="ai-timeline-content">
+                <div class="ai-timeline-row">
+                  <span class="ai-timeline-label">{{ step.label }}</span>
+                  <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
+                </div>
+              </div>
+            </li>
+          </ol>
+        </section>
 
         <section class="audit-toolbar-card">
           <div class="audit-toolbar">
@@ -564,9 +595,9 @@ function reviewStepStatusLabel(status) {
 }
 
 const showReviewAiTimeline = computed(() => {
-  if (docStep.value !== 0) return false;
-  if (docGrid.loading || reviewAssistRunning.value) return true;
-  return reviewAiSteps.value.some((step) => step.status !== "pending");
+  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return true;
+  if (docStep.value === 1) return false;
+  return false;
 });
 
 const reviewAiAllDone = computed(() => {
@@ -843,10 +874,15 @@ function applyDraftPayload(draft) {
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
   }
   if (typeof draft?.step === "number") {
-    docStep.value = Math.min(draft.step, docSteps.length - 1);
+    let step = Math.min(draft.step, docSteps.length - 1);
+    const rowCount = payload.doc?.rows?.length || payload.doc?.row_count || docGrid.rows.length;
+    if (step === 0 && rowCount > 0 && (draft.reached >= 1 || payload.doc?.source)) {
+      step = 1;
+    }
+    docStep.value = step;
   }
   if (typeof draft?.reached === "number") {
-    docReached.value = Math.min(draft.reached, docSteps.length - 1);
+    docReached.value = Math.min(Math.max(draft.reached, docStep.value), docSteps.length - 1);
   }
 }
 
@@ -1188,6 +1224,9 @@ function applySession(session) {
   }
   restoring.value = false;
   mergeLocalDraftIfNewer();
+  if (docGrid.rows.length > 0 && docStep.value === 0 && (docReached.value >= 1 || docGrid.source)) {
+    goToAuditStep();
+  }
   if (doc.categoryId && store.shopId) {
     void loadCategoryTemplates();
   }
@@ -1238,6 +1277,9 @@ async function finishResumeSession() {
     clearInterval(docTimer);
     docTimer = setInterval(pollDoc, 3000);
     void pollDoc();
+  }
+  if (docGrid.rows.length > 0 && docStep.value === 0 && (docReached.value >= 1 || docGrid.source)) {
+    goToAuditStep();
   }
   if (!doc.categoryId || !store.shopId) return;
   try {
@@ -1396,6 +1438,13 @@ watch(
     scheduleLocalDraft();
   },
   { deep: true },
+);
+watch(
+  () => reviewAiAllDone.value,
+  (done) => {
+    if (!done || docStep.value !== 0 || !docGrid.rows.length) return;
+    goToAuditStep();
+  },
 );
 
 
@@ -1602,6 +1651,13 @@ function openDocCategory() {
     return;
   }
   categoryBrowser.value = true;
+}
+
+function goToAuditStep() {
+  if (!docGrid.rows.length) return;
+  docReached.value = Math.max(docReached.value, 1);
+  docStep.value = 1;
+  void persistSession({ server: true });
 }
 
 function advanceDoc(index) {
@@ -2384,11 +2440,10 @@ async function parseDocuments() {
     docGrid.row_count = result.row_count || docGrid.rows.length;
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
-    patchReviewStep("service", { status: "running", detail: "解析完成，AI 开始填写…" });
+    patchReviewStep("service", { status: "done", detail: "解析完成" });
+    goToAuditStep();
     void persistSession({ server: true });
     await runReviewAssist(true);
-    docReached.value = Math.max(docReached.value, 1);
-    docStep.value = 1;
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
   } catch (error) {
     resetReviewAiSteps();
