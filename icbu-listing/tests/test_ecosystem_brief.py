@@ -61,12 +61,25 @@ class EcosystemBriefTests(unittest.TestCase):
         self.assertIn("paint brush wholesale", block)
         self.assertIn("Material=Bristle", block)
 
+    def test_prompt_block_includes_platform_rules(self) -> None:
+        brief = {
+            "category_name": "Paint Brushes",
+            "platform_search_rules": ["compliance → matching → inquiry ranking"],
+            "keyword_strategy": [{"tier": "S", "hint": "core product term"}],
+            "assistant_steps": ["compliance"],
+        }
+        block = ecosystem_brief.prompt_block(brief)
+        self.assertIn("Alibaba International platform brief", block)
+        self.assertIn("compliance → matching → inquiry ranking", block)
+
     def test_build_brief_without_api(self) -> None:
         shop = Shop(name="测试店", platform="alibaba_icbu")
         brief = ecosystem_brief.build_brief(object(), shop, category_id="123", category_name="画笔")
         self.assertEqual(brief["category_id"], "123")
+        self.assertEqual(brief["scope"], "platform")
         self.assertIn("assistant_steps", brief)
         self.assertIn("keyword_strategy", brief)
+        self.assertIn("platform_search_rules", brief)
         self.assertEqual(brief["golden_listings"], [])
 
     def test_sample_golden_listings_from_rendered_shop_listing(self) -> None:

@@ -224,6 +224,7 @@ def ecosystem_brief_endpoint(
     shop_id: str = "",
     category_id: str = "",
     category_name: str = "",
+    include_shop_examples: str = "false",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -231,13 +232,15 @@ def ecosystem_brief_endpoint(
         raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
     shop = shop_for(db, user, shop_id)
     hint = _category_hint(db, user, shop_id, category_id, category_name)
+    use_shop = str(include_shop_examples or "").strip().lower() in {"1", "true", "yes", "on"}
     try:
         brief = ecosystem_brief.build_brief(
             db,
             shop,
             category_id=category_id,
             category_name=hint or category_name,
-            api=shop_api(shop),
+            api=shop_api(shop) if use_shop else None,
+            include_shop_examples=use_shop,
         )
     except Exception as exc:
         brief = ecosystem_brief.build_brief(
@@ -246,6 +249,7 @@ def ecosystem_brief_endpoint(
             category_id=category_id,
             category_name=hint or category_name,
             api=None,
+            include_shop_examples=False,
         )
         brief["warning"] = str(exc)
     return brief
@@ -685,6 +689,7 @@ async def grid_regen_copy(
                 category_id=category_id,
                 category_name=hint or category_name,
                 api=shop_api(shop),
+                include_shop_examples=False,
             )
         except Exception:
             eco = ecosystem_brief.build_brief(
@@ -693,6 +698,7 @@ async def grid_regen_copy(
                 category_id=category_id,
                 category_name=hint or category_name,
                 api=None,
+                include_shop_examples=False,
             )
     updated: list[dict[str, Any]] = []
     errors: list[str] = []

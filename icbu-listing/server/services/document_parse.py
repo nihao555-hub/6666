@@ -485,19 +485,11 @@ def parse_documents(
     sheet_diagnostics: dict[str, str] = {}
     llm_tried = False
     llm_row_count = 0
-    ai_first = ai is not None
 
     for name, content in files:
         if not content:
             continue
         suffix = _suffix(name)
-        if ai_first:
-            unstructured.append((name, content))
-            if suffix in SPREADSHEET_SUFFIXES:
-                _, tag = _parse_spreadsheet(name, content, extras)
-                sheet_diagnostics[name] = tag
-            continue
-
         if suffix in SPREADSHEET_SUFFIXES:
             rows, tag = _parse_spreadsheet(name, content, extras)
             sheet_diagnostics[name] = tag
@@ -514,13 +506,17 @@ def parse_documents(
     grid_items: list[dict[str, Any]] = [row_to_grid_item(row, columns) for row in structured]
     warnings: list[str] = []
 
-    if ai_first and unstructured:
+    if unstructured and ai is not None:
         llm_tried = True
         extracted, llm_warnings = _llm_extract(ai, unstructured, columns, category_name=category_name)
         llm_row_count = len(extracted)
-        grid_items = extracted
-        if extracted:
-            sources.append("AI 资料解析")
+        if structured:
+            if extracted:
+                warnings.append("部分文件走 AI 解析，已优先保留标准表格行。")
+        else:
+            grid_items = extracted
+            if extracted:
+                sources.append("AI 资料解析")
         warnings.extend(llm_warnings)
     elif unstructured:
         if not grid_items:

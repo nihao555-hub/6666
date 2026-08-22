@@ -90,7 +90,7 @@
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
           <label class="eco-toggle">
             <el-switch v-model="useEcosystemAssistant" size="small" @change="onEcosystemToggleChange" />
-            <span>阿里生态助手</span>
+            <span>国际站生态助手</span>
           </label>
         </div>
         <div

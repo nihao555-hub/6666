@@ -1,7 +1,8 @@
 """Alibaba ICBU ecosystem context for AI fill — 生意助手-style brief.
 
-Builds a shop+category brief from GOP online listings, schema, habits, and the
-vendored ICBU publishing skill so copy/attrs align with platform search logic.
+Default scope is the **Alibaba International (ICBU) platform**: official schema,
+search/compliance rules, and vendored publishing skill. Shop online listings are
+optional supplements only when explicitly requested — not the default reference.
 """
 
 from __future__ import annotations
@@ -256,6 +257,17 @@ def _sample_online_titles(golden_listings: Sequence[Mapping[str, Any]], *, limit
     return titles
 
 
+def _platform_search_rules() -> list[str]:
+    """Condensed Alibaba International search/ranking rules (platform-wide)."""
+    return [
+        "Search gates: compliance/anti-spam → query/category/attribute/image match → buyer-behavior ranking",
+        "Survive quality filters first; make the listing unmistakably match the searched product",
+        "Buyer-led search: 1–3 inquiry-qualified terms (OEM/bulk/scene), not generic traffic bait",
+        "Keyword tiers: S=core product+spec fit, A=test expansion with proof, B=long-tail support, C=avoid noisy/unverifiable",
+        "Do not decide from hot terms alone — category/title/attrs/images must tell one product story",
+    ]
+
+
 def build_brief(
     db: Session,
     shop: Shop,
@@ -263,10 +275,11 @@ def build_brief(
     category_id: str,
     category_name: str = "",
     api: Any | None = None,
+    include_shop_examples: bool = False,
 ) -> dict[str, Any]:
     """Human + LLM-facing Alibaba ecosystem brief for one leaf category."""
     resolved_api = api
-    if resolved_api is None:
+    if resolved_api is None and include_shop_examples:
         try:
             resolved_api = shop_api(shop)
         except ShopNotConnected:
@@ -274,14 +287,14 @@ def build_brief(
 
     golden_listings: list[dict[str, Any]] = []
     online_count = int(shop.online_count or -1)
-    if resolved_api is not None:
+    if include_shop_examples and resolved_api is not None:
         golden_listings = _sample_golden_listings(
             resolved_api,
             shop,
             category_id=category_id,
             limit=3,
         )
-    golden_titles = _sample_online_titles(golden_listings)
+    golden_titles = _sample_online_titles(golden_listings) if golden_listings else []
 
     shop_policy = shop_defaults(shop)
     template_row = templates.find_for(db, shop.id, category_id)
@@ -289,9 +302,15 @@ def build_brief(
     template_fields = templates.values_of(template_row) if template_row else {}
 
     schema_limits: dict[str, Any] = {}
-    if category_id and resolved_api is not None:
+    schema_api = resolved_api
+    if schema_api is None:
         try:
-            xml = catalog.get_schema_xml(db, resolved_api, category_id, "en")
+            schema_api = shop_api(shop)
+        except ShopNotConnected:
+            schema_api = None
+    if category_id and schema_api is not None:
+        try:
+            xml = catalog.get_schema_xml(db, schema_api, category_id, "en")
             from schema import parse_schema  # noqa: E402
 
             fields = parse_schema(xml)
@@ -323,11 +342,13 @@ def build_brief(
     ]
 
     return {
+        "scope": "platform" if not include_shop_examples else "platform+shop",
         "category_id": category_id,
         "category_name": category_name,
         "online_count": online_count,
         "golden_titles": golden_titles,
         "golden_listings": golden_listings,
+        "platform_search_rules": _platform_search_rules(),
         "template_name": template_name,
         "shop_policy_keys": [key for key, value in shop_policy.items() if str(value or "").strip()],
         "template_field_keys": [key for key, value in template_fields.items() if str(value or "").strip()],
@@ -337,27 +358,29 @@ def build_brief(
         "assistant_steps": assistant_steps,
         "review_checklist": checklist_for_review(),
         "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
-        "tips": _tips_for_shop(online_count, golden_listings, template_name, category_name),
+        "tips": _tips_for_brief(
+            golden_listings,
+            template_name,
+            category_name,
+            include_shop_examples=include_shop_examples,
+        ),
     }
 
 
-def _tips_for_shop(
-    online_count: int,
+def _tips_for_brief(
     golden_listings: Sequence[Mapping[str, Any]],
     template_name: str,
     category_name: str,
+    *,
+    include_shop_examples: bool,
 ) -> str:
     bits: list[str] = []
     label = category_name or "本类目"
-    if golden_listings:
-        bits.append(f"已采样 {len(golden_listings)} 条店里同品类顶级上品案例供 AI 学习（标题/关键词/属性/六图结构）")
-    elif online_count > 0:
-        bits.append("店里有在售商品，可先上「在线商品」页学成模板/默认")
-    else:
-        bits.append("新店优先把必填属性+六图+询盘向标题做齐，再扩 SKU 覆盖")
+    bits.append(f"{label}：按阿里国际站平台规则写标题/关键词（合规→匹配→询盘）")
+    if include_shop_examples and golden_listings:
+        bits.append(f"附加参考 {len(golden_listings)} 条本店同品类在售案例（非全站竞品）")
     if template_name:
-        bits.append(f"已匹配类目模板「{template_name}」")
-    bits.append(f"{label}：AI 写标题/关键词时会按阿里搜索三层逻辑（合规→匹配→询盘）")
+        bits.append(f"已匹配本店类目模板「{template_name}」")
     return "；".join(bits)
 
 
@@ -367,19 +390,23 @@ def prompt_block(brief: Mapping[str, Any]) -> str:
         skill_prompt_block(),
         TITLE_RULES.strip(),
         KEYWORD_RULES.strip(),
-        "Alibaba ecosystem brief (use for B2B inquiry optimization, not hype):",
+        "Alibaba International platform brief (whole-site search logic, not one shop's listings):",
         f"- Category: {brief.get('category_name') or brief.get('category_id') or ''}",
     ]
+    platform_rules = brief.get("platform_search_rules") or []
+    if platform_rules:
+        lines.append("- Platform search/ranking rules:")
+        for rule in platform_rules[:5]:
+            lines.append(f"  · {rule}")
     titles = brief.get("golden_titles") or []
     if titles:
-        lines.append("- Shop's live listing title patterns on Alibaba (match tone/structure, do not copy verbatim):")
+        lines.append("- Optional shop title tone reference (do not copy verbatim):")
         for title in titles[:5]:
             lines.append(f"  · {title}")
     listings = brief.get("golden_listings") or []
     if listings:
         lines.append(
-            "- Top reference listings from this shop on Alibaba International "
-            "(match depth, keyword tiers, attribute coverage, and image completeness — never copy verbatim):"
+            "- Optional shop listing examples (supplement only — platform rules above take priority):"
         )
         for index, item in enumerate(listings[:3], start=1):
             lines.append(f"  Example {index}:")

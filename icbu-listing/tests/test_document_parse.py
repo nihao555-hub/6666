@@ -156,7 +156,7 @@ class DocumentParseTests(unittest.TestCase):
         )
         self.assertEqual(result["rows"][0]["sku"], "SKU-9")
 
-    def test_ai_first_routes_standard_spreadsheet_to_llm(self) -> None:
+    def test_standard_spreadsheet_prefers_excel_import_even_with_ai(self) -> None:
         wb = Workbook()
         ws = wb.active
         ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
@@ -169,9 +169,6 @@ class DocumentParseTests(unittest.TestCase):
         class SpyAi:
             def chat_json(self, messages, temperature=0.1):
                 seen["llm"] = True
-                for block in messages[0]["content"]:
-                    if block.get("type") == "text" and "spreadsheet table" in block.get("text", ""):
-                        return {"rows": [{"sku": "XL-1", "price": "3.00", "moq": "100", "name": "Excel 品"}], "warnings": []}
                 return {"rows": [], "warnings": []}
 
         result = document_parse.parse_documents(
@@ -181,9 +178,9 @@ class DocumentParseTests(unittest.TestCase):
             category_id="123456",
             ai=SpyAi(),
         )
-        self.assertTrue(seen["llm"])
+        self.assertFalse(seen["llm"])
         self.assertEqual(result["rows"][0]["sku"], "XL-1")
-        self.assertIn("AI 资料解析", result["source"])
+        self.assertIn("表格", result["source"])
 
     def test_check_grid_flags_missing_price(self) -> None:
         items = [{"line": 2, "sku": "A-1", "price": "", "moq": "100", "images": "", "brand": "", "name": "", "note": ""}]
