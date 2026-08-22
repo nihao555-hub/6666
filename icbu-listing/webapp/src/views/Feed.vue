@@ -88,6 +88,10 @@
             下载填写表
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
+          <label class="eco-toggle">
+            <el-switch v-model="useEcosystemAssistant" size="small" @change="onEcosystemToggleChange" />
+            <span>阿里生态助手</span>
+          </label>
         </div>
         <div
           class="upload-drop-zone"
@@ -425,6 +429,7 @@ const router = useRouter();
 const route = useRoute();
 const DEAD_SESSIONS_KEY = "icbu-dead-feed-sessions";
 const LOCAL_DRAFT_PREFIX = "icbu-feed-draft";
+const ECOSYSTEM_PREF_PREFIX = "icbu-feed-ecosystem";
 const sessionId = ref("");
 const deadSessionIds = loadDeadSessionIds();
 const verifiedSessionIds = ref(new Set());
@@ -501,6 +506,7 @@ const excel = reactive({
   emptyPolicy: "draw",
 });
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
+const useEcosystemAssistant = ref(loadEcosystemPref());
 const smartPlanLoading = ref(false);
 const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
@@ -792,6 +798,7 @@ function sessionPayload() {
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
       uploadNames: docFiles.value.map((item) => item.name).filter(Boolean),
+      useEcosystemAssistant: useEcosystemAssistant.value,
     },
     rowCount: docGrid.row_count || docGrid.rows.length || doc.batch?.count || 0,
     batchId: doc.batch?.batch_id || "",
@@ -810,6 +817,31 @@ function localDraftStorageKey() {
   const uid = store.user?.id || "guest";
   const sid = store.shopId || "";
   return `${LOCAL_DRAFT_PREFIX}:${uid}:${sid}`;
+}
+
+function ecosystemPrefKey() {
+  return `${ECOSYSTEM_PREF_PREFIX}:${store.user?.id || "guest"}`;
+}
+
+function loadEcosystemPref() {
+  try {
+    return localStorage.getItem(ecosystemPrefKey()) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveEcosystemPref(value) {
+  try {
+    localStorage.setItem(ecosystemPrefKey(), value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function onEcosystemToggleChange(value) {
+  saveEcosystemPref(value);
+  void persistSession();
 }
 
 function loadLocalDraft() {
@@ -872,6 +904,9 @@ function applyDraftPayload(draft) {
       smartPlan.value = normalizeSmartPlan(payload.doc.smartPlan);
     }
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
+    if (typeof payload.doc.useEcosystemAssistant === "boolean") {
+      useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
+    }
   }
   if (typeof draft?.step === "number") {
     let step = Math.min(draft.step, docSteps.length - 1);
@@ -1197,6 +1232,9 @@ function applySession(session) {
       smartPlan.value = normalizeSmartPlan(payload.doc.smartPlan);
     }
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
+    if (typeof payload.doc.useEcosystemAssistant === "boolean") {
+      useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
+    }
     const names = payload.doc.uploadNames || [];
     docFiles.value = names.map((name) => ({ name, status: "success" }));
   } else {
@@ -1414,7 +1452,15 @@ onMounted(async () => {
     aiServiceReady.value = null;
   }
   await bootSession();
+  useEcosystemAssistant.value = loadEcosystemPref();
 });
+
+watch(
+  () => store.user?.id,
+  () => {
+    useEcosystemAssistant.value = loadEcosystemPref();
+  },
+);
 
 let saveTimer = null;
 watch(
@@ -1591,7 +1637,6 @@ async function loadSmartPlan(override = null) {
         }));
         docGrid.columns = smartPlan.value.columns || [];
         finishSmartPlanStepAnimation();
-        void loadEcosystemBrief({ categoryId, categoryName });
         return;
       }
     }
@@ -2129,6 +2174,7 @@ async function regenCopyForRows(lines, options = {}) {
     body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
     body.append("rows", JSON.stringify(docGrid.rows));
     body.append("lines", JSON.stringify(lines || []));
+    body.append("use_ecosystem", useEcosystemAssistant.value ? "true" : "false");
     const result = await api.excelGridRegenCopy(body);
     if (Array.isArray(result.rows) && result.rows.length) {
       docGrid.rows = normalizeDocRows(result.rows);
@@ -2843,148 +2889,20 @@ onUnmounted(() => {
   max-width: 480px;
 }
 
-.ecosystem-brief-panel {
-  margin: 0 0 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--line, #e8e8e8);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255, 153, 0, 0.06), transparent 72%);
-  max-width: 640px;
+.audit-ai-timeline-inline {
+  margin: 0 0 12px;
+  max-width: none;
 }
 
-.ecosystem-brief-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.ecosystem-brief-head strong {
-  font-size: 15px;
-}
-
-.ecosystem-brief-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(255, 153, 0, 0.15);
-  color: #b45309;
-}
-
-.ecosystem-brief-tips {
-  margin: 0 0 10px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text, #333);
-}
-
-.ecosystem-brief-steps {
-  margin: 0 0 10px;
-  padding-left: 18px;
-  font-size: 12px;
-  line-height: 1.65;
-  color: var(--muted, #666);
-}
-
-.ecosystem-golden {
-  margin-top: 8px;
-}
-
-.ecosystem-golden small {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--muted, #666);
-  font-size: 12px;
-}
-
-.golden-title {
-  margin: 0 0 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #334155;
-}
-
-.ecosystem-golden-listings {
-  margin-top: 10px;
-}
-
-.ecosystem-golden-listings > small {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--muted, #666);
-  font-size: 12px;
-}
-
-.golden-listing-card {
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  background: #fff;
-}
-
-.golden-listing-card header {
-  display: flex;
+.eco-toggle {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
-}
-
-.golden-listing-badge {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent, #2563eb);
-}
-
-.golden-listing-score {
-  font-size: 11px;
+  margin-left: 12px;
+  font-size: 13px;
   color: var(--muted, #666);
-}
-
-.golden-meta {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: #475569;
-}
-
-.ecosystem-kw-tiers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.kw-tier {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--line, #e5e7eb);
-  cursor: help;
-}
-
-.kw-tier.is-s {
-  border-color: #16a34a;
-  color: #166534;
-  background: rgba(22, 163, 74, 0.08);
-}
-
-.kw-tier.is-a {
-  border-color: #2563eb;
-  color: #1d4ed8;
-  background: rgba(37, 99, 235, 0.08);
-}
-
-.kw-tier.is-b {
-  border-color: #ca8a04;
-  color: #854d0e;
-  background: rgba(202, 138, 4, 0.08);
-}
-
-.kw-tier.is-c {
-  border-color: #dc2626;
-  color: #991b1b;
-  background: rgba(220, 38, 38, 0.06);
+  cursor: pointer;
+  user-select: none;
 }
 
 .ai-timeline-head {
@@ -4561,16 +4479,6 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--ink-2);
   margin: 0 0 12px;
-}
-
-.audit-ecosystem-panel {
-  margin-bottom: 14px;
-}
-
-.ecosystem-brief-compact .ecosystem-brief-steps,
-.ecosystem-brief-compact .ecosystem-golden,
-.ecosystem-brief-compact .ecosystem-kw-tiers {
-  display: none;
 }
 
 .audit-table .col-row-num {

@@ -656,6 +656,7 @@ async def grid_regen_copy(
     category_name: str = Form(""),
     rows: str = Form("[]"),
     lines: str = Form("[]"),
+    use_ecosystem: str = Form("false"),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -673,8 +674,9 @@ async def grid_regen_copy(
     ai = AiClient.from_env_or_none()
     if ai is None:
         raise HTTPException(status_code=503, detail="重写文案需要配置 AI")
-    eco: dict[str, Any] = {}
-    if shop_id and category_id:
+    eco: dict[str, Any] | None = None
+    use_eco = str(use_ecosystem or "").strip().lower() in {"1", "true", "yes", "on"}
+    if use_eco and shop_id and category_id:
         shop = shop_for(db, user, shop_id)
         try:
             eco = ecosystem_brief.build_brief(
@@ -707,14 +709,14 @@ async def grid_regen_copy(
                 ai,
                 item,
                 category_name=hint or category_name,
-                ecosystem_brief=eco or None,
+                ecosystem_brief=eco,
             )
             item.update(suggested)
             item["_copy_source"] = "ai"
         except Exception as exc:
             errors.append(f"第 {line or '?'} 行：{exc}")
         updated.append(item)
-    return {"rows": updated, "errors": errors, "ecosystem_brief": eco}
+    return {"rows": updated, "errors": errors}
 
 
 @router.post("/grid-infer-fields")
