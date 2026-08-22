@@ -13,7 +13,7 @@ export function attachApiAuth({ router, store }) {
 http.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const status = error.response?.status;
+    const status = error.response?.status || 0;
     const detail = error.response?.data?.detail;
     const message = typeof detail === "string" ? detail : error.message || "请求失败";
     if (status === 401 && authStore) {
@@ -22,7 +22,9 @@ http.interceptors.response.use(
         authRouter.push("/login");
       }
     }
-    return Promise.reject(new Error(message));
+    const wrapped = new Error(message);
+    wrapped.status = status;
+    return Promise.reject(wrapped);
   },
 );
 

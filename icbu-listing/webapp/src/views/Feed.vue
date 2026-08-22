@@ -408,6 +408,9 @@ const verifiedSessionIds = ref(new Set());
 let sessionEnsurePromise = null;
 let startPathPromise = null;
 let persistInFlight = null;
+let sessionGeneration = 0;
+let persistBlockedUntil = 0;
+const sessionApiRetryDelays = [250, 500, 900];
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -792,6 +795,63 @@ async function loadOpenSessions() {
   }
 }
 
+function bumpSessionGeneration() {
+  sessionGeneration += 1;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isSessionApiMissing(error) {
+  const status = Number(error?.status || 0);
+  if (status === 404) return true;
+  const msg = String(error?.message || "");
+  return msg.includes("不在了") || /not found/i.test(msg);
+}
+
+async function saveSessionWithRetry(id, body) {
+  let lastError = null;
+  for (let attempt = 0; attempt < sessionApiRetryDelays.length + 1; attempt += 1) {
+    try {
+      return await api.saveFeedSession(id, body);
+    } catch (error) {
+      lastError = error;
+      if (!isSessionApiMissing(error) || attempt >= sessionApiRetryDelays.length) throw error;
+      await sleep(sessionApiRetryDelays[attempt]);
+    }
+  }
+  throw lastError || new Error("保存失败");
+}
+
+async function uploadSessionFilesWithRetry(id, form) {
+  let lastError = null;
+  for (let attempt = 0; attempt < sessionApiRetryDelays.length + 1; attempt += 1) {
+    try {
+      return await api.uploadFeedSessionFiles(id, form);
+    } catch (error) {
+      lastError = error;
+      if (!isSessionApiMissing(error) || attempt >= sessionApiRetryDelays.length) throw error;
+      await sleep(sessionApiRetryDelays[attempt]);
+    }
+  }
+  throw lastError || new Error("上传失败");
+}
+
+async function markSessionDeadAndRecover(deadId, options = {}) {
+  const { quiet = true } = options;
+  if (deadId) forgetSession(deadId);
+  if (sessionId.value === deadId) {
+    sessionId.value = "";
+  }
+  if (route.query.session === deadId) router.replace({ query: {} });
+  clearTimeout(saveTimer);
+  clearTimeout(imageSyncTimer);
+  persistBlockedUntil = Date.now() + 1500;
+  await migrateOrphanSession({ quiet });
+  if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
+}
+
 function verifySession(id) {
   if (!id || deadSessionIds.has(id)) return;
   verifiedSessionIds.value = new Set([...verifiedSessionIds.value, id]);
@@ -820,6 +880,7 @@ function rememberOpenSession(id) {
 function forgetSession(id) {
   if (!id) return;
   deadSessionIds.add(id);
+  bumpSessionGeneration();
   try {
     sessionStorage.setItem(DEAD_SESSIONS_KEY, JSON.stringify([...deadSessionIds].slice(-80)));
   } catch {
@@ -839,7 +900,8 @@ function sessionFromOpenList(id) {
   return openSessions.value.find((item) => item.id === id) || null;
 }
 
-async function migrateOrphanSession() {
+async function migrateOrphanSession(options = {}) {
+  const { quiet = true } = options;
   const payload = sessionPayload();
   const step = currentStep();
   const reached = currentReached();
@@ -849,17 +911,21 @@ async function migrateOrphanSession() {
   if (route.query.session) router.replace({ query: {} });
   await startPath();
   if (!sessionId.value) return false;
+  const generation = sessionGeneration;
   try {
-    const saved = await api.saveFeedSession(sessionId.value, {
+    const saved = await saveSessionWithRetry(sessionId.value, {
       shop_id: store.shopId || "",
       step,
       reached,
       payload,
     });
+    if (generation !== sessionGeneration) return false;
     verifySession(sessionId.value);
     currentTitle.value = saved.title || currentTitle.value;
+    router.replace({ query: { session: sessionId.value } });
     return true;
   } catch {
+    if (!quiet) ElMessage.error("无法恢复批量任务，请点「新建任务」重试");
     return false;
   }
 }
@@ -896,11 +962,7 @@ async function ensureFeedSessionImpl(options = {}) {
     return true;
   }
   const staleId = sessionId.value;
-  forgetSession(staleId);
-  sessionId.value = "";
-  if (route.query.session === staleId) router.replace({ query: {} });
-  if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
-  await startPath();
+  await markSessionDeadAndRecover(staleId, { quiet });
   return Boolean(sessionId.value);
 }
 
@@ -914,32 +976,34 @@ async function persistSession() {
 
 async function persistSessionImpl() {
   if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
+  if (Date.now() < persistBlockedUntil) return;
   if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
+  const generation = sessionGeneration;
+  const targetId = sessionId.value;
   const ok = await ensureFeedSession({ quiet: true });
+  if (generation !== sessionGeneration || sessionId.value !== targetId) return;
   if (!ok || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
   if (!isKnownOpenSession(sessionId.value)) {
     await loadOpenSessions();
   }
+  if (generation !== sessionGeneration || sessionId.value !== targetId) return;
   if (!isKnownOpenSession(sessionId.value)) {
-    await migrateOrphanSession();
+    await migrateOrphanSession({ quiet: true });
     return;
   }
   try {
-    const saved = await api.saveFeedSession(sessionId.value, {
+    const saved = await saveSessionWithRetry(sessionId.value, {
       shop_id: store.shopId || "",
       step: currentStep(),
       reached: currentReached(),
       payload: sessionPayload(),
     });
+    if (generation !== sessionGeneration || sessionId.value !== targetId) return;
     rememberOpenSession(sessionId.value);
     currentTitle.value = saved.title || currentTitle.value;
   } catch (error) {
-    const msg = String(error.message || "");
-    if (!msg.includes("不在了")) return;
-    forgetSession(sessionId.value);
-    sessionId.value = "";
-    if (route.query.session) router.replace({ query: {} });
-    await migrateOrphanSession();
+    if (!isSessionApiMissing(error)) return;
+    await markSessionDeadAndRecover(targetId, { quiet: true });
   }
 }
 
@@ -1093,7 +1157,7 @@ async function dropSession(id) {
   try {
     await api.dropFeedSession(id);
   } catch (error) {
-    if (!String(error.message || "").includes("不在了")) {
+    if (!isSessionApiMissing(error)) {
       ElMessage.error(error.message);
       return;
     }
@@ -1120,7 +1184,9 @@ async function bootSession() {
   try {
     await loadOpenSessions();
     const wanted = route.query.session ? String(route.query.session) : "";
-    if (wanted && !deadSessionIds.has(wanted)) {
+    if (wanted && deadSessionIds.has(wanted)) {
+      router.replace({ query: {} });
+    } else if (wanted && !deadSessionIds.has(wanted)) {
       const cached = sessionFromOpenList(wanted);
       if (cached) {
         applySession(cached);
@@ -1177,14 +1243,13 @@ watch(
   },
 );
 watch(
-  () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.rows],
+  () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.row_count, docGrid.ready_count, doc.templateId],
   () => {
     if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
     if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(persistSession, 500);
+    saveTimer = setTimeout(persistSession, 1500);
   },
-  { deep: true },
 );
 
 
@@ -1304,31 +1369,20 @@ function scheduleDocImageSync() {
 
 async function syncDocImagesToSession() {
   if (restoring.value || docGrid.loading || reviewAssistRunning.value) return;
-  const ok = await ensureFeedSession();
+  if (Date.now() < persistBlockedUntil) return;
+  const ok = await ensureFeedSession({ quiet: true });
   if (!ok || !sessionId.value || !isKnownOpenSession(sessionId.value)) return;
   const images = allUploadImageFiles();
   if (!images.length) return;
+  const targetId = sessionId.value;
+  const form = new FormData();
+  form.append("kind", "excel_images");
+  images.forEach((item) => form.append("files", item.raw, item.name));
   try {
-    const form = new FormData();
-    form.append("kind", "excel_images");
-    images.forEach((item) => form.append("files", item.raw, item.name));
-    await api.uploadFeedSessionFiles(sessionId.value, form);
+    await uploadSessionFilesWithRetry(targetId, form);
   } catch (error) {
-    const msg = String(error.message || "");
-    if (msg.includes("不在了")) {
-      forgetSession(sessionId.value);
-      sessionId.value = "";
-      await ensureFeedSession({ quiet: true });
-      if (!sessionId.value) return;
-      try {
-        const form = new FormData();
-        form.append("kind", "excel_images");
-        images.forEach((item) => form.append("files", item.raw, item.name));
-        await api.uploadFeedSessionFiles(sessionId.value, form);
-      } catch {
-        /* best effort after session recovery */
-      }
-    }
+    if (!isSessionApiMissing(error)) return;
+    await markSessionDeadAndRecover(targetId, { quiet: true });
   }
 }
 

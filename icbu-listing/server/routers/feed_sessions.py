@@ -49,7 +49,7 @@ def create_session(payload: CreateIn, db: Session = Depends(get_db), user: User 
 @router.get("/{session_id}")
 def get_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     db.expire_all()
-    row = sessions.get_owned(db, user.id, session_id)
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     return sessions.public_view(row)
@@ -62,9 +62,8 @@ def save_session(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    reload_db_from_blob()
     db.expire_all()
-    row = sessions.get_owned(db, user.id, session_id)
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     row = sessions.save(
@@ -88,9 +87,8 @@ async def upload_files(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    reload_db_from_blob()
     db.expire_all()
-    row = sessions.get_owned(db, user.id, session_id)
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     if kind not in {"photos", "batch", "excel", "excel_images", "doc"}:
@@ -114,9 +112,8 @@ def download_file(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> FileResponse:
-    reload_db_from_blob()
     db.expire_all()
-    row = sessions.get_owned(db, user.id, session_id)
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     path = sessions.file_path(row, stored)
@@ -127,9 +124,8 @@ def download_file(
 
 @router.delete("/{session_id}")
 def drop_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    reload_db_from_blob()
     db.expire_all()
-    row = sessions.get_owned(db, user.id, session_id)
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     sessions.save(db, row, status="dropped")

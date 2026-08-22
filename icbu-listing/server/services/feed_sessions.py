@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -147,13 +148,35 @@ def get_owned(db: Session, user_id: str, session_id: str) -> FeedSession | None:
     row = db.get(FeedSession, session_id)
     if row is not None and row.user_id == user_id:
         return row
-    from ..db import persist_database, reload_db_from_blob
+    from ..db import reload_db_from_blob
 
     if reload_db_from_blob():
         db.expire_all()
         row = db.get(FeedSession, session_id)
         if row is not None and row.user_id == user_id:
             return row
+    return None
+
+
+def get_owned_with_retry(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    *,
+    attempts: int = 5,
+    delay_seconds: float = 0.12,
+) -> FeedSession | None:
+    """Resolve a session across serverless instances with brief blob propagation retries."""
+    from ..db import reload_db_from_blob
+
+    for attempt in range(max(1, attempts)):
+        reload_db_from_blob()
+        db.expire_all()
+        row = db.get(FeedSession, session_id)
+        if row is not None and row.user_id == user_id:
+            return row
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds * (attempt + 1))
     return None
 
 
