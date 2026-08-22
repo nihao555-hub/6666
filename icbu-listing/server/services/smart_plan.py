@@ -69,11 +69,11 @@ Fields AI will complete AFTER upload (must NOT appear in user_columns):
 
 Hard rules:
 - user_columns is the entire seller fill obligation — do not expect extra columns beyond this sheet.
-- Always include sku, price, moq in user_columns.
-- Always include name and note — required evidence for AI to fill schema fields not on the sheet.
+- Always include sku, price, moq, name, note in user_columns (name/note are evidence for AI).
 - Include images when sellers attach filenames or URLs in bulk sheets.
-- Include every official REQUIRED attribute not covered by shop/template when the seller must pick per SKU.
-- Put an attribute in user_columns if the seller must choose it; omit only when note/photos clearly supply it.
+- Put official REQUIRED attributes in user_columns ONLY when the seller must physically choose per SKU
+  and the value cannot be inferred from other user columns; otherwise leave them for AI after upload.
+- Do NOT put quality-score optional fields in user_columns — AI fills them from user column values.
 - Do NOT include productTitle/productKeywords/textDesc in user_columns (AI review stage).
 - Never ask for logistics/trade fields already in shop defaults or template.
 
@@ -330,17 +330,17 @@ def candidate_columns(
 
 
 def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Minimal download sheet: pricing redlines + evidence columns. Schema attrs → AI side."""
     chosen = list(CORE_IDS)
     for col in candidates:
         field_id = str(col["id"])
         if field_id in chosen:
             continue
-        if field_id in CORE_OPTIONAL:
-            if field_id in {"name", "note", "images"}:
-                chosen.append(field_id)
-            continue
-        if col.get("required") or col.get("source") == "schema_required":
+        if field_id in CORE_OPTIONAL and field_id in {"name", "note", "images"}:
             chosen.append(field_id)
+    for optional in ("name", "note"):
+        if optional not in chosen:
+            chosen.append(optional)
     return chosen
 
 
@@ -594,10 +594,11 @@ def build_plan(
         "shop_fills": [dict(item) for item in excel_import.SHOP_FILLS],
         "ai_fills": ai_fills,
         "ai_fill_attrs": ai_fill_attrs,
-        "user_fill_contract": "填写表 = 你要填的全部；表外官方必填与影响信息分的选填由 AI 审核阶段补全",
+        "user_fill_contract": "填写表列填齐后，AI 从表中全部字段推出表外官方必填与加分项",
         "guarantee": (
-            "填写表列是卖家全部手填义务。上传后 AI 补：英文文案、表外官方必填、表外加分项（有依据才填）。"
-            "缺依据的必填仍发不出；价/量/品牌不代填。"
+            "填写表 = 你要填的全部列（价/量/货号/品名/备注等）。"
+            "上传后 AI 读取表中每一列，补表外官方必填与影响信息分的选填（有依据才填）。"
+            "缺依据仍发不出；价/量/品牌不代填。"
         ),
         "review_note": "下载表只含你要填的列；审核表会多出 AI 补的全文案与官方字段，可改后再成稿。",
         "review_checklist": checklist_for_review(),

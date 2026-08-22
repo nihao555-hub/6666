@@ -747,6 +747,7 @@ async def grid_infer_fields(
     if category_id and shop_id and plan_columns:
         shop = shop_for(db, user, shop_id)
         grid_columns = smart_plan.expand_audit_columns(db, shop_api(shop), shop, category_id, plan_columns)
+    user_column_ids = {str(col.get("id") or "") for col in (plan_columns or []) if col.get("id")}
     targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
     ai = AiClient.from_env_or_none()
     shop_defaults_payload: dict[str, Any] = {}
@@ -762,6 +763,7 @@ async def grid_infer_fields(
         lines=targets or None,
         ai=ai,
         shop_defaults=shop_defaults_payload,
+        user_column_ids=user_column_ids,
     )
     return {
         "rows": updated,

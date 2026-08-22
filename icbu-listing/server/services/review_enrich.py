@@ -203,15 +203,54 @@ def _norm_corpus(text: str) -> str:
     return " ".join((text or "").lower().replace("_", " ").replace("-", " ").split())
 
 
-def _row_corpus(row: Mapping[str, Any]) -> str:
-    bits = [
-        str(row.get("name") or ""),
-        str(row.get("note") or ""),
-        str(row.get("brand") or ""),
-    ]
+def _facts_from_user_columns(
+    row: Mapping[str, Any],
+    columns: Sequence[Mapping[str, Any]],
+    *,
+    user_column_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Serialize every filled download-sheet cell for AI attribute inference."""
+    understanding = _understanding_from_row(row)
+    by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
+    facts: dict[str, Any] = {
+        "product_name": understanding.product_name,
+        "note": str(row.get("note") or ""),
+        "brand": str(row.get("brand") or ""),
+        "price": str(row.get("price") or ""),
+        "moq": str(row.get("moq") or ""),
+        "sku": str(row.get("sku") or ""),
+        "name": str(row.get("name") or ""),
+    }
+    skip = SKIP_INFER_IDS | {"title", "keywords", "highlights"}
     for key, value in row.items():
-        if str(key).startswith(("attr.", "schema.")) and str(value or "").strip():
-            bits.append(str(value))
+        key_text = str(key)
+        if key_text in skip or not str(value or "").strip():
+            continue
+        if user_column_ids is not None and key_text not in user_column_ids:
+            continue
+        col = by_id.get(key_text)
+        label = str(col.get("label") or key_text) if col else key_text
+        facts[key_text] = str(value).strip()
+        facts[f"{label}"] = str(value).strip()
+    images = str(row.get("images") or "").strip()
+    if images:
+        facts["images"] = images
+    return facts
+
+
+def _row_corpus(row: Mapping[str, Any], user_column_ids: set[str] | None = None) -> str:
+    """Build searchable text from filled download-sheet cells (including name/note/sku)."""
+    bits: list[str] = []
+    skip_output_only = {"title", "keywords", "highlights"}
+    for key, value in row.items():
+        key_text = str(key)
+        if key_text.startswith("_") or key_text in skip_output_only:
+            continue
+        if user_column_ids is not None and key_text not in user_column_ids:
+            continue
+        text = str(value or "").strip()
+        if text:
+            bits.append(text)
     return _norm_corpus(" ".join(bits))
 
 
@@ -307,22 +346,12 @@ def _ai_fill_empty_columns(
     row: Mapping[str, Any],
     columns: Sequence[Mapping[str, Any]],
     already: Mapping[str, str],
+    *,
+    user_column_ids: set[str] | None = None,
 ) -> tuple[dict[str, str], list[str]]:
-    understanding = _understanding_from_row(row)
-    facts: dict[str, Any] = {
-        "product_name": understanding.product_name,
-        "note": str(row.get("note") or ""),
-        "brand": str(row.get("brand") or ""),
-        "price": str(row.get("price") or ""),
-        "moq": str(row.get("moq") or ""),
-        "sku": str(row.get("sku") or ""),
-    }
-    for key, value in row.items():
-        key_text = str(key)
-        if key_text.startswith(("attr.", "schema.")) and str(value or "").strip():
-            facts[key_text] = str(value).strip()
-    question: dict[str, Any] = {}
+    facts = _facts_from_user_columns(row, columns, user_column_ids=user_column_ids)
     by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
+    question: dict[str, Any] = {}
     for col_id, col in by_id.items():
         if col_id in SKIP_INFER_IDS or col_id in already:
             continue
@@ -339,12 +368,13 @@ def _ai_fill_empty_columns(
     if not question:
         return {}, []
     prompt = (
-        "Map seller facts to official listing fields for Alibaba.com wholesale.\n"
-        "For dropdown fields use an exact option label from the list.\n"
-        "Only fill when the seller would be 100% sure from the facts — never guess price, brand, origin, or certs.\n"
-        "If ambiguous, return empty string for that field. Never pick Other/其他.\n\n"
-        f"Facts: {json.dumps(facts, ensure_ascii=False)}\n"
-        f"Fields: {json.dumps(question, ensure_ascii=False)}\n"
+        "The seller filled ONLY the download spreadsheet columns listed under user_facts.\n"
+        "Infer official listing fields below from those values — do not invent beyond them.\n"
+        "For dropdown fields use an exact option label. Only fill when 100% sure.\n"
+        "Never guess price, MOQ, brand, origin, or certifications. If ambiguous, return empty string.\n"
+        "Never pick Other/其他.\n\n"
+        f"user_facts: {json.dumps(facts, ensure_ascii=False)}\n"
+        f"fields_to_fill: {json.dumps(question, ensure_ascii=False)}\n"
         "Return JSON only: {\"column_id\": \"value or empty\"}"
     )
     try:
@@ -388,8 +418,9 @@ def infer_fields_for_row(
     *,
     ai: AiClient | None = None,
     shop_defaults: Mapping[str, Any] | None = None,
+    user_column_ids: set[str] | None = None,
 ) -> tuple[dict[str, str], list[str]]:
-    """Fill empty required/score columns from shop defaults, note corpus, then AI."""
+    """Fill empty required/score columns from shop defaults, user row corpus, then AI."""
     filled: dict[str, str] = {}
     hints: list[str] = []
 
@@ -398,7 +429,7 @@ def infer_fields_for_row(
         filled.update(shop_patch)
         hints.extend(shop_hints)
 
-    corpus = _row_corpus(row)
+    corpus = _row_corpus(row, user_column_ids)
     for col in columns:
         col_id = str(col.get("id") or "")
         if not col_id or col_id in SKIP_INFER_IDS or col_id in filled:
@@ -414,7 +445,13 @@ def infer_fields_for_row(
             hints.append(f"{col.get('label') or col_id} ← {match}")
 
     if ai is not None:
-        ai_patch, ai_hints = _ai_fill_empty_columns(ai, row, columns, filled)
+        ai_patch, ai_hints = _ai_fill_empty_columns(
+            ai,
+            row,
+            columns,
+            filled,
+            user_column_ids=user_column_ids,
+        )
         for key, value in ai_patch.items():
             if key not in filled:
                 filled[key] = value
@@ -447,6 +484,7 @@ def infer_fields_for_rows(
     lines: set[int] | None = None,
     ai: AiClient | None = None,
     shop_defaults: Mapping[str, Any] | None = None,
+    user_column_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], int, dict[str, Any]]:
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -458,7 +496,13 @@ def infer_fields_for_rows(
         if lines and line not in lines:
             updated.append(item)
             continue
-        patch, hints = infer_fields_for_row(item, columns, ai=ai, shop_defaults=shop_defaults)
+        patch, hints = infer_fields_for_row(
+            item,
+            columns,
+            ai=ai,
+            shop_defaults=shop_defaults,
+            user_column_ids=user_column_ids,
+        )
         if patch:
             item.update(patch)
             item["_infer_fields"] = patch

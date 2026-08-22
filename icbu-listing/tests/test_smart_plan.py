@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.db import init_db  # noqa: E402
 from server.main import app  # noqa: E402
-from server.services import smart_plan  # noqa: E402
+from server.services import review_enrich, smart_plan  # noqa: E402
 
 
 def signup(tag: str = "user") -> TestClient:
@@ -55,9 +55,29 @@ class SmartPlanUnitTests(unittest.TestCase):
         ]
         chosen = smart_plan._rule_based_user_columns(candidates)
         self.assertEqual(chosen[:3], ["sku", "price", "moq"])
-        self.assertIn("attr.icbuCatProp.p-2", chosen)
+        self.assertIn("name", chosen)
+        self.assertIn("note", chosen)
+        self.assertNotIn("attr.icbuCatProp.p-2", chosen)
 
-    def test_finalize_restores_required_when_llm_omits(self) -> None:
+    def test_ai_target_includes_off_sheet_required(self) -> None:
+        candidates = [
+            smart_plan._core_column("sku"),
+            smart_plan._core_column("price"),
+            smart_plan._core_column("moq"),
+            smart_plan._core_column("name"),
+            {
+                "id": "attr.icbuCatProp.p-2",
+                "label": "铅芯硬度",
+                "required": True,
+                "source": "schema_required",
+            },
+        ]
+        user_ids = set(smart_plan._rule_based_user_columns(candidates))
+        targets = review_enrich.ai_target_columns(candidates, user_ids)
+        ids = {item["id"] for item in targets}
+        self.assertIn("attr.icbuCatProp.p-2", ids)
+
+    def test_finalize_restores_evidence_columns_when_llm_omits(self) -> None:
         candidates = [
             smart_plan._core_column("sku"),
             smart_plan._core_column("price"),
@@ -75,7 +95,7 @@ class SmartPlanUnitTests(unittest.TestCase):
         finalized = smart_plan._finalize_user_columns(candidates, llm_minimal)
         self.assertIn("name", finalized)
         self.assertIn("note", finalized)
-        self.assertIn("attr.icbuCatProp.p-2", finalized)
+        self.assertNotIn("attr.icbuCatProp.p-2", finalized)
 
     def test_build_smart_template_bytes(self) -> None:
         plan = {
