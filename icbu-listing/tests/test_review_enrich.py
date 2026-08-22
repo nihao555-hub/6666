@@ -59,6 +59,35 @@ class ReviewEnrichTests(unittest.TestCase):
         self.assertIn("cosmetic puff", rows[0]["keywords"])
         self.assertEqual(cols[0]["id"], "title")
 
+    def test_infer_fields_from_note(self) -> None:
+        columns = [
+            {
+                "id": "attr.icbuCatProp.p-hard",
+                "label": "硬度",
+                "options": [{"label": "HB", "value": "HB"}, {"label": "2B", "value": "2B"}],
+            }
+        ]
+        patch, hints = review_enrich.infer_fields_for_row(
+            {"name": "铅笔", "note": "HB 硬度，适合素描", "sku": "P-1"},
+            columns,
+        )
+        self.assertEqual(patch.get("attr.icbuCatProp.p-hard"), "HB")
+        self.assertTrue(hints)
+
+    def test_infer_fields_skips_ambiguous(self) -> None:
+        columns = [
+            {
+                "id": "attr.icbuCatProp.p-hard",
+                "label": "硬度",
+                "options": [{"label": "HB", "value": "HB"}, {"label": "2B", "value": "2B"}],
+            }
+        ]
+        patch, _hints = review_enrich.infer_fields_for_row(
+            {"name": "铅笔", "note": "HB 和 2B 混装", "sku": "P-2"},
+            columns,
+        )
+        self.assertEqual(patch, {})
+
 
 if __name__ == "__main__":
     unittest.main()

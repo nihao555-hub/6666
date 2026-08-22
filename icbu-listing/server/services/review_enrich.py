@@ -10,6 +10,7 @@ Title/keyword rules follow vendor/alibaba-icbu-publishing (aidi1723 skill, MIT).
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Mapping, Sequence
 
 from ai import AiClient, AiUnavailable, Understanding  # noqa: E402
@@ -160,6 +161,113 @@ def order_review_columns(plan_columns: Sequence[Mapping[str, Any]]) -> list[dict
         ordered.append(dict(col))
         seen.add(fid)
     return ordered
+
+
+SKIP_INFER_IDS = frozenset(
+    {
+        "sku",
+        "price",
+        "moq",
+        "images",
+        "brand",
+        "name",
+        "note",
+        "title",
+        "keywords",
+        "highlights",
+    }
+)
+
+GENERIC_OPTIONS = frozenset({"other", "others", "custom", "customized", "其他", "其它"})
+
+
+def _norm_corpus(text: str) -> str:
+    return " ".join((text or "").lower().replace("_", " ").replace("-", " ").split())
+
+
+def _row_corpus(row: Mapping[str, Any]) -> str:
+    bits = [
+        str(row.get("name") or ""),
+        str(row.get("note") or ""),
+        str(row.get("brand") or ""),
+    ]
+    for key, value in row.items():
+        if str(key).startswith(("attr.", "schema.")) and str(value or "").strip():
+            bits.append(str(value))
+    return _norm_corpus(" ".join(bits))
+
+
+def _match_option_from_corpus(corpus: str, options: Sequence[Mapping[str, Any]]) -> str | None:
+    matches: list[str] = []
+    compact = corpus.replace(" ", "")
+    for opt in options[:80]:
+        label = str(opt.get("label") or opt.get("value") or "").strip()
+        if not label or len(label) < 2:
+            continue
+        norm = _norm_corpus(label)
+        if not norm or norm in GENERIC_OPTIONS:
+            continue
+        if norm in corpus or norm.replace(" ", "") in compact:
+            matches.append(label)
+            continue
+        for token in re.split(r"[\s,，/;；|]+", norm):
+            if len(token) >= 2 and token in corpus:
+                matches.append(label)
+                break
+    unique = list(dict.fromkeys(matches))
+    return unique[0] if len(unique) == 1 else None
+
+
+def infer_fields_for_row(
+    row: Mapping[str, Any],
+    columns: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, str], list[str]]:
+    """Fill empty grid columns when note/name gives unambiguous evidence."""
+    corpus = _row_corpus(row)
+    if not corpus.strip():
+        return {}, []
+    filled: dict[str, str] = {}
+    hints: list[str] = []
+    for col in columns:
+        col_id = str(col.get("id") or "")
+        if not col_id or col_id in SKIP_INFER_IDS:
+            continue
+        if str(row.get(col_id) or "").strip():
+            continue
+        options = col.get("options") or []
+        if not options:
+            continue
+        match = _match_option_from_corpus(corpus, options)
+        if match:
+            filled[col_id] = match
+            hints.append(f"{col.get('label') or col_id} ← {match}")
+    return filled, hints
+
+
+def infer_fields_for_rows(
+    rows: Sequence[Mapping[str, Any]],
+    columns: Sequence[Mapping[str, Any]],
+    *,
+    lines: set[int] | None = None,
+) -> tuple[list[dict[str, Any]], list[str], int]:
+    updated: list[dict[str, Any]] = []
+    errors: list[str] = []
+    filled_count = 0
+    for row in rows:
+        item = dict(row)
+        line = int(item.get("line") or 0)
+        if lines and line not in lines:
+            updated.append(item)
+            continue
+        patch, hints = infer_fields_for_row(item, columns)
+        if patch:
+            item.update(patch)
+            item["_infer_fields"] = patch
+            filled_count += len(patch)
+        if hints:
+            item["_infer_hint"] = "; ".join(hints[:4])
+        updated.append(item)
+    return updated, errors, filled_count
 
 
 def schema_inventory_summary(fields_flat: Sequence[Mapping[str, Any]]) -> dict[str, Any]:

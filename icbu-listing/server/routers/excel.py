@@ -613,6 +613,42 @@ async def grid_regen_copy(
     return {"rows": updated, "errors": errors}
 
 
+@router.post("/grid-infer-fields")
+async def grid_infer_fields(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    rows: str = Form("[]"),
+    lines: str = Form("[]"),
+    columns: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if shop_id:
+        shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+        selected = json.loads(lines or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    plan_columns = _parse_plan_columns(columns)
+    grid_columns, _profile, _extras = _resolve_grid_columns(
+        db,
+        user,
+        shop_id,
+        category_id,
+        plan_columns=plan_columns,
+    )
+    targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
+    updated, errors, filled_count = review_enrich.infer_fields_for_rows(
+        payload,
+        grid_columns,
+        lines=targets or None,
+    )
+    return {"rows": updated, "errors": errors, "filled_count": filled_count}
+
+
 @router.post("/grid-generate-images")
 async def grid_generate_images(
     shop_id: str = Form(""),
