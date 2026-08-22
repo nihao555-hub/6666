@@ -402,7 +402,7 @@ const route = useRoute();
 const DEAD_SESSIONS_KEY = "icbu-dead-feed-sessions";
 const sessionId = ref("");
 const deadSessionIds = loadDeadSessionIds();
-const openSessionIds = ref(new Set());
+const verifiedSessionIds = ref(new Set());
 let sessionEnsurePromise = null;
 let startPathPromise = null;
 let persistInFlight = null;
@@ -785,21 +785,23 @@ async function loadOpenSessions() {
     openSessions.value = (data.sessions || []).filter(
       (item) => ["doc", "excel", "full"].includes(item.path) && !deadSessionIds.has(item.id),
     );
-    mergeOpenSessionIds(openSessions.value.map((item) => item.id));
+    mergeVerifiedSessionIds(openSessions.value.map((item) => item.id));
   } catch {
     openSessions.value = [];
   }
 }
 
-function mergeOpenSessionIds(ids) {
-  const merged = new Set(openSessionIds.value);
+function mergeVerifiedSessionIds(ids) {
+  const merged = new Set(verifiedSessionIds.value);
   ids.forEach((id) => {
     if (id && !deadSessionIds.has(id)) merged.add(id);
   });
-  if (sessionId.value && !deadSessionIds.has(sessionId.value)) {
-    merged.add(sessionId.value);
-  }
-  openSessionIds.value = merged;
+  verifiedSessionIds.value = merged;
+}
+
+function verifySession(id) {
+  if (!id || deadSessionIds.has(id)) return;
+  verifiedSessionIds.value = new Set([...verifiedSessionIds.value, id]);
 }
 
 function loadDeadSessionIds() {
@@ -819,8 +821,7 @@ function loadDeadSessionIds() {
 }
 
 function rememberOpenSession(id) {
-  if (!id || deadSessionIds.has(id)) return;
-  mergeOpenSessionIds([id]);
+  verifySession(id);
 }
 
 function forgetSession(id) {
@@ -831,32 +832,42 @@ function forgetSession(id) {
   } catch {
     /* sessionStorage may be unavailable */
   }
-  const next = new Set(openSessionIds.value);
+  const next = new Set(verifiedSessionIds.value);
   next.delete(id);
-  openSessionIds.value = next;
+  verifiedSessionIds.value = next;
   openSessions.value = openSessions.value.filter((item) => item.id !== id);
 }
 
 function isKnownOpenSession(id) {
-  return Boolean(id && !deadSessionIds.has(id) && openSessionIds.value.has(id));
+  return Boolean(id && !deadSessionIds.has(id) && verifiedSessionIds.value.has(id));
 }
 
 function sessionFromOpenList(id) {
   return openSessions.value.find((item) => item.id === id) || null;
 }
 
-async function fetchSessionOnce(id) {
-  if (!id || deadSessionIds.has(id)) return null;
+async function migrateOrphanSession() {
+  const payload = sessionPayload();
+  const step = currentStep();
+  const reached = currentReached();
+  const staleId = sessionId.value;
+  if (staleId) forgetSession(staleId);
+  sessionId.value = "";
+  if (route.query.session) router.replace({ query: {} });
+  await startPath();
+  if (!sessionId.value) return false;
   try {
-    const session = await api.feedSession(id);
-    rememberOpenSession(id);
-    return session;
-  } catch (error) {
-    if (String(error.message || "").includes("不在了")) {
-      forgetSession(id);
-      return null;
-    }
-    throw error;
+    const saved = await api.saveFeedSession(sessionId.value, {
+      shop_id: store.shopId || "",
+      step,
+      reached,
+      payload,
+    });
+    verifySession(sessionId.value);
+    currentTitle.value = saved.title || currentTitle.value;
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -887,17 +898,9 @@ async function ensureFeedSessionImpl(options = {}) {
   if (isKnownOpenSession(sessionId.value)) {
     return true;
   }
-  const cached = sessionFromOpenList(sessionId.value);
-  if (cached) {
-    rememberOpenSession(sessionId.value);
+  if (sessionFromOpenList(sessionId.value)) {
+    verifySession(sessionId.value);
     return true;
-  }
-  if (sessionId.value === String(route.query.session || "")) {
-    const fetched = await fetchSessionOnce(sessionId.value);
-    if (fetched) {
-      rememberOpenSession(sessionId.value);
-      return true;
-    }
   }
   const staleId = sessionId.value;
   forgetSession(staleId);
@@ -923,7 +926,10 @@ async function persistSessionImpl() {
   if (!ok || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
   if (!isKnownOpenSession(sessionId.value)) {
     await loadOpenSessions();
-    if (!isKnownOpenSession(sessionId.value)) return;
+  }
+  if (!isKnownOpenSession(sessionId.value)) {
+    await migrateOrphanSession();
+    return;
   }
   try {
     const saved = await api.saveFeedSession(sessionId.value, {
@@ -940,20 +946,7 @@ async function persistSessionImpl() {
     forgetSession(sessionId.value);
     sessionId.value = "";
     if (route.query.session) router.replace({ query: {} });
-    const recovered = await ensureFeedSession({ quiet: true });
-    if (!recovered || !sessionId.value) return;
-    try {
-      const saved = await api.saveFeedSession(sessionId.value, {
-        shop_id: store.shopId || "",
-        step: currentStep(),
-        reached: currentReached(),
-        payload: sessionPayload(),
-      });
-      rememberOpenSession(sessionId.value);
-      currentTitle.value = saved.title || currentTitle.value;
-    } catch {
-      /* keep typing even if save is slow */
-    }
+    await migrateOrphanSession();
   }
 }
 
@@ -1046,7 +1039,7 @@ async function startPathImpl() {
     docFiles.value = [];
     smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" };
     applySession(created);
-    rememberOpenSession(created.id);
+    verifySession(created.id);
     router.replace({ query: { session: created.id } });
     void loadOpenSessions();
   } catch (error) {
@@ -1081,11 +1074,9 @@ async function resumeSession(id, options = {}) {
   if (!skipListReload) {
     await loadOpenSessions();
   }
-  let session = sessionFromOpenList(id);
+  const session = sessionFromOpenList(id);
   if (!session) {
-    session = await fetchSessionOnce(id);
-  }
-  if (!session) {
+    forgetSession(id);
     if (route.query.session === id) router.replace({ query: {} });
     const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (fallback && fallback.id !== id) {
@@ -1096,7 +1087,7 @@ async function resumeSession(id, options = {}) {
     return;
   }
   applySession(session);
-  rememberOpenSession(id);
+  verifySession(id);
   router.replace({ query: { session: id } });
   if (deferHeavy) {
     void finishResumeSession();
@@ -1140,7 +1131,7 @@ async function bootSession() {
       const cached = sessionFromOpenList(wanted);
       if (cached) {
         applySession(cached);
-        rememberOpenSession(wanted);
+        verifySession(wanted);
         router.replace({ query: { session: wanted } });
         void finishResumeSession();
         return;
@@ -1151,7 +1142,7 @@ async function bootSession() {
     const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (latest) {
       applySession(latest);
-      rememberOpenSession(latest.id);
+      verifySession(latest.id);
       router.replace({ query: { session: latest.id } });
       void finishResumeSession();
       return;

@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..db import persist_database
 from ..models import FeedSession, utcnow
 
 PATHS = {
@@ -146,7 +147,7 @@ def get_owned(db: Session, user_id: str, session_id: str) -> FeedSession | None:
     row = db.get(FeedSession, session_id)
     if row is not None and row.user_id == user_id:
         return row
-    from ..db import reload_db_from_blob
+    from ..db import persist_database, reload_db_from_blob
 
     if reload_db_from_blob():
         db.expire_all()
@@ -170,6 +171,7 @@ def create(db: Session, user_id: str, path: str, shop_id: str = "") -> FeedSessi
     db.add(row)
     db.commit()
     db.refresh(row)
+    persist_database()
     return row
 
 
@@ -199,6 +201,7 @@ def save(
     row.updated_at = utcnow()
     db.commit()
     db.refresh(row)
+    persist_database()
     return row
 
 

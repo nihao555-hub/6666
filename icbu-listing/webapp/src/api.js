@@ -93,7 +93,6 @@ export const api = {
   batchProgress: (batchId, params) => http.get(`/batches/${batchId}`, { params }),
   feedSessions: (shopId) => http.get("/feed-sessions", { params: { shop_id: shopId || "" } }),
   createFeedSession: (body) => http.post("/feed-sessions", body),
-  feedSession: (id) => http.get(`/feed-sessions/${id}`),
   saveFeedSession: (id, body) => http.patch(`/feed-sessions/${id}`, body),
   uploadFeedSessionFiles: (id, form) => http.post(`/feed-sessions/${id}/files`, form),
   dropFeedSession: (id) => http.delete(`/feed-sessions/${id}`),
