@@ -2246,7 +2246,7 @@ async function parseDocuments() {
   docGrid.loading = true;
   parseStatus.value = "AI 正在读表…";
   resetReviewAiSteps();
-  patchReviewStep("service", { status: "running", detail: "正在解析表格…" });
+  patchReviewStep("service", { status: "running", detail: "AI 正在读表…" });
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || smartPlan.value.columns || [];
