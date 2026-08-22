@@ -1032,10 +1032,14 @@ async function loadSmartPlan(override = null) {
 function normalizeSmartPlan(raw) {
   const columns = (raw.columns || []).map((col) => ({
     id: col.id,
+    header: col.header || col.label || col.id,
     label: col.label || col.header || col.id,
     required: Boolean(col.required),
     options: col.options,
     kind: col.kind,
+    group: col.group,
+    field_id: col.field_id,
+    source: col.source,
   }));
   return {
     category_name: raw.category_name || "",

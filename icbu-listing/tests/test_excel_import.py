@@ -465,6 +465,25 @@ class FullSchemaTests(unittest.TestCase):
         self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-type"], "1")
         self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-color"], "9")
 
+    def test_parse_rows_without_group_metadata(self) -> None:
+        extras = [
+            {
+                "id": "attr.icbuCatProp.p-type",
+                "header": "产品类型",
+                "label": "产品类型",
+                "required": True,
+                "options": [{"value": "1", "label": "油画笔"}],
+            }
+        ]
+        rows = [
+            ["货号", "单价 USD", "起订量", "产品类型"],
+            ["SKU-1", "1.8", "100", "油画笔"],
+        ]
+        mapping = mapping_from_headers(rows[0], "simple", extras)
+        parsed = parse_rows(rows, mapping, 0, extras)
+        self.assertEqual(parsed[0].sku, "SKU-1")
+        self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-type"], "1")
+
 
 if __name__ == "__main__":
     unittest.main()

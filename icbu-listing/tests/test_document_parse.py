@@ -106,6 +106,32 @@ class DocumentParseTests(unittest.TestCase):
         self.assertEqual(result["rows"][0]["sku"], "SKU-9")
         self.assertIn("sku-9.jpg", result["rows"][0]["images"].lower())
 
+    def test_co_uploaded_images_skip_llm_when_spreadsheet_present(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        ws.append(["SKU-9", "2.50", "200", "", "", "测试品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        fake_jpg = b"\xff\xd8\xff\xe0" + b"0" * 32
+
+        class SpyAi:
+            def chat_json(self, *_args, **_kwargs):
+                raise AssertionError("LLM should not run for co-uploaded photos")
+
+        result = document_parse.parse_documents(
+            [
+                ("batch.xlsx", payload.getvalue()),
+                ("SKU-9.jpg", fake_jpg),
+            ],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=SpyAi(),
+        )
+        self.assertEqual(result["rows"][0]["sku"], "SKU-9")
+
     def test_check_grid_flags_missing_price(self) -> None:
         items = [{"line": 2, "sku": "A-1", "price": "", "moq": "100", "images": "", "brand": "", "name": "", "note": ""}]
         check = document_parse.check_grid(items, self.columns, category_id="123456")

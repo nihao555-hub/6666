@@ -1077,6 +1077,18 @@ def mapping_from_headers(
     return mapping
 
 
+def _attr_group_field(spec: Mapping[str, Any] | None, field_id: str) -> tuple[str, str]:
+    """Resolve attr group/child from column spec or attr.{group}.{child} id."""
+    parts = str(field_id or "").split(".")
+    group = str((spec or {}).get("group") or "").strip()
+    child = str((spec or {}).get("field_id") or "").strip()
+    if not group and len(parts) >= 3 and parts[0] == "attr":
+        group = parts[1]
+    if not child and len(parts) >= 3 and parts[0] == "attr":
+        child = parts[2]
+    return group, child
+
+
 def parse_rows(
     rows: list[list[str]],
     mapping: dict[str, str],
@@ -1102,10 +1114,9 @@ def parse_rows(
                 specs[field_id.split(".", 1)[1]] = cell
             elif field_id.startswith("attr.") and cell:
                 spec = extra_by_id.get(field_id)
-                if spec:
-                    attributes.setdefault(spec["group"], {})[spec["field_id"]] = _match_option(
-                        cell, spec.get("options") or []
-                    )
+                group, child = _attr_group_field(spec, field_id)
+                if group and child:
+                    attributes.setdefault(group, {})[child] = _match_option(cell, (spec or {}).get("options") or [])
             elif field_id.startswith("schema.") and cell:
                 spec = extra_by_id.get(field_id)
                 parts = field_id.split(".")

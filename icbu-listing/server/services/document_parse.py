@@ -383,6 +383,8 @@ def parse_documents(
                 sources.append(f"表格 {name}")
             else:
                 unstructured.append((name, content))
+        elif suffix in IMAGE_SUFFIXES and structured:
+            continue
         else:
             unstructured.append((name, content))
 
