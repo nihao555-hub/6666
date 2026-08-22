@@ -139,44 +139,44 @@
         </div>
       </div>
 
-      <div v-else class="step-panel audit-shell">
+      <section
+        v-if="showReviewAiTimeline"
+        class="ai-timeline ai-timeline-vertical audit-ai-timeline"
+        aria-live="polite"
+      >
+        <header class="ai-timeline-head">
+          <strong>AI 审核助手</strong>
+          <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
+          <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
+        </header>
+        <ol class="ai-timeline-track">
+          <li
+            v-for="(step, index) in reviewAiSteps"
+            :key="step.id"
+            class="ai-timeline-item"
+            :class="`is-${step.status}`"
+          >
+            <div class="ai-timeline-rail" aria-hidden="true">
+              <span class="ai-timeline-dot" />
+              <span v-if="index < reviewAiSteps.length - 1" class="ai-timeline-line" />
+            </div>
+            <div class="ai-timeline-content">
+              <div class="ai-timeline-row">
+                <span class="ai-timeline-label">{{ step.label }}</span>
+                <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
+              </div>
+              <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <div v-if="docStep === 1" class="step-panel audit-shell">
         <header class="audit-header">
           <button type="button" class="audit-back" @click="docStep = 0">← 返回</button>
           <h3>内容审核</h3>
           <p class="audit-subtitle">核对 AI 生成的标题、关键词与商品图，确认后标记通过。</p>
         </header>
-
-        <section
-          v-if="showReviewAiTimeline"
-          class="ai-timeline ai-timeline-vertical audit-ai-timeline"
-          aria-live="polite"
-        >
-          <header class="ai-timeline-head">
-            <strong>AI 审核助手</strong>
-            <span v-if="reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
-            <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
-          </header>
-          <ol class="ai-timeline-track">
-            <li
-              v-for="(step, index) in reviewAiSteps"
-              :key="step.id"
-              class="ai-timeline-item"
-              :class="`is-${step.status}`"
-            >
-              <div class="ai-timeline-rail" aria-hidden="true">
-                <span class="ai-timeline-dot" />
-                <span v-if="index < reviewAiSteps.length - 1" class="ai-timeline-line" />
-              </div>
-              <div class="ai-timeline-content">
-                <div class="ai-timeline-row">
-                  <span class="ai-timeline-label">{{ step.label }}</span>
-                  <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
-                </div>
-                <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
-              </div>
-            </li>
-          </ol>
-        </section>
 
         <section class="audit-toolbar-card">
           <div class="audit-toolbar">
@@ -302,7 +302,7 @@
               :total="filteredDocRowViews.length"
               :page-sizes="[10, 20, 50]"
               layout="total, prev, pager, next, sizes"
-              small
+              size="small"
             />
             <el-button
               type="primary"
@@ -478,6 +478,7 @@ const templateLoading = ref(false);
 const templateSuggesting = ref(false);
 const aiServiceReady = ref(null);
 const reviewAssistRunning = ref(false);
+let reviewAssistPromise = null;
 const reviewAiSteps = ref(createReviewAiSteps());
 const smartPlanAiSteps = ref(createSmartPlanAiSteps());
 let smartPlanStepTimer = null;
@@ -563,13 +564,12 @@ function reviewStepStatusLabel(status) {
 }
 
 const showReviewAiTimeline = computed(() => {
-  if (docStep.value !== 1) return false;
-  if (reviewAssistRunning.value || hasPendingImageJobs()) return true;
+  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return true;
   return reviewAiSteps.value.some((step) => step.status !== "pending");
 });
 
 const reviewAiAllDone = computed(() => {
-  if (reviewAssistRunning.value || hasPendingImageJobs()) return false;
+  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return false;
   return reviewAiSteps.value.every((step) => ["done", "skip"].includes(step.status));
 });
 
@@ -787,18 +787,9 @@ async function loadOpenSessions() {
     openSessions.value = (data.sessions || []).filter(
       (item) => ["doc", "excel", "full"].includes(item.path) && !deadSessionIds.has(item.id),
     );
-    mergeVerifiedSessionIds(openSessions.value.map((item) => item.id));
   } catch {
     openSessions.value = [];
   }
-}
-
-function mergeVerifiedSessionIds(ids) {
-  const merged = new Set(verifiedSessionIds.value);
-  ids.forEach((id) => {
-    if (id && !deadSessionIds.has(id)) merged.add(id);
-  });
-  verifiedSessionIds.value = merged;
 }
 
 function verifySession(id) {
@@ -922,7 +913,7 @@ async function persistSession() {
 }
 
 async function persistSessionImpl() {
-  if (sessionBooting.value || restoring.value) return;
+  if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
   if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
   const ok = await ensureFeedSession({ quiet: true });
   if (!ok || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
@@ -1188,7 +1179,8 @@ watch(
 watch(
   () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.rows],
   () => {
-    if (sessionBooting.value || restoring.value || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
+    if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
+    if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistSession, 500);
   },
@@ -1311,9 +1303,9 @@ function scheduleDocImageSync() {
 }
 
 async function syncDocImagesToSession() {
-  if (restoring.value) return;
+  if (restoring.value || docGrid.loading || reviewAssistRunning.value) return;
   const ok = await ensureFeedSession();
-  if (!ok || !sessionId.value) return;
+  if (!ok || !sessionId.value || !isKnownOpenSession(sessionId.value)) return;
   const images = allUploadImageFiles();
   if (!images.length) return;
   try {
@@ -1432,8 +1424,8 @@ function openDocCategory() {
 function advanceDoc(index) {
   docReached.value = Math.max(docReached.value, index);
   docStep.value = index;
-  persistSession();
-  if (index === 1) void runReviewAssist();
+  void persistSession();
+  if (index === 1) void runReviewAssist(true);
 }
 
 function rowSlots(row) {
@@ -1901,7 +1893,7 @@ function rowsNeedingCopy() {
 }
 
 async function autoStartReviewCopy() {
-  if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return { ok: true, skipped: true };
+  if (!docGrid.rows.length || !doc.categoryId) return { ok: true, skipped: true };
   if (!rowsNeedingCopy().length) return { ok: true, skipped: true, copyOk: docGrid.rows.length };
   const need = rowsNeedingCopy().length;
   patchReviewStep("copy", { status: "running", detail: `共 ${need} 行` });
@@ -1997,8 +1989,23 @@ function onRowTemplateChange(row) {
 }
 
 async function runReviewAssist(force = false) {
-  if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return;
-  if (reviewAssistRunning.value && !force) return;
+  if (!docGrid.rows.length || !doc.categoryId) return;
+  if (reviewAssistPromise) {
+    if (!force) return reviewAssistPromise;
+    try {
+      await reviewAssistPromise;
+    } catch {
+      /* supersede failed run */
+    }
+  }
+  reviewAssistPromise = runReviewAssistImpl(force).finally(() => {
+    reviewAssistPromise = null;
+  });
+  return reviewAssistPromise;
+}
+
+async function runReviewAssistImpl(force = false) {
+  if (!docGrid.rows.length || !doc.categoryId) return;
   reviewAssistRunning.value = true;
   resetReviewAiSteps();
   try {
@@ -2094,6 +2101,7 @@ async function runReviewAssist(force = false) {
     });
   } finally {
     reviewAssistRunning.value = false;
+    void persistSession();
   }
 }
 
@@ -2115,8 +2123,13 @@ async function parseDocuments() {
     ElMessage.warning("先选叶子类目");
     return;
   }
-  if (!docFiles.value.some((item) => item.raw)) {
-    ElMessage.warning("先上传资料");
+  const uploadables = docFiles.value.filter((item) => item.raw);
+  if (!uploadables.length) {
+    ElMessage.warning("请先上传表格和图片（刷新页面后需重新选择文件）");
+    return;
+  }
+  if (!uploadables.some((item) => isSpreadsheetFile(item.name))) {
+    ElMessage.warning("至少上传一个 Excel/CSV 表格");
     return;
   }
   const body = new FormData();
@@ -2127,32 +2140,36 @@ async function parseDocuments() {
   if (smartPlan.value.columns?.length) {
     body.append("columns", JSON.stringify(smartPlan.value.columns));
   }
-  docFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
+  uploadables.forEach((item) => body.append("files", item.raw));
   docGrid.loading = true;
   parseStatus.value = "正在读取表格…";
+  resetReviewAiSteps();
+  patchReviewStep("service", { status: "running", detail: "正在解析表格…" });
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || smartPlan.value.columns || [];
     if (result.download_columns?.length) {
       smartPlan.value = normalizeSmartPlan({ ...smartPlan.value, columns: result.download_columns, column_count: result.download_columns.length });
     }
-    docGrid.rows = normalizeDocRows(applyLocalImageMatches(result.rows || [], docFiles.value));
+    docGrid.rows = normalizeDocRows(applyLocalImageMatches(result.rows || [], uploadables));
     docGrid.row_issues = result.row_issues || [];
     docGrid.warnings = result.warnings || [];
     docGrid.row_count = result.row_count || docGrid.rows.length;
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
-    parseStatus.value = "进入审核…";
-    resetReviewAiSteps();
-    patchReviewStep("service", { status: "running", detail: "正在进入审核…" });
-    await persistSession();
-    advanceDoc(1);
+    docReached.value = Math.max(docReached.value, 1);
+    docStep.value = 1;
+    patchReviewStep("service", { status: "running", detail: "解析完成，AI 开始填写…" });
+    void persistSession();
+    await runReviewAssist(true);
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
   } catch (error) {
+    resetReviewAiSteps();
     ElMessage.error(error.message);
   } finally {
     docGrid.loading = false;
     parseStatus.value = "";
+    void persistSession();
   }
 }
 
@@ -2539,7 +2556,7 @@ onUnmounted(() => {
 }
 
 .audit-ai-timeline {
-  margin: 0 0 14px;
+  margin: 16px 0 14px;
   max-width: 480px;
 }
 
