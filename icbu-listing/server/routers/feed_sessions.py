@@ -32,7 +32,6 @@ class SaveIn(BaseModel):
 
 @router.get("")
 def list_sessions(shop_id: str = "", db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    reload_db_from_blob()
     db.expire_all()
     rows = sessions.list_open(db, user.id, shop_id)
     return {"sessions": [sessions.public_view(row) for row in rows]}
@@ -48,7 +47,6 @@ def create_session(payload: CreateIn, db: Session = Depends(get_db), user: User 
 
 @router.get("/{session_id}")
 def get_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    reload_db_from_blob()
     db.expire_all()
     row = sessions.get_owned(db, user.id, session_id)
     if row is None:

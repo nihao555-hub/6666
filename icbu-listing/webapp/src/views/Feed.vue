@@ -1048,18 +1048,39 @@ async function startPathImpl() {
     applySession(created);
     rememberOpenSession(created.id);
     router.replace({ query: { session: created.id } });
-    await loadOpenSessions();
+    void loadOpenSessions();
   } catch (error) {
     ElMessage.error(error.message);
   }
 }
 
-async function resumeSession(id) {
+async function finishResumeSession() {
+  if (doc.batch?.batch_id) {
+    clearInterval(docTimer);
+    docTimer = setInterval(pollDoc, 3000);
+    void pollDoc();
+  }
+  if (!doc.categoryId || !store.shopId) return;
+  try {
+    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    ensureGridPolling();
+    if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+      void runReviewAssist(true);
+    }
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+async function resumeSession(id, options = {}) {
+  const { deferHeavy = true, skipListReload = false } = options;
   if (!id || deadSessionIds.has(id)) {
     await startPath();
     return;
   }
-  await loadOpenSessions();
+  if (!skipListReload) {
+    await loadOpenSessions();
+  }
   let session = sessionFromOpenList(id);
   if (!session) {
     session = await fetchSessionOnce(id);
@@ -1068,7 +1089,7 @@ async function resumeSession(id) {
     if (route.query.session === id) router.replace({ query: {} });
     const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (fallback && fallback.id !== id) {
-      await resumeSession(fallback.id);
+      await resumeSession(fallback.id, options);
     } else {
       await startPath();
     }
@@ -1077,18 +1098,11 @@ async function resumeSession(id) {
   applySession(session);
   rememberOpenSession(id);
   router.replace({ query: { session: id } });
-  if (doc.batch?.batch_id) {
-    clearInterval(docTimer);
-    docTimer = setInterval(pollDoc, 3000);
-    await pollDoc();
+  if (deferHeavy) {
+    void finishResumeSession();
+    return;
   }
-  if (doc.categoryId) {
-    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    ensureGridPolling();
-    if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
-      void runReviewAssist(true);
-    }
-  }
+  await finishResumeSession();
 }
 
 async function dropSession(id) {
@@ -1122,28 +1136,24 @@ async function bootSession() {
   try {
     await loadOpenSessions();
     const wanted = route.query.session ? String(route.query.session) : "";
-    if (wanted) {
-      if (deadSessionIds.has(wanted)) {
-        router.replace({ query: {} });
-      } else if (sessionFromOpenList(wanted) || openSessionIds.value.has(wanted)) {
-        await resumeSession(wanted);
+    if (wanted && !deadSessionIds.has(wanted)) {
+      const cached = sessionFromOpenList(wanted);
+      if (cached) {
+        applySession(cached);
+        rememberOpenSession(wanted);
+        router.replace({ query: { session: wanted } });
+        void finishResumeSession();
         return;
-      } else {
-        const fetched = await fetchSessionOnce(wanted);
-        if (fetched) {
-          applySession(fetched);
-          rememberOpenSession(wanted);
-          router.replace({ query: { session: wanted } });
-          await loadOpenSessions();
-          return;
-        }
-        forgetSession(wanted);
-        router.replace({ query: {} });
       }
+      forgetSession(wanted);
+      router.replace({ query: {} });
     }
     const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (latest) {
-      await resumeSession(latest.id);
+      applySession(latest);
+      rememberOpenSession(latest.id);
+      router.replace({ query: { session: latest.id } });
+      void finishResumeSession();
       return;
     }
     await startPath();
@@ -1153,16 +1163,15 @@ async function bootSession() {
 }
 
 onMounted(async () => {
-  try {
-    await store.ensureShops();
-    if (store.shopId) void prefetchCategoryPicker(store.shopId);
-  } catch {
-    /* shop list loads again when user opens category picker */
-  }
-  try {
-    const health = await api.health();
-    aiServiceReady.value = health.ai_enabled !== false;
-  } catch {
+  const [, healthResult] = await Promise.allSettled([
+    store.ensureShops().then(() => {
+      if (store.shopId) void prefetchCategoryPicker(store.shopId);
+    }),
+    api.health(),
+  ]);
+  if (healthResult.status === "fulfilled") {
+    aiServiceReady.value = healthResult.value.ai_enabled !== false;
+  } else {
     aiServiceReady.value = null;
   }
   await bootSession();
