@@ -1,4 +1,4 @@
-"""Smart batch plan: minimal user columns from schema + shop/template coverage."""
+"""Smart batch plan: evidence-first user columns from schema + shop/template coverage."""
 
 import json
 import os
@@ -40,7 +40,7 @@ def signup(tag: str = "user") -> TestClient:
 
 
 class SmartPlanUnitTests(unittest.TestCase):
-    def test_rule_based_always_includes_core(self) -> None:
+    def test_rule_based_includes_required_attrs_and_core(self) -> None:
         candidates = [
             smart_plan._core_column("sku"),
             smart_plan._core_column("price"),
@@ -52,14 +52,21 @@ class SmartPlanUnitTests(unittest.TestCase):
                 "required": True,
                 "source": "schema_required",
             },
+            {
+                "id": "schema.paymentMethod",
+                "label": "付款方式",
+                "required": False,
+                "source": "schema_score",
+            },
         ]
         chosen = smart_plan._rule_based_user_columns(candidates)
         self.assertEqual(chosen[:3], ["sku", "price", "moq"])
         self.assertIn("name", chosen)
         self.assertIn("note", chosen)
-        self.assertNotIn("attr.icbuCatProp.p-2", chosen)
+        self.assertIn("attr.icbuCatProp.p-2", chosen)
+        self.assertIn("schema.paymentMethod", chosen)
 
-    def test_ai_target_includes_off_sheet_required(self) -> None:
+    def test_ai_target_excludes_on_sheet_required(self) -> None:
         candidates = [
             smart_plan._core_column("sku"),
             smart_plan._core_column("price"),
@@ -75,9 +82,9 @@ class SmartPlanUnitTests(unittest.TestCase):
         user_ids = set(smart_plan._rule_based_user_columns(candidates))
         targets = review_enrich.ai_target_columns(candidates, user_ids)
         ids = {item["id"] for item in targets}
-        self.assertIn("attr.icbuCatProp.p-2", ids)
+        self.assertNotIn("attr.icbuCatProp.p-2", ids)
 
-    def test_finalize_restores_evidence_columns_when_llm_omits(self) -> None:
+    def test_finalize_restores_evidence_and_attr_columns_when_llm_omits(self) -> None:
         candidates = [
             smart_plan._core_column("sku"),
             smart_plan._core_column("price"),
@@ -95,7 +102,7 @@ class SmartPlanUnitTests(unittest.TestCase):
         finalized = smart_plan._finalize_user_columns(candidates, llm_minimal)
         self.assertIn("name", finalized)
         self.assertIn("note", finalized)
-        self.assertNotIn("attr.icbuCatProp.p-2", finalized)
+        self.assertIn("attr.icbuCatProp.p-2", finalized)
 
     def test_build_smart_template_bytes(self) -> None:
         plan = {

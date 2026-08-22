@@ -1,10 +1,12 @@
-"""Smart batch listing: decide minimal user columns, then build a tailored XLSX.
+"""Smart batch listing: evidence-first download sheet, then AI fills the rest.
 
 Flow:
 1. Pull leaf schema (required + score-relevant optional fields).
-2. Subtract what the shop defaults and category template already cover.
-3. Ask the LLM which remaining fields sellers must type per SKU.
-4. Build a download sheet + reuse the same columns for parse / grid / import.
+2. Subtract what shop defaults and category template already cover.
+3. Download sheet = redlines (price/moq/sku) + every per-SKU evidence column the seller
+   must type so AI can complete remaining official fields after upload.
+4. AI fills English copy + any official/score fields still empty but derivable from
+   what the seller typed on the sheet.
 """
 
 from __future__ import annotations
@@ -41,15 +43,22 @@ SCORE_OPTIONAL_TOP = (
     "saleType",
 )
 
+PLANNER_VERSION = "evidence-sheet-v2"
+
 PLANNER_PROMPT = """You plan a wholesale listing spreadsheet for Alibaba.com (ICBU).
 
 Goal: user_columns = the COMPLETE download sheet — every fact the seller must type per SKU.
-Anything NOT in user_columns is filled by AI after upload: English title/keywords/description,
-remaining official REQUIRED attributes, and quality-score OPTIONAL fields (when name/note/images
-provide evidence). Never guess price, MOQ, brand, or origin.
+The sheet exists so sellers provide EVIDENCE upfront: official required attrs, score-relevant
+optionals, and redline fields (price/moq/sku) that AI must never invent.
 
-Business goal: attract qualified wholesale buyers (inquiry-ready search language), not
-generic traffic. User columns capture facts; AI columns consume those facts.
+After upload, AI reads every filled user column and completes ONLY:
+- English title / keywords / description (review stage)
+- official REQUIRED attrs still empty — when other user columns give evidence
+- quality-score OPTIONAL attrs still empty — when user columns give evidence
+
+Never guess price, MOQ, brand, or origin.
+
+Business goal: the download sheet is the seller's fact obligation; AI consumes those facts.
 
 Leaf category: {category_name} ({category_id})
 
@@ -62,31 +71,30 @@ Step 2 — already covered by this shop's defaults or category listing template 
 Shop/category template values summary (for your reasoning only):
 {template_summary}
 
-Step 3 — candidate columns the seller might still need per SKU (pre-filtered shortlist with options):
+Step 3 — candidate columns (pre-filtered; options shown when dropdown):
 {candidates}
 
 Fields AI will complete AFTER upload (must NOT appear in user_columns):
 {ai_completes}
 
 Hard rules:
-- user_columns is the entire seller fill obligation — do not expect extra columns beyond this sheet.
-- Always include sku, price, moq, name, note in user_columns (name/note are evidence for AI).
-- Include images when sellers attach filenames or URLs in bulk sheets.
-- Put official REQUIRED attributes in user_columns ONLY when the seller must physically choose per SKU
-  and the value cannot be inferred from other user columns; otherwise leave them for AI after upload.
-- Do NOT put quality-score optional fields in user_columns — AI fills them from user column values.
-- Do NOT include productTitle/productKeywords/textDesc in user_columns (AI review stage).
+- user_columns MUST include every official REQUIRED attr from candidates (schema_required).
+- user_columns MUST include every quality-score OPTIONAL attr from candidates (schema_score).
+- Always include sku, price, moq, name, note, images in user_columns.
+- name/note supplement attrs; they do not replace required attr columns on the sheet.
+- Do NOT put productTitle/productKeywords/textDesc in user_columns (AI review stage).
 - Never ask for logistics/trade fields already in shop defaults or template.
+- Do NOT shrink the sheet to only sku/price/moq — attrs belong on the sheet as evidence.
 
-Title/keyword guidance (for reasoning only): Core Product + Type + Performance + Scene + OEM — inquiry-qualified B2B search terms.
+Title/keyword guidance (for reasoning only): Core Product + Type + Performance + Scene + OEM.
 
 Publishing skill rules:
 {skill_rules}
 
 Return JSON only:
 {{
-  "user_columns": ["sku", "price", "moq", "name", "note", ...],
-  "reasoning": "one short Chinese paragraph: download sheet vs AI-fill split",
+  "user_columns": ["sku", "price", "moq", "name", "note", "images", "attr....", "schema....", ...],
+  "reasoning": "one short Chinese paragraph: what seller fills vs what AI derives",
   "tips": "one sentence telling the seller what facts to prepare"
 }}
 """
@@ -125,9 +133,9 @@ def _ai_completes_block(
     schema_inventory: Mapping[str, Any],
 ) -> str:
     lines = [
-        "productTitle, productKeywords, highlights, textDesc (review stage copy)",
-        "official REQUIRED attrs not on download sheet — when name/note/images give evidence",
-        "quality-score OPTIONAL attrs not on download sheet — evidence or shop defaults",
+        "productTitle, productKeywords, highlights, textDesc (English copy — review stage only)",
+        "official REQUIRED attrs still empty on the sheet — derive from other user columns when evidence allows",
+        "quality-score OPTIONAL attrs still empty — derive from user columns when evidence allows",
     ]
     if covered_shop or covered_template:
         lines.append(f"trade/logistics already from shop/template: {', '.join([*covered_shop, *covered_template][:12])}")
@@ -275,7 +283,7 @@ def _attr_column(group_id: str, group_name: str, child: SchemaField, *, required
         "group": group_id,
         "field_id": child.id,
         "required": required,
-        "hint": "官方必填，按选项选" if required else "影响信息分，按选项选",
+        "hint": "官方必填，上传后 AI 也会读此列" if required else "影响信息分，按选项选",
         "kind": "select" if options else "text",
         "source": "schema_required" if required else "schema_score",
         "options": options,
@@ -355,13 +363,18 @@ def candidate_columns(
 
 
 def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Minimal download sheet: pricing redlines + evidence columns. Schema attrs → AI side."""
-    chosen = list(CORE_IDS)
+    """Evidence sheet: redlines + every per-SKU official/score column not shop-covered."""
+    chosen: list[str] = list(CORE_IDS)
     for col in candidates:
-        field_id = str(col["id"])
-        if field_id in chosen:
+        field_id = str(col.get("id") or "")
+        if not field_id or field_id in chosen:
             continue
-        if field_id in CORE_OPTIONAL and field_id in {"name", "note", "images"}:
+        source = str(col.get("source") or "")
+        if field_id in CORE_OPTIONAL:
+            chosen.append(field_id)
+        elif source == "schema_required" or (col.get("required") and field_id.startswith("attr.")):
+            chosen.append(field_id)
+        elif source == "schema_score" or field_id.startswith("schema."):
             chosen.append(field_id)
     for optional in ("name", "note"):
         if optional not in chosen:
@@ -457,6 +470,7 @@ def _plan_input_hash(
 ) -> str:
     blob = json.dumps(
         {
+            "planner_version": PLANNER_VERSION,
             "schema": hashlib.sha256(schema_xml.encode("utf-8", errors="replace")).hexdigest(),
             "defaults": shop_defaults,
             "template": template_values,
@@ -621,13 +635,13 @@ def build_plan(
         "shop_fills": [dict(item) for item in excel_import.SHOP_FILLS],
         "ai_fills": ai_fills,
         "ai_fill_attrs": ai_fill_attrs,
-        "user_fill_contract": "填写表列填齐后，AI 从表中全部字段推出表外官方必填与加分项",
+        "user_fill_contract": "填写表 = 你要填的全部依据列（价/量/货号/官方属性/加分项 + 品名备注）。上传后 AI 读表中每一列补英文文案与仍空的官方字段。",
         "guarantee": (
-            "填写表 = 你要填的全部列（价/量/货号/品名/备注等）。"
-            "上传后 AI 读取表中每一列，补表外官方必填与影响信息分的选填（有依据才填）。"
-            "缺依据仍发不出；价/量/品牌不代填。"
+            "填写表列齐官方必填与影响信息分的选填（店铺/模板已覆盖的不重复）。"
+            "上传后 AI 读取表中全部字段，补英文标题/关键词/详描，以及你留空但能从表内其它列推断出的官方字段。"
+            "价/量/品牌不代填；没依据仍留空。"
         ),
-        "review_note": "下载表只含你要填的列；审核表会多出 AI 补的全文案与官方字段，可改后再成稿。",
+        "review_note": "下载表含你要填的依据列；审核表会多出英文文案与 AI 从表内推断补全的字段，可改后再成稿。",
         "review_checklist": checklist_for_review(),
         "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
         "planner_input": {

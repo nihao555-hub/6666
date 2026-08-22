@@ -77,6 +77,8 @@
             <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
             <span class="plan-badge">{{ smartPlan.column_count }} 列</span>
           </header>
+          <div v-if="smartPlan.tips" class="plan-reasoning">{{ smartPlan.tips }}</div>
+          <div v-if="smartPlan.guarantee" class="plan-reasoning plan-guarantee">{{ smartPlan.guarantee }}</div>
           <div v-if="smartColumnLabels.length" class="plan-columns">
             <div class="plan-column-tags">
               <span v-for="label in smartColumnLabels" :key="label" class="plan-tag">{{ label }}</span>
@@ -465,7 +467,7 @@ const excel = reactive({
   photoPolicy: "complete",
   emptyPolicy: "draw",
 });
-const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
+const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", guarantee: "", category_name: "" });
 const useEcosystemAssistant = ref(false);
 const smartPlanLoading = ref(false);
 const smartPlanShowAi = ref(false);
@@ -1779,6 +1781,7 @@ function normalizeSmartPlan(raw) {
     columns,
     reasoning: raw.reasoning || "",
     tips: raw.tips || "",
+    guarantee: raw.guarantee || raw.user_fill_contract || "",
     cached: Boolean(raw.cached),
     planner: raw.planner || "",
     covered_by_shop: raw.covered_by_shop || [],

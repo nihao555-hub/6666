@@ -1,10 +1,8 @@
 """Review-stage enrichment: AI copy/keywords and column ordering for the batch grid.
 
-Download sheet stays minimal (facts the seller knows). After parse, this layer
-adds editable title/keyword/selling-point columns at the front of the review
-grid — similar to ICBU 生意助手 letting merchants tune copy before publish.
-
-Title/keyword rules follow vendor/alibaba-icbu-publishing (aidi1723 skill, MIT).
+Download sheet carries evidence the seller types (official attrs + redlines). After parse,
+this layer adds editable title/keyword columns and fills any official/score cells still
+empty when derivable from the filled sheet.
 """
 
 from __future__ import annotations
