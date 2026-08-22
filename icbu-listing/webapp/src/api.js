@@ -101,6 +101,8 @@ export const api = {
   excelStyles: () => http.get("/excel/styles"),
   excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),
   excelSmartPlan: (params) => http.get("/excel/smart-plan", { params }),
+  excelSmartTemplateFromPlan: (body) =>
+    http.post("/excel/smart-template-from-plan", body, { responseType: "blob" }),
   officialExcelAttrs: (shopId, categoryId) =>
     http.get("/excel/official-attrs", { params: { shop_id: shopId, category_id: categoryId } }),
   excelDocParse: (form) => http.post("/excel/doc-parse", form),

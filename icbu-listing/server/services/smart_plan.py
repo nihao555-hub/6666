@@ -42,39 +42,50 @@ SCORE_OPTIONAL_TOP = (
 
 PLANNER_PROMPT = """You plan a minimal wholesale listing spreadsheet for Alibaba.com (ICBU).
 
+Goal: the seller fills ONLY facts they know per SKU. After upload, AI must be able to
+fill every remaining official REQUIRED field and quality-relevant OPTIONAL field that
+has evidence in name/note/images/specs — never guess.
+
+Business goal: attract qualified wholesale buyers (inquiry-ready search language), not
+generic traffic. User columns should capture facts that unlock good titles, keywords,
+and attribute inference later.
+
 Leaf category: {category_name} ({category_id})
 
-Official schema inventory (every fillable field name for this leaf — required list is complete):
+Step 1 — full official schema inventory (every fillable field name; required list is complete):
 {schema_inventory}
 
-Already covered by shop defaults or category template (do NOT ask the seller again):
+Step 2 — already covered by this shop's defaults or category listing template (seller must NOT re-type):
 {covered}
 
-Candidate columns the seller might need to fill per product row (pre-filtered shortlist):
+Shop/category template values summary (for your reasoning only):
+{template_summary}
+
+Step 3 — candidate columns the seller might still need per SKU (pre-filtered shortlist with options):
 {candidates}
 
-Title/keyword/description fields from schema are handled at REVIEW stage (AI pre-fills, user edits).
-Do NOT put productTitle/productKeywords/textDesc in user_columns unless the seller MUST supply source text.
+Fields AI will complete AFTER upload (do NOT put in user_columns unless seller must supply source text):
+{ai_completes}
 
-Always require sku, price, moq in the output — these are business red lines.
+Hard rules:
+- Always include sku, price, moq in user_columns.
+- Almost always include name and note — they are evidence for AI title/keywords/attrs.
+- Include images when sellers attach filenames or URLs in bulk sheets.
+- Include every official REQUIRED attribute not covered by shop/template when the seller must pick per SKU.
+- Include optional columns only when facts typically vary per SKU and cannot be inferred from note/photos.
+- Do NOT include productTitle/productKeywords/textDesc in user_columns (review stage handles copy).
+- Prefer fewer columns; never ask for logistics/trade fields already in shop defaults or template.
 
-Pick the smallest set of columns that lets AI fill the rest after upload:
-- Include every official REQUIRED attribute the seller must choose per SKU when not covered above.
-- Include optional columns only when facts typically vary per SKU and cannot be inferred from photos/docs
-  (e.g. per-row packaging weight when shop has no default).
-- Prefer name/note over many spec columns when docs are unstructured.
-- images is optional; include it when sellers usually attach filenames or URLs in bulk sheets.
+Title/keyword guidance (for reasoning only): Core Product + Type + Performance + Scene + OEM — inquiry-qualified B2B search terms.
 
-Title formula (for your reasoning only, applied at review): Core Product + Type + Performance + Scene + OEM
-
-Publishing skill rules (aidi1723/alibaba-icbu-publishing-skill, MIT):
+Publishing skill rules:
 {skill_rules}
 
 Return JSON only:
 {{
-  "user_columns": ["sku", "price", "moq", ...],
-  "reasoning": "one short paragraph in Chinese explaining what you saw in schema inventory vs candidates",
-  "tips": "one sentence telling the seller what to prepare before filling"
+  "user_columns": ["sku", "price", "moq", "name", "note", ...],
+  "reasoning": "one short Chinese paragraph: what you kept vs what shop/template/AI covers",
+  "tips": "one sentence telling the seller what to prepare (报价单/规格/图片命名)"
 }}
 """
 
@@ -87,6 +98,71 @@ def _filled(value: Any) -> bool:
             return bool(str(value.get("$value") or "").strip())
         return any(_filled(item) for key, item in value.items() if key != "$attrs")
     return True
+
+
+def _habits_fingerprint(shop_defaults: Mapping[str, Any], template_values: Mapping[str, Any]) -> str:
+    blob = json.dumps(
+        {"shop": shop_defaults, "template": template_values},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _template_summary(template_values: Mapping[str, Any]) -> dict[str, str]:
+    from . import template_suggest
+
+    return template_suggest.summarize_values(template_values)
+
+
+def _ai_completes_block(
+    *,
+    covered_shop: Sequence[str],
+    covered_template: Sequence[str],
+    schema_inventory: Mapping[str, Any],
+) -> str:
+    lines = [
+        "productTitle, productKeywords, highlights (review stage, B2B inquiry-oriented copy)",
+        "remaining required attrs when name/note/images give unambiguous option match",
+        "score-relevant optional attrs with evidence in note or specs",
+    ]
+    if covered_shop or covered_template:
+        lines.append(f"trade/logistics already from shop/template: {', '.join([*covered_shop, *covered_template][:12])}")
+    req = schema_inventory.get("required_count") or 0
+    lines.append(f"official required fields in schema: {req}")
+    return json.dumps(lines, ensure_ascii=False)
+
+
+def _try_fast_cached_plan(
+    db: Session,
+    shop_id: str,
+    category_id: str,
+    *,
+    category_name: str,
+    habits_fp: str,
+    refresh: bool,
+) -> dict[str, Any] | None:
+    """Return cached plan without fetching schema or calling LLM."""
+    if refresh:
+        return None
+    row = db.get(CategorySmartPlan, {"shop_id": shop_id, "category_id": category_id})
+    if row is None:
+        return None
+    try:
+        payload = json.loads(row.plan_json or "{}")
+    except json.JSONDecodeError:
+        return None
+    if not payload.get("columns"):
+        return None
+    stored_fp = str(payload.get("habits_fingerprint") or "")
+    if stored_fp and stored_fp != habits_fp:
+        return None
+    payload["cached"] = True
+    payload["planner"] = row.planner or payload.get("planner") or "rules"
+    if category_name and not payload.get("category_name"):
+        payload["category_name"] = category_name
+    return payload
 
 
 def _shop_defaults(shop: Shop) -> dict[str, Any]:
@@ -259,7 +335,7 @@ def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[st
         if field_id in chosen:
             continue
         if field_id in CORE_OPTIONAL:
-            if field_id in {"name", "note"}:
+            if field_id in {"name", "note", "images"}:
                 chosen.append(field_id)
             continue
         if col.get("required") or col.get("source") == "schema_required":
@@ -276,6 +352,8 @@ def _llm_user_columns(
     covered_shop: Sequence[str],
     covered_template: Sequence[str],
     schema_inventory: Mapping[str, Any],
+    template_summary: Mapping[str, str],
+    ai_completes: str,
 ) -> tuple[list[str], str, str]:
     compact = []
     for col in candidates:
@@ -297,6 +375,8 @@ def _llm_user_columns(
             {"shop": list(covered_shop), "template": list(covered_template)},
             ensure_ascii=False,
         ),
+        template_summary=json.dumps(template_summary, ensure_ascii=False),
+        ai_completes=ai_completes,
         candidates=json.dumps(compact, ensure_ascii=False),
         skill_rules=skill_prompt_block(),
     )
@@ -402,13 +482,24 @@ def build_plan(
 ) -> dict[str, Any]:
     if not category_id:
         raise ValueError("先选叶子类目")
-    language = str(_shop_defaults(shop).get("language") or "en_US")
+    shop_defaults = _shop_defaults(shop)
+    template_values = _template_values(db, shop.id, category_id)
+    habits_fp = _habits_fingerprint(shop_defaults, template_values)
+    if not refresh:
+        fast = _try_fast_cached_plan(
+            db,
+            shop.id,
+            category_id,
+            category_name=category_name,
+            habits_fp=habits_fp,
+            refresh=refresh,
+        )
+        if fast is not None:
+            return fast
     xml = catalog.get_schema_xml(db, api, category_id, "zh")
     fields = parse_schema(xml)
     fields_flat = excel_import.flatten_schema_fields(fields)
     schema_inventory = schema_inventory_summary(fields_flat)
-    shop_defaults = _shop_defaults(shop)
-    template_values = _template_values(db, shop.id, category_id)
     input_hash = _plan_input_hash(xml, shop_defaults, template_values)
     if not refresh:
         cached = _load_cached_plan(db, shop.id, category_id, input_hash)
@@ -424,6 +515,12 @@ def build_plan(
     planner = "rules"
     reasoning = "按官方必填项和店铺/模板覆盖情况生成最短填写表。"
     tips = "每行一个 SKU。价格、起订量必填；有报价单可直接上传，不必手填每一列。"
+    template_summary = _template_summary(template_values)
+    ai_completes = _ai_completes_block(
+        covered_shop=covered_shop,
+        covered_template=covered_template,
+        schema_inventory=schema_inventory,
+    )
     user_ids = _rule_based_user_columns(candidates)
     if ai is not None:
         try:
@@ -435,6 +532,8 @@ def build_plan(
                 covered_shop=covered_shop,
                 covered_template=covered_template,
                 schema_inventory=schema_inventory,
+                template_summary=template_summary,
+                ai_completes=ai_completes,
             )
             planner = "llm"
         except AiUnavailable:
@@ -474,6 +573,7 @@ def build_plan(
             "candidate_columns_sent": len(candidates),
             "mode": "llm reads full field-name inventory + candidate shortlist with options",
         },
+        "habits_fingerprint": habits_fp,
         "cached": False,
     }
     _save_cached_plan(db, shop.id, category_id, input_hash, planner, plan)

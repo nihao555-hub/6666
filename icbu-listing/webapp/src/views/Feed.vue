@@ -69,7 +69,7 @@
           <p v-if="smartPlan.cached" class="plan-cache-note muted">已使用上次规划结果，点「重新规划」才会再次调用 AI。</p>
         </section>
         <div class="toolbar" style="margin: 16px 0 12px">
-          <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading" @click="downloadDocTemplate">
+          <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading || docTemplateDownloading" :loading="docTemplateDownloading" @click="downloadDocTemplate">
             下载智能填写表
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
@@ -411,6 +411,7 @@ const excel = reactive({
 });
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
 const smartPlanLoading = ref(false);
+const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
 const categoryTemplates = ref([]);
 const templateLoading = ref(false);
@@ -1152,9 +1153,9 @@ async function syncDocImagesToSession() {
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("不在了")) {
-      deadSessionIds.add(sessionId.value);
+      forgetSession(sessionId.value);
       sessionId.value = "";
-      await ensureFeedSession();
+      await ensureFeedSession({ quiet: true });
       if (!sessionId.value) return;
       try {
         const form = new FormData();
@@ -1222,6 +1223,9 @@ function normalizeSmartPlan(raw) {
     tips: raw.tips || "",
     cached: Boolean(raw.cached),
     planner: raw.planner || "",
+    covered_by_shop: raw.covered_by_shop || [],
+    covered_by_template: raw.covered_by_template || [],
+    ai_fills: raw.ai_fills || [],
   };
 }
 
@@ -2056,7 +2060,7 @@ function goDocBatchDrafts(filter = "pending") {
   router.push({ path: "/drafts", query: { batch_id: doc.batch.batch_id, filter } });
 }
 
-function downloadDocTemplate() {
+async function downloadDocTemplate() {
   if (!doc.categoryId) {
     ElMessage.warning("先选叶子类目");
     return;
@@ -2065,11 +2069,56 @@ function downloadDocTemplate() {
     ElMessage.warning("先登录一个店铺");
     return;
   }
-  window.location.href = api.excelSmartTemplateUrl({
-    categoryId: doc.categoryId,
-    shopId: store.shopId,
-    categoryName: doc.categoryName || smartPlan.value.category_name,
-  });
+  docTemplateDownloading.value = true;
+  try {
+    if (!smartPlan.value.columns?.length) {
+      await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    }
+    const categoryName = doc.categoryName || smartPlan.value.category_name || "";
+    let blob;
+    if (smartPlan.value.columns?.length) {
+      blob = await api.excelSmartTemplateFromPlan({
+        shop_id: store.shopId,
+        category_id: doc.categoryId,
+        category_name: categoryName,
+        columns: smartPlan.value.columns,
+        reasoning: smartPlan.value.reasoning,
+        tips: smartPlan.value.tips,
+        covered_by_shop: smartPlan.value.covered_by_shop,
+        covered_by_template: smartPlan.value.covered_by_template,
+        ai_fills: smartPlan.value.ai_fills,
+      });
+    } else {
+      const response = await fetch(api.excelSmartTemplateUrl({
+        categoryId: doc.categoryId,
+        shopId: store.shopId,
+        categoryName,
+      }), { credentials: "include" });
+      if (!response.ok) {
+        let detail = "下载失败";
+        try {
+          const payload = await response.json();
+          detail = payload.detail || detail;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(detail);
+      }
+      blob = await response.blob();
+    }
+    const safeName = (categoryName || doc.categoryId).replace(/[/\\?%*:|"<>]/g, "-");
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `智能批量上品-${safeName}.xlsx`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    ElMessage.success("填写表已开始下载");
+  } catch (error) {
+    ElMessage.error(error.message || "下载失败");
+  } finally {
+    docTemplateDownloading.value = false;
+  }
 }
 
 

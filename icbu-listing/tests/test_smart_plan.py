@@ -112,6 +112,39 @@ class SmartPlanCacheTests(unittest.TestCase):
         self.assertEqual(calls["n"], 1)
         db.close()
 
+    def test_build_plan_skips_schema_on_fast_cache_hit(self) -> None:
+        from server.db import SessionLocal  # noqa: E402
+        from server.models import Shop, User  # noqa: E402
+
+        db = SessionLocal()
+        user = User(email=f"fast-{uuid.uuid4().hex[:8]}@example.com", password_hash="x")
+        db.add(user)
+        db.commit()
+        shop = Shop(user_id=user.id, name="极速店", platform="alibaba_icbu")
+        db.add(shop)
+        db.commit()
+        schema_calls = {"n": 0}
+
+        def counting_schema(*_args, **_kwargs):
+            schema_calls["n"] += 1
+            return "<fields></fields>"
+
+        with unittest.mock.patch(
+            "server.services.smart_plan.catalog.get_schema_xml",
+            side_effect=counting_schema,
+        ), unittest.mock.patch(
+            "server.services.smart_plan.parse_schema",
+            return_value=[],
+        ), unittest.mock.patch.object(
+            smart_plan,
+            "_llm_user_columns",
+            return_value=(["sku", "price", "moq", "name", "note"], "测试", "准备报价单"),
+        ):
+            smart_plan.build_plan(db, object(), shop, category_id="21110712", category_name="彩铅", ai=object())
+            smart_plan.build_plan(db, object(), shop, category_id="21110712", category_name="彩铅", ai=object())
+        self.assertEqual(schema_calls["n"], 1)
+        db.close()
+
     def test_refresh_bypasses_cache(self) -> None:
         from server.db import SessionLocal  # noqa: E402
         from server.models import Shop, User  # noqa: E402
@@ -177,6 +210,28 @@ class SmartPlanApiTests(unittest.TestCase):
         self.assertIn("moq", ids)
         self.assertGreaterEqual(len(plan.get("review_checklist") or []), 4)
         self.assertEqual(plan.get("publishing_skill"), "aidi1723/alibaba-icbu-publishing-skill")
+
+    def test_smart_template_from_plan_download(self) -> None:
+        client = signup("smart-plan-xlsx")
+        shop_id = client.post("/api/v1/shops/bind-env", json={"name": "智能店4"}).json()["id"]
+        response = client.post(
+            "/api/v1/excel/smart-template-from-plan",
+            json={
+                "shop_id": shop_id,
+                "category_id": "21110712",
+                "category_name": "彩铅",
+                "columns": [
+                    smart_plan._core_column("sku"),
+                    smart_plan._core_column("price"),
+                    smart_plan._core_column("moq"),
+                ],
+                "reasoning": "测试",
+                "tips": "一行一个 SKU",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("spreadsheetml", response.headers.get("content-type", ""))
+        self.assertTrue(response.content.startswith(b"PK"))
 
     def test_smart_template_download(self) -> None:
         client = signup("smart-xlsx")

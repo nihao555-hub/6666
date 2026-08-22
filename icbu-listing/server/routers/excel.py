@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ai import AiClient, AiUnavailable, ImageInput  # noqa: E402
 from gop_client import GopError  # noqa: E402
 
-from ..db import SessionLocal
+from ..db import SessionLocal, reload_db_from_blob
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
 from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
@@ -228,6 +228,7 @@ def smart_plan_endpoint(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
+    reload_db_from_blob()
     if not shop_id:
         raise HTTPException(status_code=400, detail="先选一个店铺")
     if not category_id:
@@ -260,6 +261,7 @@ def download_smart_template(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Response:
+    reload_db_from_blob()
     if not shop_id or not category_id:
         raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
     shop = shop_for(db, user, shop_id)
@@ -274,9 +276,43 @@ def download_smart_template(
         ai=ai,
         refresh=refresh,
     )
+    return _smart_template_response(plan, hint or category_name)
+
+
+@router.post("/smart-template-from-plan")
+def download_smart_template_from_plan(
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Response:
+    """Build XLSX from an already-loaded smart plan (skips schema fetch + LLM)."""
+    reload_db_from_blob()
+    shop_id = str(body.get("shop_id") or "").strip()
+    category_id = str(body.get("category_id") or "").strip()
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop_for(db, user, shop_id)
+    columns = body.get("columns") or []
+    if not isinstance(columns, list) or not columns:
+        raise HTTPException(status_code=400, detail="缺少填写列，请先选类目并等待规划完成")
+    plan = {
+        "category_id": category_id,
+        "category_name": str(body.get("category_name") or ""),
+        "columns": columns,
+        "reasoning": body.get("reasoning") or "",
+        "tips": body.get("tips") or "",
+        "covered_by_shop": body.get("covered_by_shop") or [],
+        "covered_by_template": body.get("covered_by_template") or [],
+        "ai_fills": body.get("ai_fills") or [],
+    }
+    return _smart_template_response(plan, plan["category_name"] or category_id)
+
+
+def _smart_template_response(plan: Mapping[str, Any], name_hint: str) -> Response:
     payload = smart_plan.build_smart_template_bytes(plan)
+    category_id = str(plan.get("category_id") or "")
     ascii_name = f"auto-shoper-smart-{category_id}.xlsx"
-    utf_name = f"智能批量上品-{hint or category_id}.xlsx"
+    utf_name = f"智能批量上品-{name_hint or category_id}.xlsx"
     return Response(
         content=payload,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
