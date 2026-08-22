@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <div class="page-head">
+    <div v-if="docStep !== 1" class="page-head">
       <div>
         <h2>批量上品</h2>
         <p class="muted">选类目 → 下载智能填写表 → 上传解析 → 审核出图成稿。做到一半会自动记下，关掉也能回来。</p>
@@ -35,13 +35,13 @@
         </button>
       </div>
 
-      <div class="flow-bar">
+      <div v-if="docStep !== 1" class="flow-bar">
         <el-button @click="backToChooser">新建任务</el-button>
         <span class="muted">{{ currentTitle }} · 做到一半会自动记下，关掉也能回来</span>
         <el-button text @click="dropCurrent">不要这条了</el-button>
       </div>
 
-      <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
+      <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
         <h3>选类目，生成填写表</h3>
@@ -115,132 +115,31 @@
 
       <div v-else class="step-panel audit-shell">
         <header class="audit-header">
-          <div class="audit-header-main">
-            <h3>内容审核</h3>
-            <p class="audit-subtitle">
-              请仔细核对 AI 生成的标题、关键词与商品图。单价/起订量/官方属性需你填写或有备注依据；确认后标记通过并批量成稿。
-            </p>
-            <p class="audit-meta muted">
-              {{ doc.categoryName || smartPlan.category_name || "未命名类目" }}
-              · {{ docGrid.row_count || docGrid.rows.length }} 个商品
-              <span v-if="docImageGenSummary"> · {{ docImageGenSummary }}</span>
-            </p>
-          </div>
-          <div class="audit-header-metrics">
-            <div class="audit-metric" :class="{ 'is-done': reviewStats.ready === reviewStats.total && reviewStats.total }">
-              <strong>{{ reviewStats.ready }}/{{ reviewStats.total }}</strong>
-              <span>价量齐</span>
-            </div>
-            <div class="audit-metric" :class="{ 'is-done': reviewStats.imagesOk === reviewStats.total && reviewStats.total }">
-              <strong>{{ reviewStats.imagesOk }}/{{ reviewStats.total }}</strong>
-              <span>六图齐</span>
-            </div>
-            <div class="audit-metric" :class="{ 'is-done': reviewStats.copyOk === reviewStats.total && reviewStats.total }">
-              <strong>{{ reviewStats.copyOk }}/{{ reviewStats.total }}</strong>
-              <span>文案齐</span>
-            </div>
-            <div class="audit-metric" :class="{ 'is-warn': auditStats.pending > 0 }">
-              <strong>{{ auditStats.pending }}</strong>
-              <span>待审核</span>
-            </div>
-          </div>
+          <button type="button" class="audit-back" @click="docStep = 0">← 返回</button>
+          <h3>内容审核</h3>
+          <p class="audit-subtitle">核对 AI 生成的标题、关键词与商品图，确认后标记通过。</p>
         </header>
 
-        <section v-if="doc.categoryId" class="audit-template-panel">
-          <div class="audit-template-main">
-            <div class="audit-template-head">
-              <h4>刊登模板</h4>
-              <span v-if="doc.templateId && doc.templateName" class="audit-template-badge">AI 已选</span>
-            </div>
-            <p class="muted audit-template-intro">成稿时套用交易/物流习惯（单位、运费、交期等）。一家店可建多个模板，AI 会按本批商品帮你选，你也可以改。</p>
-            <div class="audit-template-controls">
-              <el-select
-                v-model="doc.templateId"
-                clearable
-                filterable
-                placeholder="选择刊登模板"
-                :loading="templateLoading"
-                class="audit-template-select"
-                @change="onTemplateChange"
+        <section class="audit-toolbar-card">
+          <div class="audit-toolbar">
+            <div class="audit-filters" role="tablist" aria-label="筛选商品">
+              <button
+                v-for="item in auditFilterOptions"
+                :key="item.id"
+                type="button"
+                class="audit-filter-tab"
+                :class="{ 'is-active': reviewFilter === item.id }"
+                @click="reviewFilter = item.id; reviewPage = 1"
               >
-                <el-option v-for="item in categoryTemplates" :key="item.id" :label="item.name" :value="item.id">
-                  <span>{{ item.name }}</span>
-                  <span v-if="item.is_auto" class="muted"> · 从在线学习</span>
-                </el-option>
-              </el-select>
-              <el-button :loading="templateSuggesting" :disabled="!docGrid.rows.length" @click="suggestTemplates(true)">AI 重选</el-button>
-              <router-link v-if="!categoryTemplates.length && !templateLoading" to="/habits" class="audit-template-link">去建模板</router-link>
+                {{ item.label }}<small>{{ item.count }}</small>
+              </button>
             </div>
-            <p v-if="doc.templateReason" class="audit-template-reason">{{ doc.templateReason }}</p>
-            <p v-else-if="!categoryTemplates.length && !templateLoading" class="audit-template-reason muted">还没有这个类目的模板，成稿时会用全局兜底。</p>
+            <div class="audit-toolbar-right">
+              <el-input v-model="reviewSearch" clearable placeholder="搜索商品名称或关键词" class="audit-search" />
+              <el-button plain disabled>筛选</el-button>
+              <el-button plain :loading="docGrid.checking" @click="recheckDocGrid">刷新</el-button>
+            </div>
           </div>
-          <p v-if="templateRowOverrideCount" class="audit-template-meta muted">{{ templateRowOverrideCount }} 行单独用了别的模板（可在详情里改）</p>
-        </section>
-
-        <section class="audit-quick-bar">
-          <div class="audit-quick-actions">
-            <el-button type="primary" :loading="reviewAssistRunning" @click="runReviewAssist(true)">一键 AI 补全</el-button>
-            <el-button :loading="docInferring" @click="inferFieldsForAll">推断空属性</el-button>
-            <el-button :loading="docGrid.regenerating" @click="regenCopyForAll">重写文案</el-button>
-            <el-button :loading="docGrid.generating" @click="generateImagesForAll">全部出图</el-button>
-            <el-button @click="batchSetField('price')">批量改价</el-button>
-            <el-button @click="batchSetField('moq')">批量改起订量</el-button>
-            <el-button :loading="docGrid.checking" @click="recheckDocGrid">重新校验</el-button>
-            <el-button @click="docStep = 0">重新导入</el-button>
-          </div>
-          <div class="audit-quick-images" @dragover.prevent @drop.prevent="onReviewImageDrop">
-            <input ref="reviewImageInput" type="file" multiple accept="image/*" class="hidden-folder-input" @change="onReviewImagePick" />
-            <el-button plain @click="pickReviewImages">拖入或选择图片（按货号配对）</el-button>
-            <span class="muted audit-image-hint">有图 {{ excel.photoPolicy === "keep" ? "保留" : excel.photoPolicy === "boost" ? "重画" : "补位" }} · 没图 {{ excel.emptyPolicy === "skip" ? "跳过" : "套图" }}</span>
-          </div>
-        </section>
-
-        <details class="audit-ai-progress" :open="reviewAssistRunning">
-          <summary>AI 处理进度</summary>
-          <ol class="review-ai-steps">
-            <li v-for="step in reviewAiSteps" :key="step.id" :class="`is-${step.status}`">
-              <span class="review-ai-step-dot" />
-              <div class="review-ai-step-body">
-                <b>{{ step.label }}</b>
-                <span>{{ reviewStepStatusLabel(step.status) }}</span>
-                <small v-if="step.detail">{{ step.detail }}</small>
-              </div>
-            </li>
-          </ol>
-        </details>
-
-        <el-alert
-          v-for="warning in docGrid.warnings || []"
-          :key="warning"
-          type="warning"
-          :title="warning"
-          :closable="false"
-          class="review-alert"
-        />
-
-        <section class="audit-toolbar">
-          <div class="audit-filters" role="tablist" aria-label="筛选商品">
-            <button
-              v-for="item in auditFilterOptions"
-              :key="item.id"
-              type="button"
-              class="audit-filter-tab"
-              :class="{ 'is-active': reviewFilter === item.id }"
-              @click="reviewFilter = item.id; reviewPage = 1"
-            >
-              {{ item.label }}<small>({{ item.count }})</small>
-            </button>
-          </div>
-          <div class="audit-toolbar-right">
-            <el-input v-model="reviewSearch" clearable placeholder="搜索货号、品名或标题" class="audit-search" />
-            <el-button @click="recheckDocGrid">刷新</el-button>
-          </div>
-        </section>
-
-        <section class="audit-field-legend">
-          <span><i class="legend-dot is-required" />官方必填（表格红标列，缺了发不出）</span>
-          <span><i class="legend-dot is-score" />选填加分（填齐更容易到 5.0 分）</span>
-          <span class="muted">AI 只补有依据的字段；价/量/品牌不会自动编</span>
         </section>
 
         <section class="audit-table-card">
@@ -249,12 +148,11 @@
               <thead>
                 <tr>
                   <th class="col-check"><el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll" /></th>
-                  <th class="col-product">商品信息</th>
+                  <th class="col-product">产品信息</th>
                   <th class="col-title">标题</th>
                   <th class="col-category">类目</th>
                   <th class="col-keywords">关键词</th>
-                  <th class="col-attrs">属性</th>
-                  <th class="col-price">单价 USD</th>
+                  <th class="col-price">价格 USD</th>
                   <th class="col-images">图片</th>
                   <th class="col-status">状态</th>
                   <th class="col-actions">操作</th>
@@ -265,7 +163,6 @@
                   v-for="view in paginatedDocRowViews"
                   :key="view.row.line || view.index"
                   :class="{
-                    'is-issue': rowHasIssues(view.row),
                     'is-selected': view.row._selected,
                     'is-approved': rowAuditStatus(view.row) === 'approved',
                     'is-rejected': rowAuditStatus(view.row) === 'rejected',
@@ -281,73 +178,50 @@
                         <span v-else>{{ (view.row.name || view.row.sku || "?").slice(0, 1) }}</span>
                       </div>
                       <div class="audit-product-meta">
-                        <b>{{ view.row.name || "未填品名" }}</b>
+                        <b>{{ view.row.name || "未命名" }}</b>
                         <span>ID: {{ view.row.sku || "—" }}</span>
                       </div>
                     </div>
                   </td>
                   <td class="col-title">
-                    <el-input v-model="view.row.title" type="textarea" :rows="2" size="small" placeholder="英文标题" />
+                    <span class="audit-cell-text" :title="view.row.title">{{ view.row.title || "—" }}</span>
                   </td>
                   <td class="col-category">
                     <span class="audit-category">{{ doc.categoryName || smartPlan.category_name || "—" }}</span>
-                    <span v-if="view.row._template_name" class="audit-template-chip" :title="view.row._template_reason || ''">{{ view.row._template_name }}</span>
                   </td>
                   <td class="col-keywords">
-                    <el-input v-model="view.row.keywords" size="small" placeholder="关键词" />
-                  </td>
-                  <td class="col-attrs">
-                    <div class="audit-attr-chips">
-                      <span
-                        v-for="col in rowEmptyRequiredAttrs(view.row)"
-                        :key="col.id"
-                        class="audit-chip is-required"
-                        :title="col.hint || col.label"
-                      >缺 {{ col.label }}</span>
-                      <span
-                        v-for="col in rowEmptyScoreAttrs(view.row)"
-                        :key="col.id"
-                        class="audit-chip is-score"
-                        :title="col.hint || col.label"
-                      >+ {{ col.label }}</span>
-                      <span v-if="!rowEmptyRequiredAttrs(view.row).length && !rowEmptyScoreAttrs(view.row).length" class="muted">属性齐</span>
-                    </div>
+                    <span class="audit-cell-text" :title="view.row.keywords">{{ view.row.keywords || "—" }}</span>
                   </td>
                   <td class="col-price">
-                    <el-input v-model="view.row.price" size="small" placeholder="0.00" />
+                    <span class="audit-price">{{ formatAuditPrice(view.row.price) }}</span>
                   </td>
                   <td class="col-images">
                     <div class="audit-image-strip">
                       <div
-                        v-for="slot in rowSlots(view.row).slice(0, 3)"
+                        v-for="slot in rowSlots(view.row).slice(0, 4)"
                         :key="`${view.index}-${slot.index}`"
                         class="audit-image-thumb"
                         :class="{ 'is-empty': !slot.url }"
                       >
                         <img v-if="slot.url" :src="slot.url" :alt="slot.name" />
                       </div>
-                      <span v-if="rowImageCount(view.row) > 3" class="audit-image-more">+{{ rowImageCount(view.row) - 3 }}</span>
-                      <span v-else-if="rowImageCount(view.row) < 6" class="audit-image-more is-warn">{{ rowImageCount(view.row) }}/6</span>
+                      <span v-if="rowImageCount(view.row) > 4" class="audit-image-more">+{{ rowImageCount(view.row) - 4 }}</span>
                     </div>
                   </td>
                   <td class="col-status">
-                    <span v-if="rowAuditStatus(view.row) === 'approved'" class="audit-badge is-approved">已通过</span>
-                    <span v-else-if="rowAuditStatus(view.row) === 'rejected'" class="audit-badge is-rejected">未通过</span>
-                    <span v-else-if="rowHasIssues(view.row)" class="audit-badge is-warn">待改</span>
-                    <span v-else-if="rowAuditReady(view.row)" class="audit-badge is-ready">可审核</span>
-                    <span v-else class="audit-badge">待审核</span>
+                    <span class="audit-status" :class="`is-${rowAuditStatus(view.row)}`">{{ rowStatusLabel(view.row) }}</span>
                   </td>
                   <td class="col-actions">
                     <div class="audit-row-actions">
                       <button type="button" class="audit-action is-approve" title="通过" @click="approveRow(view.row)">✓</button>
                       <button type="button" class="audit-action is-reject" title="不通过" @click="rejectRow(view.row)">✕</button>
-                      <button type="button" class="audit-action" title="查看全部字段" @click="openRowDetail(view)">👁</button>
+                      <button type="button" class="audit-action is-view" title="查看详情" @click="openRowDetail(view)">👁</button>
                     </div>
                   </td>
                 </tr>
                 <tr v-if="!paginatedDocRowViews.length">
-                  <td colspan="10" class="review-empty">
-                    当前筛选下没有商品。<el-button text @click="reviewFilter = 'all'; reviewSearch = ''">显示全部</el-button>
+                  <td colspan="9" class="review-empty">
+                    暂无商品<el-button text @click="reviewFilter = 'all'; reviewSearch = ''">显示全部</el-button>
                   </td>
                 </tr>
               </tbody>
@@ -355,28 +229,13 @@
           </div>
         </section>
 
-        <details v-if="docGrid.row_issues?.length" class="review-issues" :open="reviewStats.issueCount > 0">
-          <summary>
-            <span>校验问题（{{ docGrid.row_issues.length }}）</span>
-            <el-button text size="small" @click.stop="reviewFilter = 'issues'">只看有问题</el-button>
-          </summary>
-          <ul>
-            <li v-for="(issue, idx) in docGrid.row_issues.slice(0, 16)" :key="idx">
-              <span :class="['dot', issue.level]"></span>
-              第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
-            </li>
-          </ul>
-        </details>
-
         <footer class="audit-footer">
           <div class="audit-footer-left">
-            <span>已选择 <b>{{ docSelectedCount }}</b> 项</span>
+            已选择 <b>{{ docSelectedCount }}</b> 项
+          </div>
+          <div class="audit-footer-center">
             <el-button @click="batchApprove">批量通过</el-button>
             <el-button @click="batchReject">批量不通过</el-button>
-            <el-button @click="inferFieldsForSelection">推断选中属性</el-button>
-          </div>
-          <div class="audit-footer-center muted">
-            共 {{ filteredDocRowViews.length }} 条 · 已通过 {{ auditStats.approved }}
           </div>
           <div class="audit-footer-right">
             <el-pagination
@@ -386,11 +245,9 @@
               :page-sizes="[10, 20, 50]"
               layout="total, prev, pager, next, sizes"
               small
-              background
             />
             <el-button
               type="primary"
-              size="large"
               :loading="docGrid.loading"
               :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
               @click="importDocRows"
@@ -401,59 +258,35 @@
         </footer>
 
         <div v-if="doc.batch" class="review-batch-progress">
-          <p>
-            共 {{ doc.batch.count }} 个商品，已成稿 {{ docProgress.done }}/{{ doc.batch.count }}。
-            <template v-if="docProgress.complete">
-              待审 {{ docProgress.pending || 0 }} · 待改 {{ docProgress.counts?.red || 0 }} · 已审可发 {{ docProgress.ready || 0 }}。
-            </template>
-          </p>
-          <el-progress :percentage="docPercent" :stroke-width="10" />
-          <div style="margin-top: 12px">
-            <el-button type="primary" :disabled="!docProgress.complete" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
-          </div>
+          <p>成稿 {{ docProgress.done }}/{{ doc.batch.count }}</p>
+          <el-progress :percentage="docPercent" :stroke-width="8" />
+          <el-button v-if="docProgress.complete" type="primary" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
         </div>
 
-        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="520px" destroy-on-close>
+        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="480px" destroy-on-close>
           <div v-if="rowDetailRow" class="audit-drawer">
-            <p v-if="rowDetailRow._infer_hint" class="audit-infer-hint">{{ rowDetailRow._infer_hint }}</p>
-            <div v-if="categoryTemplates.length" class="audit-drawer-section">
-              <h4>刊登模板</h4>
-              <p v-if="rowDetailRow._template_reason" class="audit-infer-hint">{{ rowDetailRow._template_reason }}</p>
-              <el-select
-                v-model="rowDetailRow._template_id"
-                clearable
-                filterable
-                placeholder="默认用上方选的模板"
-                style="width: 100%"
-                @change="onRowTemplateChange(rowDetailRow)"
-              >
-                <el-option v-for="item in categoryTemplates" :key="item.id" :label="item.name" :value="item.id" />
-              </el-select>
-            </div>
             <div class="audit-drawer-section">
               <h4>文案</h4>
-              <label>英文标题</label>
+              <label>标题</label>
               <el-input v-model="rowDetailRow.title" type="textarea" :rows="2" />
               <label>关键词</label>
               <el-input v-model="rowDetailRow.keywords" />
-              <label>卖点摘要</label>
-              <el-input v-model="rowDetailRow.highlights" type="textarea" :rows="2" />
             </div>
             <div class="audit-drawer-section">
-              <h4>交易信息<span class="need">必填</span></h4>
+              <h4>价格</h4>
               <div class="audit-drawer-grid">
-                <label>单价 USD<span class="need">*</span></label>
+                <label>USD</label>
                 <el-input v-model="rowDetailRow.price" />
-                <label>起订量<span class="need">*</span></label>
+                <label>起订量</label>
                 <el-input v-model="rowDetailRow.moq" />
                 <label v-if="hasBrandColumn">品牌</label>
                 <el-input v-if="hasBrandColumn" v-model="rowDetailRow.brand" />
               </div>
             </div>
             <div v-if="docRequiredAttrColumns.length" class="audit-drawer-section">
-              <h4>官方必填属性</h4>
+              <h4>必填属性</h4>
               <div v-for="col in docRequiredAttrColumns" :key="col.id" class="audit-drawer-field">
-                <label>{{ col.label }}<span class="need">*</span></label>
+                <label>{{ col.label }}</label>
                 <el-select v-if="col.options?.length" v-model="rowDetailRow[col.id]" filterable clearable placeholder="请选择" style="width: 100%">
                   <el-option v-for="opt in col.options" :key="opt.value" :label="opt.label" :value="opt.label" />
                 </el-select>
@@ -461,7 +294,7 @@
               </div>
             </div>
             <div v-if="docScoreAttrColumns.length" class="audit-drawer-section">
-              <h4>选填加分属性</h4>
+              <h4>选填属性</h4>
               <div v-for="col in docScoreAttrColumns" :key="col.id" class="audit-drawer-field">
                 <label>{{ col.label }}</label>
                 <el-select v-if="col.options?.length" v-model="rowDetailRow[col.id]" filterable clearable placeholder="选填" style="width: 100%">
@@ -471,7 +304,7 @@
               </div>
             </div>
             <div class="audit-drawer-section">
-              <h4>商品图 ×6</h4>
+              <h4>图片</h4>
               <div class="slot-strip">
                 <div
                   v-for="slot in rowSlots(rowDetailRow)"
@@ -484,9 +317,8 @@
                 </div>
               </div>
               <div class="audit-drawer-actions">
-                <el-button :loading="docGrid.generating" @click="generateImagesForRow(rowDetailRow)">出图</el-button>
-                <el-button @click="inferFieldsForRow(rowDetailRow)">推断属性</el-button>
-                <el-button type="primary" @click="approveRow(rowDetailRow); rowDetailOpen = false">标记通过</el-button>
+                <el-button type="primary" @click="approveRow(rowDetailRow); rowDetailOpen = false">通过</el-button>
+                <el-button @click="rejectRow(rowDetailRow); rowDetailOpen = false">不通过</el-button>
               </div>
             </div>
           </div>
@@ -512,8 +344,10 @@ const router = useRouter();
 const route = useRoute();
 const sessionId = ref("");
 const deadSessionIds = new Set();
+const openSessionIds = ref(new Set());
 let sessionEnsurePromise = null;
 let startPathPromise = null;
+let persistInFlight = null;
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -687,13 +521,12 @@ const auditStats = computed(() => {
 const auditFilterOptions = computed(() => [
   { id: "all", label: "全部", count: auditStats.value.total },
   { id: "pending", label: "待审核", count: auditStats.value.pending },
-  { id: "approved", label: "已通过", count: auditStats.value.approved },
-  { id: "rejected", label: "未通过", count: auditStats.value.rejected },
-  { id: "issues", label: "有问题", count: reviewStats.value.issueCount },
+  { id: "approved", label: "审核通过", count: auditStats.value.approved },
+  { id: "rejected", label: "审核不通过", count: auditStats.value.rejected },
 ]);
 const rowDetailTitle = computed(() => {
   if (!rowDetailRow.value) return "商品详情";
-  return `${rowDetailRow.value.name || rowDetailRow.value.sku || "商品"} · 全部字段`;
+  return rowDetailRow.value.name || rowDetailRow.value.sku || "商品详情";
 });
 const filteredDocRowViews = computed(() => {
   const q = reviewSearch.value.trim().toLowerCase();
@@ -826,20 +659,40 @@ async function loadOpenSessions() {
     openSessions.value = (data.sessions || []).filter((item) =>
       ["doc", "excel", "full"].includes(item.path),
     );
+    openSessionIds.value = new Set(openSessions.value.map((item) => item.id));
   } catch {
     openSessions.value = [];
+    openSessionIds.value = new Set();
   }
 }
 
-async function ensureFeedSession() {
+function rememberOpenSession(id) {
+  if (!id || deadSessionIds.has(id)) return;
+  openSessionIds.value = new Set([...openSessionIds.value, id]);
+}
+
+function forgetSession(id) {
+  if (!id) return;
+  deadSessionIds.add(id);
+  const next = new Set(openSessionIds.value);
+  next.delete(id);
+  openSessionIds.value = next;
+}
+
+function isKnownOpenSession(id) {
+  return Boolean(id && !deadSessionIds.has(id) && openSessionIds.value.has(id));
+}
+
+async function ensureFeedSession(options = {}) {
   if (sessionEnsurePromise) return sessionEnsurePromise;
-  sessionEnsurePromise = ensureFeedSessionImpl().finally(() => {
+  sessionEnsurePromise = ensureFeedSessionImpl(options).finally(() => {
     sessionEnsurePromise = null;
   });
   return sessionEnsurePromise;
 }
 
-async function ensureFeedSessionImpl() {
+async function ensureFeedSessionImpl(options = {}) {
+  const { quiet = false } = options;
   if (!sessionId.value) {
     await startPath();
     return Boolean(sessionId.value);
@@ -849,23 +702,42 @@ async function ensureFeedSessionImpl() {
     await startPath();
     return Boolean(sessionId.value);
   }
+  if (isKnownOpenSession(sessionId.value)) {
+    return true;
+  }
   try {
     await api.feedSession(sessionId.value);
+    rememberOpenSession(sessionId.value);
     return true;
   } catch (error) {
     const msg = String(error.message || "");
     if (!msg.includes("不在了")) throw error;
-    deadSessionIds.add(sessionId.value);
+    forgetSession(sessionId.value);
     sessionId.value = "";
     if (route.query.session) router.replace({ query: {} });
-    ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
+    if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
     await startPath();
     return Boolean(sessionId.value);
   }
 }
 
 async function persistSession() {
-  if (!sessionId.value || restoring.value) return;
+  if (persistInFlight) return persistInFlight;
+  persistInFlight = persistSessionImpl().finally(() => {
+    persistInFlight = null;
+  });
+  return persistInFlight;
+}
+
+async function persistSessionImpl() {
+  if (sessionBooting.value || restoring.value) return;
+  if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
+  const ok = await ensureFeedSession({ quiet: true });
+  if (!ok || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
+  if (!isKnownOpenSession(sessionId.value)) {
+    await loadOpenSessions();
+    if (!isKnownOpenSession(sessionId.value)) return;
+  }
   try {
     const saved = await api.saveFeedSession(sessionId.value, {
       shop_id: store.shopId || "",
@@ -873,12 +745,16 @@ async function persistSession() {
       reached: currentReached(),
       payload: sessionPayload(),
     });
+    rememberOpenSession(sessionId.value);
     currentTitle.value = saved.title || currentTitle.value;
   } catch (error) {
     const msg = String(error.message || "");
     if (!msg.includes("不在了")) return;
-    const ok = await ensureFeedSession();
-    if (!ok || !sessionId.value) return;
+    forgetSession(sessionId.value);
+    sessionId.value = "";
+    if (route.query.session) router.replace({ query: {} });
+    const recovered = await ensureFeedSession({ quiet: true });
+    if (!recovered || !sessionId.value) return;
     try {
       const saved = await api.saveFeedSession(sessionId.value, {
         shop_id: store.shopId || "",
@@ -886,6 +762,7 @@ async function persistSession() {
         reached: currentReached(),
         payload: sessionPayload(),
       });
+      rememberOpenSession(sessionId.value);
       currentTitle.value = saved.title || currentTitle.value;
     } catch {
       /* keep typing even if save is slow */
@@ -898,6 +775,7 @@ async function persistSession() {
 function applySession(session) {
   restoring.value = true;
   sessionId.value = session.id;
+  rememberOpenSession(session.id);
   currentTitle.value = session.title || session.path_label;
   const payload = session.payload || {};
   if (payload.excel) {
@@ -981,6 +859,7 @@ async function startPathImpl() {
     docFiles.value = [];
     smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" };
     applySession(created);
+    rememberOpenSession(created.id);
     router.replace({ query: { session: created.id } });
     await loadOpenSessions();
   } catch (error) {
@@ -1012,7 +891,7 @@ async function resumeSession(id) {
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("不在了")) {
-      deadSessionIds.add(id);
+      forgetSession(id);
       if (sessionId.value === id) sessionId.value = "";
       if (route.query.session === id) router.replace({ query: {} });
       await loadOpenSessions();
@@ -1031,6 +910,7 @@ async function resumeSession(id) {
 async function dropSession(id) {
   try {
     await api.dropFeedSession(id);
+    forgetSession(id);
     if (sessionId.value === id) {
       sessionId.value = "";
       router.replace({ query: {} });
@@ -1059,7 +939,7 @@ async function bootSession() {
       if (openSessions.value.some((item) => item.id === wanted)) {
         await resumeSession(wanted);
       } else {
-        deadSessionIds.add(wanted);
+        forgetSession(wanted);
         router.replace({ query: {} });
         const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
         if (fallback) await resumeSession(fallback.id);
@@ -1098,6 +978,7 @@ let saveTimer = null;
 watch(
   () => [excel.photoPolicy, excel.emptyPolicy],
   () => {
+    if (sessionBooting.value || restoring.value || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistSession, 400);
   },
@@ -1111,6 +992,7 @@ watch(
 watch(
   () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.rows],
   () => {
+    if (sessionBooting.value || restoring.value || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistSession, 500);
   },
@@ -1447,6 +1329,21 @@ function rowMissingCopy(row) {
 
 function rowAuditStatus(row) {
   return row._audit_status || "pending";
+}
+
+function rowStatusLabel(row) {
+  const status = rowAuditStatus(row);
+  if (status === "approved") return "审核通过";
+  if (status === "rejected") return "审核不通过";
+  return "待审核";
+}
+
+function formatAuditPrice(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+  const num = Number(raw.replace(/[^\d.]/g, ""));
+  if (Number.isFinite(num) && num > 0) return num.toFixed(2);
+  return raw;
 }
 
 function rowAuditReady(row) {
@@ -2177,12 +2074,13 @@ function downloadDocTemplate() {
 
 
 async function pickCategory(node) {
+  await ensureFeedSession({ quiet: true });
   doc.categoryId = node.category_id;
   doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
   try {
     await store.ensureShops();
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」，可下载智能填写表`);
+    ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」`);
     await persistSession();
   } catch (error) {
     ElMessage.error(error.message);
@@ -3333,33 +3231,229 @@ onUnmounted(() => {
 .audit-shell {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
+  min-height: calc(100vh - 120px);
+  padding-bottom: 72px;
 }
 
 .audit-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px 22px;
-  border: 1px solid var(--line);
-  border-radius: calc(var(--radius) + 2px);
-  background: var(--surface);
+  padding: 4px 0 20px;
+  background: transparent;
+  border: none;
 }
 
-.audit-header-main h3 {
+.audit-back {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 0 0 12px;
+  cursor: pointer;
+}
+
+.audit-back:hover {
+  color: var(--ink);
+}
+
+.audit-header h3 {
   margin: 0;
   font-size: 24px;
+  font-weight: 600;
   line-height: 1.2;
+  color: var(--ink);
 }
 
 .audit-subtitle {
   margin: 8px 0 0;
-  max-width: 760px;
-  color: var(--ink-2);
+  max-width: 720px;
+  color: #8c8c8c;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.5;
+}
+
+.audit-toolbar-card {
+  margin-bottom: 0;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px 8px 0 0;
+  background: #fff;
+  overflow: hidden;
+}
+
+.audit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: none;
+}
+
+.audit-filter-tab {
+  appearance: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #595959;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.audit-filter-tab small {
+  margin-left: 6px;
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.audit-filter-tab.is-active {
+  color: #1677ff;
+  background: #e6f4ff;
+  border-bottom-color: #1677ff;
+}
+
+.audit-toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.audit-search {
+  width: min(240px, 100%);
+}
+
+.audit-table-card {
+  border: 1px solid #f0f0f0;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.audit-table-scroll {
+  overflow: auto;
+  max-height: min(62vh, 720px);
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.audit-table th,
+.audit-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.audit-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  color: #595959;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.audit-table tr.is-selected td {
+  background: #e6f4ff;
+}
+
+.audit-table tr.is-approved td {
+  background: #f6ffed;
+}
+
+.audit-table tr.is-rejected td {
+  background: #fff2f0;
+}
+
+.audit-cell-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.audit-price {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.audit-status {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.audit-status.is-pending {
+  color: #1677ff;
+}
+
+.audit-status.is-approved {
+  color: #389e0d;
+}
+
+.audit-status.is-rejected {
+  color: #cf1322;
+}
+
+.audit-category {
+  color: #595959;
+  font-size: 13px;
+}
+
+.audit-action.is-view {
+  color: #595959;
+}
+
+.audit-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.audit-footer-left {
+  font-size: 13px;
+  color: #595959;
+}
+
+.audit-footer-center {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-footer-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 
 .audit-meta {

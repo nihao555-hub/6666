@@ -40,6 +40,8 @@ def list_sessions(shop_id: str = "", db: Session = Depends(get_db), user: User =
 
 @router.post("")
 def create_session(payload: CreateIn, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     row = sessions.create(db, user.id, payload.path, payload.shop_id)
     return sessions.public_view(row)
 
@@ -61,6 +63,8 @@ def save_session(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     row = sessions.get_owned(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
@@ -85,6 +89,8 @@ async def upload_files(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     row = sessions.get_owned(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
@@ -120,6 +126,8 @@ def download_file(
 
 @router.delete("/{session_id}")
 def drop_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     row = sessions.get_owned(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
