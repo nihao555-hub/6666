@@ -105,6 +105,24 @@ class UsedLeafTests(unittest.TestCase):
         self.assertEqual(recent[0]["source"], "recent")
         self.assertIn("画笔", recent[0]["path_label"])
 
+    def test_sidebar_fetches_online_when_cache_cold(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        _ONLINE_CACHE.clear()
+        api = FakeApi()
+        payload = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        self.assertTrue(payload["used"])
+        self.assertEqual(api.calls, 1)
+        self.assertEqual(payload["used"][0]["category_id"], "21111112")
+
+    def test_sidebar_does_not_cache_empty_payload(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        _ONLINE_CACHE.clear()
+        api = FakeApi(pages=[[]])
+        payload = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        self.assertEqual(payload["used"], [])
+        self.assertEqual(payload["recent"], [])
+        self.assertNotIn(f"{self.shop.id}:{self.user.id}", _SIDEBAR_CACHE)
+
     def test_sidebar_caches_and_skips_extra_fetches(self) -> None:
         _SIDEBAR_CACHE.clear()
         self.db.add(CategoryMemory(shop_id=self.shop.id, signature="brush", category_id="21111112", category_name="Paint Brushes / 画笔", hits=2))

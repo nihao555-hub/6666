@@ -155,7 +155,9 @@ async function loadSidebar(options = {}) {
   try {
     const data = await api.categorySidebar(store.shopId);
     applySidebar(data);
-    writeCategoryCache(sidebarCacheKey(store.shopId), data);
+    if ((data.used || []).length || (data.recent || []).length) {
+      writeCategoryCache(sidebarCacheKey(store.shopId), data);
+    }
   } catch (error) {
     if (!cached && !String(error.message || "").includes("登录")) {
       ElMessage.error(error.message);

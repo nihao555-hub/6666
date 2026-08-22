@@ -113,12 +113,10 @@ def _label_hints(db: Session, shop: Shop, category_ids: list[str] | None = None)
     wanted = [str(item).strip() for item in (category_ids or []) if str(item).strip()]
     if wanted:
         rows = db.query(CategoryNode).filter(CategoryNode.category_id.in_(wanted)).all()
-    else:
-        rows = db.query(CategoryNode).all()
-    for row in rows:
-        key = str(row.category_id or "").strip()
-        if key and key not in hints:
-            hints[key] = catalog.label(row)
+        for row in rows:
+            key = str(row.category_id or "").strip()
+            if key and key not in hints:
+                hints[key] = catalog.label(row)
     return hints
 
 
@@ -219,6 +217,33 @@ def invalidate_sidebar_cache(shop_id: str, user_id: str = "") -> None:
     _ONLINE_CACHE.pop(shop_id, None)
 
 
+def _local_used_counts(db: Session, shop: Shop) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for cid, hits in (
+        db.query(CategoryMemory.category_id, func.sum(CategoryMemory.hits))
+        .filter(CategoryMemory.shop_id == shop.id)
+        .group_by(CategoryMemory.category_id)
+        .all()
+    ):
+        cid = str(cid or "").strip()
+        if cid:
+            counts[cid] += int(hits or 1)
+    for (cid,) in db.query(Draft.category_id).filter(Draft.shop_id == shop.id, Draft.category_id != "").all():
+        cid = str(cid or "").strip()
+        if cid:
+            counts[cid] += 1
+    for (cid,) in db.query(Template.category_id).filter(Template.shop_id == shop.id, Template.category_id != "").all():
+        cid = str(cid or "").strip()
+        if cid:
+            counts[cid] += 1
+    return counts
+
+
+def _online_cache_fresh(shop_id: str) -> bool:
+    cached = _ONLINE_CACHE.get(shop_id)
+    return bool(cached and time.time() - cached[0] < _CACHE_SECONDS)
+
+
 def sidebar(
     db: Session,
     api: IcbuApi,
@@ -233,19 +258,26 @@ def sidebar(
         invalidate_sidebar_cache(shop.id, user.id)
     cached = _SIDEBAR_CACHE.get(key)
     if cached and time.time() - cached[0] < _SIDEBAR_CACHE_SECONDS and not refresh_online:
-        return cached[1]
-    payload = {
-        "recent": recent_picks(db, shop, user),
-        "used": used_leaves(
-            db,
-            shop,
-            api=api,
-            include_online=True,
-            cache_only=not refresh_online,
-            online_pages=1 if refresh_online else 0,
-        ),
-    }
-    _SIDEBAR_CACHE[key] = (time.time(), payload)
+        payload = cached[1]
+        if payload.get("used") or payload.get("recent"):
+            return payload
+
+    recent = recent_picks(db, shop, user)
+    online_fresh = _online_cache_fresh(shop.id)
+    local_counts = _local_used_counts(db, shop)
+    # Use cached online counts when warm; otherwise pull one product.list page once.
+    use_cache_only = online_fresh and not refresh_online and not local_counts
+    used = used_leaves(
+        db,
+        shop,
+        api=api,
+        include_online=True,
+        cache_only=use_cache_only,
+        online_pages=_SIDEBAR_ONLINE_PAGES if refresh_online or not online_fresh else 0,
+    )
+    payload = {"recent": recent, "used": used}
+    if used or recent:
+        _SIDEBAR_CACHE[key] = (time.time(), payload)
     return payload
 
 
@@ -332,10 +364,11 @@ def used_leaves(
         _add(counts, sources, str(cid), "template")
 
     if include_online and api is not None:
+        pages = online_pages if online_pages > 0 else (_SIDEBAR_ONLINE_PAGES if not cache_only else 0)
         online = _online_counts(
             api,
             shop.id,
-            max_pages=0 if cache_only else online_pages,
+            max_pages=pages,
             cache_only=cache_only,
         )
         for cid, n in online.items():
