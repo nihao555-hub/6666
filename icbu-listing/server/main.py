@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -57,6 +58,8 @@ def health() -> dict[str, object]:
         "text_model": settings.text_model,
         "image_model": settings.image_model,
         "db_persist": "blob" if settings.blob_read_write_token else "local",
+        "git_sha": os.environ.get("VERCEL_GIT_COMMIT_SHA") or os.environ.get("GIT_SHA") or "",
+        "production_url": "https://icbu-listing.vercel.app",
         "config": {
             "alibaba_app": settings.has_platform_app,
             "alibaba_dev_token": bool(settings.dev_access_token),

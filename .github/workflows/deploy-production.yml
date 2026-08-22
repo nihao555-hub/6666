@@ -1,0 +1,56 @@
+# Deploy icbu-listing to Vercel production whenever videos-dataset updates.
+name: Deploy Production
+
+on:
+  push:
+    branches: [videos-dataset]
+    paths:
+      - "icbu-listing/**"
+      - ".github/workflows/deploy-production.yml"
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: icbu-listing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel (production)
+        env:
+          VERCEL_ORG_ID: team_pJEBORGMkWVWXNDb2bbDZ4Hx
+          VERCEL_PROJECT_ID: prj_IVAszltpWeYhbwVh9BdiBGPO8vuF
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN secret is missing — add it in repo Settings → Secrets."
+            exit 1
+          fi
+          npx vercel@59 deploy --prod --token "$VERCEL_TOKEN" --yes
+
+      - name: Verify production health
+        run: |
+          for i in $(seq 1 12); do
+            body=$(curl -fsS "https://icbu-listing.vercel.app/api/v1/health" || true)
+            echo "$body" | head -c 400
+            echo
+            sha=$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('git_sha',''))" 2>/dev/null || true)
+            if [ -n "$sha" ] && [ "$sha" = "${{ github.sha }}" ]; then
+              echo "Production git_sha matches push: $sha"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::Health OK but git_sha not yet ${{ github.sha }} — Vercel may still be propagating."
+
+      - name: Verify Feed bundle marker
+        run: |
+          feed=$(curl -fsS "https://icbu-listing.vercel.app/" | grep -oE 'Feed-[^"]+\.js' | head -1)
+          test -n "$feed"
+          curl -fsS "https://icbu-listing.vercel.app/assets/$feed" | grep -q 'useEcosystemAssistant'
+          echo "Feed bundle OK: $feed"
