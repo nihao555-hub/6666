@@ -167,6 +167,50 @@ class DocumentParseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             document_parse.parse_documents([], profile=self.profile, extra_columns=[])
 
+    def test_only_sample_row_gives_clear_error(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        with self.assertRaises(ValueError) as ctx:
+            document_parse.parse_documents(
+                [("batch.xlsx", payload.getvalue())],
+                profile=self.profile,
+                extra_columns=[],
+                category_id="123456",
+                ai=None,
+            )
+        self.assertIn("示例行", str(ctx.exception))
+
+    def test_unmapped_header_falls_back_to_llm_with_table_text(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Product Code", "Unit Price", "Min Qty", "Name"])
+        ws.append(["P-1", "2.50", "200", "Brush"])
+        payload = io.BytesIO()
+        wb.save(payload)
+        seen: dict[str, str] = {"text": ""}
+
+        class SpyAi:
+            def chat_json(self, messages, temperature=0.1):
+                for block in messages[0]["content"]:
+                    if block.get("type") == "text" and "spreadsheet table" in block.get("text", ""):
+                        seen["text"] = block["text"]
+                return {"rows": [{"sku": "P-1", "price": "2.50", "moq": "200", "name": "Brush"}], "warnings": []}
+
+        result = document_parse.parse_documents(
+            [("quote.xlsx", payload.getvalue())],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=SpyAi(),
+        )
+        self.assertEqual(result["rows"][0]["sku"], "P-1")
+        self.assertIn("P-1", seen["text"])
+        self.assertNotIn("PK\\x03", seen["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

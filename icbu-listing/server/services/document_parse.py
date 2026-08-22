@@ -294,21 +294,94 @@ def _read_csv(content: bytes) -> list[list[str]]:
     return [list(row) for row in reader if any(str(cell).strip() for cell in row)]
 
 
-def _parse_spreadsheet(name: str, content: bytes, extra_columns: list[dict[str, Any]] | None) -> list[ExcelRow]:
-    if _suffix(name) == ".csv":
+def _spreadsheet_as_text(name: str, content: bytes, *, max_rows: int = 120) -> str:
+    """Render spreadsheet cells as TSV so the LLM can actually read failed rule parses."""
+    suffix = _suffix(name)
+    if suffix == ".csv":
+        rows = _read_csv(content)
+    elif suffix in SPREADSHEET_SUFFIXES:
+        try:
+            rows = read_sheet(content)
+        except Exception:
+            return ""
+    else:
+        return ""
+    if not rows:
+        return ""
+    lines: list[str] = []
+    for row in rows[:max_rows]:
+        cells = [str(cell or "").strip().replace("\t", " ") for cell in row]
+        if any(cells):
+            lines.append("\t".join(cells))
+    return "\n".join(lines)
+
+
+def _mapping_covers_core(mapping: Mapping[str, str]) -> bool:
+    mapped = set(mapping.values())
+    return sum(1 for field_id in ("sku", "price", "moq") if field_id in mapped) >= 2
+
+
+def _parse_spreadsheet(name: str, content: bytes, extra_columns: list[dict[str, Any]] | None) -> tuple[list[ExcelRow], str]:
+    """Rule-based spreadsheet parse. Returns rows and a short diagnostic tag."""
+    suffix = _suffix(name)
+    if suffix == ".csv":
         sheet_rows = _read_csv(content)
         if len(sheet_rows) < 1:
-            return []
+            return [], "empty_csv"
         header_index = excel_import.find_header_row(sheet_rows, "detect")
+        for trial in range(min(8, len(sheet_rows))):
+            headers = sheet_rows[trial]
+            mapping = excel_import.mapping_from_headers(headers, "detect", extra_columns)
+            if _mapping_covers_core(mapping):
+                header_index = trial
+                break
         headers = sheet_rows[header_index]
         mapping = excel_import.mapping_from_headers(headers, "detect", extra_columns)
-        parsed, _ = excel_import.drop_samples(
+        if not _mapping_covers_core(mapping):
+            return [], "header_unmapped"
+        parsed, skipped = excel_import.drop_samples(
             excel_import.parse_rows(sheet_rows, mapping, header_index, extra_columns)
         )
-        return parsed
-    preview_data = preview(content, "detect", extra_columns)
-    mapping = preview_data.get("mapping") or {}
-    return excel_import.apply_preview(content, mapping, preview_data.get("style_guess") or "detect", extra_columns)
+        if not parsed and skipped:
+            return [], "only_sample_rows"
+        if not parsed:
+            return [], "no_data_rows"
+        return parsed, "ok"
+
+    try:
+        sheet_rows = read_sheet(content)
+    except Exception:
+        return [], "unreadable_xlsx"
+    if not sheet_rows:
+        return [], "empty_xlsx"
+
+    header_index = excel_import.find_header_row(sheet_rows, "detect")
+    mapping: dict[str, str] = {}
+    for trial in range(min(8, len(sheet_rows))):
+        headers = sheet_rows[trial]
+        trial_map = excel_import.mapping_from_headers(headers, "detect", extra_columns)
+        if _mapping_covers_core(trial_map):
+            header_index = trial
+            mapping = trial_map
+            break
+    if not mapping:
+        headers = sheet_rows[header_index]
+        mapping = excel_import.mapping_from_headers(headers, "detect", extra_columns)
+
+    if not _mapping_covers_core(mapping):
+        preview_data = preview(content, "detect", extra_columns)
+        mapping = preview_data.get("mapping") or mapping
+        if not _mapping_covers_core(mapping):
+            return [], "header_unmapped"
+
+    parsed, skipped = excel_import.drop_samples(
+        excel_import.parse_rows(sheet_rows, mapping, header_index, extra_columns)
+    )
+    if not parsed and skipped:
+        return [], "only_sample_rows"
+    if not parsed:
+        return [], "no_data_rows"
+    return parsed, "ok"
 
 
 def _llm_extract(
@@ -331,7 +404,11 @@ def _llm_extract(
         elif suffix in TEXT_SUFFIXES or suffix in {".pdf"}:
             text_bits.append(f"--- {name} ---\n{raw.decode('utf-8', errors='replace')[:12000]}")
         elif suffix in SPREADSHEET_SUFFIXES:
-            text_bits.append(f"--- {name} (tabular) ---\n{raw[:8000]!r}")
+            table = _spreadsheet_as_text(name, raw)
+            if table:
+                text_bits.append(f"--- {name} (spreadsheet table) ---\n{table[:20000]}")
+            else:
+                text_bits.append(f"--- {name} ---\n(spreadsheet could not be read as text)")
     if text_bits:
         content.append({"type": "text", "text": "\n\n".join(text_bits)[:24000]})
     payload = ai.chat_json([{"role": "user", "content": content}], temperature=0.1)
@@ -345,6 +422,43 @@ def _llm_extract(
                 row.setdefault("line", index)
                 cleaned.append(row)
     return cleaned, warnings
+
+
+def _explain_parse_failure(
+    *,
+    files: Sequence[tuple[str, bytes]],
+    sheet_diagnostics: Mapping[str, str],
+    llm_tried: bool,
+    llm_row_count: int,
+    ai_available: bool,
+) -> str:
+    names = [name for name, raw in files if raw]
+    only_images = names and all(_suffix(name) in IMAGE_SUFFIXES for name in names)
+    if only_images:
+        return "只收到图片，没有表格。请上传填好的 Excel/CSV（建议用「下载智能填写表」），或把报价单扫成 PDF/图片并确保已配置 AI。"
+
+    tags = set(sheet_diagnostics.values())
+    if "only_sample_rows" in tags:
+        return "表格里只有示例行（第 2 行），请从下一行开始填写你的商品，并保留表头（货号、单价 USD、起订量等）。"
+    if "header_unmapped" in tags:
+        return (
+            "表格表头没被识别。请优先使用「下载智能填写表」填好再上传；"
+            "或确保表头含货号/SKU、单价、起订量（MOQ）列。自定义报价单也可，但表头需接近中文：货号、单价 USD、起订量。"
+        )
+    if "empty_xlsx" in tags or "empty_csv" in tags:
+        return "表格文件是空的。请确认 Excel 第一个工作表里有表头和商品行。"
+    if "unreadable_xlsx" in tags:
+        return "Excel 文件无法读取。请另存为 .xlsx 或导出 CSV 后重试。"
+
+    if llm_tried and llm_row_count == 0:
+        return (
+            "AI 已阅读你上传的资料，但没有提取到有效商品行。"
+            "请确认表格里有货号、单价、起订量，或换更完整的报价单/表格。"
+        )
+    if not ai_available and sheet_diagnostics:
+        return "表格未能自动识别，解析 PDF/扫描件/非标准报价单需要配置 AI（OPENAI_API_KEY）。请上传标准 Excel/CSV，或配置 AI 后重试。"
+
+    return "没能从资料里识别出商品行。请用「下载智能填写表」填写后上传，或换含货号/单价/起订量的完整表格。"
 
 
 def parse_documents(
@@ -366,13 +480,17 @@ def parse_documents(
     structured: list[ExcelRow] = []
     unstructured: list[tuple[str, bytes]] = []
     sources: list[str] = []
+    sheet_diagnostics: dict[str, str] = {}
+    llm_tried = False
+    llm_row_count = 0
 
     for name, content in files:
         if not content:
             continue
         suffix = _suffix(name)
         if suffix in SPREADSHEET_SUFFIXES:
-            rows = _parse_spreadsheet(name, content, extras)
+            rows, tag = _parse_spreadsheet(name, content, extras)
+            sheet_diagnostics[name] = tag
             if rows:
                 structured.extend(rows)
                 sources.append(f"表格 {name}")
@@ -389,16 +507,38 @@ def parse_documents(
     if unstructured:
         if ai is None:
             if not grid_items:
-                raise AiUnavailable("解析报价单/图片资料需要配置 AI。表格请直接上传 xlsx/csv。")
+                message = _explain_parse_failure(
+                    files=files,
+                    sheet_diagnostics=sheet_diagnostics,
+                    llm_tried=False,
+                    llm_row_count=0,
+                    ai_available=False,
+                )
+                if "OPENAI" in message or "配置 AI" in message:
+                    raise AiUnavailable(message)
+                raise ValueError(message)
             warnings.append("部分文件需要 AI 解析，但未配置模型，已忽略。")
         else:
+            llm_tried = True
             extracted, llm_warnings = _llm_extract(ai, unstructured, columns, category_name=category_name)
+            llm_row_count = len(extracted)
             grid_items.extend(extracted)
-            sources.append("AI 资料解析")
+            if extracted:
+                sources.append("AI 资料解析")
+            elif any(tag != "ok" for tag in sheet_diagnostics.values()):
+                warnings.append("表格规则解析未识别到行，已交给 AI 读表；若仍为空，请检查表头或补全货号/单价/起订量。")
             warnings.extend(llm_warnings)
 
     if not grid_items:
-        raise ValueError("没能从资料里识别出商品行，请换更完整的报价单或表格")
+        raise ValueError(
+            _explain_parse_failure(
+                files=files,
+                sheet_diagnostics=sheet_diagnostics,
+                llm_tried=llm_tried,
+                llm_row_count=llm_row_count,
+                ai_available=ai is not None,
+            )
+        )
 
     image_files = _image_uploads(files)
     if image_files:
