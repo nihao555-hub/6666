@@ -171,6 +171,32 @@
         </ol>
       </section>
 
+      <section v-if="ecosystemBrief && doc.categoryId" class="ecosystem-brief-panel">
+        <header class="ecosystem-brief-head">
+          <strong>阿里生态助手</strong>
+          <span class="ecosystem-brief-badge">国际站 · 询盘最大化</span>
+        </header>
+        <p v-if="ecosystemBrief.tips" class="ecosystem-brief-tips">{{ ecosystemBrief.tips }}</p>
+        <ol v-if="ecosystemBrief.assistant_steps?.length" class="ecosystem-brief-steps">
+          <li v-for="(step, idx) in ecosystemBrief.assistant_steps" :key="idx">{{ step }}</li>
+        </ol>
+        <div v-if="ecosystemBrief.golden_titles?.length" class="ecosystem-golden">
+          <small>店里同品类在售标题（AI 参考结构与用词，不会照抄）</small>
+          <p v-for="(title, idx) in ecosystemBrief.golden_titles.slice(0, 3)" :key="idx" class="golden-title">{{ title }}</p>
+        </div>
+        <div v-if="ecosystemBrief.keyword_strategy?.length" class="ecosystem-kw-tiers">
+          <span
+            v-for="item in ecosystemBrief.keyword_strategy"
+            :key="item.tier"
+            class="kw-tier"
+            :class="`is-${String(item.tier || '').toLowerCase()}`"
+            :title="item.hint"
+          >
+            {{ item.tier }} · {{ item.label }}
+          </span>
+        </div>
+      </section>
+
       <div v-if="docStep === 1" class="step-panel audit-shell">
         <header class="audit-header">
           <button type="button" class="audit-back" @click="docStep = 0">← 返回</button>
@@ -473,6 +499,7 @@ const excel = reactive({
   emptyPolicy: "draw",
 });
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
+const ecosystemBrief = ref(null);
 const smartPlanLoading = ref(false);
 const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
@@ -1113,6 +1140,7 @@ async function finishResumeSession() {
   if (!doc.categoryId || !store.shopId) return;
   try {
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    void loadEcosystemBrief({ categoryId: doc.categoryId, categoryName: doc.categoryName });
     ensureGridPolling();
     if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
       void runReviewAssist(true);
@@ -1386,6 +1414,24 @@ async function syncDocImagesToSession() {
   }
 }
 
+async function loadEcosystemBrief(override = null) {
+  const categoryId = override?.categoryId ?? doc.categoryId ?? "";
+  const categoryName = override?.categoryName ?? doc.categoryName ?? smartPlan.value.category_name ?? "";
+  if (!store.shopId || !categoryId) {
+    ecosystemBrief.value = null;
+    return;
+  }
+  try {
+    ecosystemBrief.value = await api.excelEcosystemBrief({
+      shop_id: store.shopId,
+      category_id: categoryId,
+      category_name: categoryName,
+    });
+  } catch {
+    ecosystemBrief.value = null;
+  }
+}
+
 async function loadSmartPlan(override = null) {
   const categoryId = override?.categoryId ?? doc.categoryId ?? "";
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
@@ -1401,6 +1447,7 @@ async function loadSmartPlan(override = null) {
     }));
     docGrid.columns = smartPlan.value.columns || [];
     finishSmartPlanStepAnimation();
+    void loadEcosystemBrief({ categoryId, categoryName });
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
@@ -1414,6 +1461,7 @@ async function loadSmartPlan(override = null) {
         }));
         docGrid.columns = smartPlan.value.columns || [];
         finishSmartPlanStepAnimation();
+        void loadEcosystemBrief({ categoryId, categoryName });
         return;
       }
     }
@@ -2612,6 +2660,106 @@ onUnmounted(() => {
 .audit-ai-timeline {
   margin: 16px 0 14px;
   max-width: 480px;
+}
+
+.ecosystem-brief-panel {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line, #e8e8e8);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 153, 0, 0.06), transparent 72%);
+  max-width: 640px;
+}
+
+.ecosystem-brief-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ecosystem-brief-head strong {
+  font-size: 15px;
+}
+
+.ecosystem-brief-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 153, 0, 0.15);
+  color: #b45309;
+}
+
+.ecosystem-brief-tips {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text, #333);
+}
+
+.ecosystem-brief-steps {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--muted, #666);
+}
+
+.ecosystem-golden {
+  margin-top: 8px;
+}
+
+.ecosystem-golden small {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted, #666);
+  font-size: 12px;
+}
+
+.golden-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.ecosystem-kw-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.kw-tier {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #e5e7eb);
+  cursor: help;
+}
+
+.kw-tier.is-s {
+  border-color: #16a34a;
+  color: #166534;
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.kw-tier.is-a {
+  border-color: #2563eb;
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.kw-tier.is-b {
+  border-color: #ca8a04;
+  color: #854d0e;
+  background: rgba(202, 138, 4, 0.08);
+}
+
+.kw-tier.is-c {
+  border-color: #dc2626;
+  color: #991b1b;
+  background: rgba(220, 38, 38, 0.06);
 }
 
 .ai-timeline-head {

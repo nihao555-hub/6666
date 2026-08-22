@@ -19,7 +19,7 @@ from gop_client import GopError  # noqa: E402
 from ..db import SessionLocal, reload_db_from_blob
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
+from ..services import catalog, distribution, document_parse, ecosystem_brief, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -217,6 +217,38 @@ def sheet_plan(
             ),
         },
     }
+
+
+@router.get("/ecosystem-brief")
+def ecosystem_brief_endpoint(
+    shop_id: str = "",
+    category_id: str = "",
+    category_name: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop = shop_for(db, user, shop_id)
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    try:
+        brief = ecosystem_brief.build_brief(
+            db,
+            shop,
+            category_id=category_id,
+            category_name=hint or category_name,
+            api=shop_api(shop),
+        )
+    except Exception as exc:
+        brief = ecosystem_brief.build_brief(
+            db,
+            shop,
+            category_id=category_id,
+            category_name=hint or category_name,
+            api=None,
+        )
+        brief["warning"] = str(exc)
+    return brief
 
 
 @router.get("/smart-plan")
@@ -630,6 +662,25 @@ async def grid_regen_copy(
     ai = AiClient.from_env_or_none()
     if ai is None:
         raise HTTPException(status_code=503, detail="重写文案需要配置 AI")
+    eco: dict[str, Any] = {}
+    if shop_id and category_id:
+        shop = shop_for(db, user, shop_id)
+        try:
+            eco = ecosystem_brief.build_brief(
+                db,
+                shop,
+                category_id=category_id,
+                category_name=hint or category_name,
+                api=shop_api(shop),
+            )
+        except Exception:
+            eco = ecosystem_brief.build_brief(
+                db,
+                shop,
+                category_id=category_id,
+                category_name=hint or category_name,
+                api=None,
+            )
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
     for row in payload:
@@ -641,13 +692,18 @@ async def grid_regen_copy(
             updated.append(item)
             continue
         try:
-            suggested = review_enrich.suggest_copy_for_row(ai, item, category_name=hint or category_name)
+            suggested = review_enrich.suggest_copy_for_row(
+                ai,
+                item,
+                category_name=hint or category_name,
+                ecosystem_brief=eco or None,
+            )
             item.update(suggested)
             item["_copy_source"] = "ai"
         except Exception as exc:
             errors.append(f"第 {line or '?'} 行：{exc}")
         updated.append(item)
-    return {"rows": updated, "errors": errors}
+    return {"rows": updated, "errors": errors, "ecosystem_brief": eco}
 
 
 @router.post("/grid-infer-fields")

@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 
 from ai import AiClient, AiUnavailable, Understanding  # noqa: E402
 
+from .ecosystem_brief import build_brief, prompt_block as ecosystem_prompt_block, score_copy_row
 from .icbu_publishing_skill import KEYWORD_RULES, TITLE_RULES, skill_prompt_block
 
 TITLE_FORMULA = (
@@ -88,22 +89,32 @@ def suggest_copy_for_row(
     row: Mapping[str, Any],
     *,
     category_name: str = "",
+    ecosystem_brief: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     understanding = _understanding_from_row(row, category_name=category_name)
+    publishing_rules = skill_prompt_block()
+    if ecosystem_brief:
+        publishing_rules = ecosystem_prompt_block(ecosystem_brief)
     extra = {
         "brand": str(row.get("brand") or "").strip(),
         "price": str(row.get("price") or "").strip(),
         "moq": str(row.get("moq") or "").strip(),
         "category": category_name,
         "title_formula": TITLE_FORMULA,
-        "publishing_skill_rules": skill_prompt_block(),
+        "publishing_skill_rules": publishing_rules,
+        "alibaba_ecosystem_tips": str((ecosystem_brief or {}).get("tips") or ""),
+        "shop_golden_title_examples": (ecosystem_brief or {}).get("golden_titles") or [],
     }
     copy = ai.write_copy(understanding, extra_facts=extra)
-    return {
+    result = {
         "title": copy.title,
         "keywords": ", ".join(copy.keywords[:3]),
         "highlights": copy.highlights or "; ".join(copy.selling_points[:3]),
     }
+    limits = (ecosystem_brief or {}).get("schema_limits") or {}
+    title_limit = int((limits.get("productTitle") or {}).get("max_length") or 128)
+    result["_copy_score"] = score_copy_row(result, title_byte_limit=title_limit)
+    return result
 
 
 def enrich_rows(
@@ -112,6 +123,7 @@ def enrich_rows(
     *,
     category_name: str = "",
     ai: AiClient | None = None,
+    ecosystem_brief: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Return review columns (copy first), enriched rows, warnings."""
     warnings: list[str] = []
@@ -129,7 +141,12 @@ def enrich_rows(
             row.setdefault("highlights", str(row.get("highlights") or ""))
             continue
         try:
-            suggested = suggest_copy_for_row(ai, row, category_name=category_name)
+            suggested = suggest_copy_for_row(
+                ai,
+                row,
+                category_name=category_name,
+                ecosystem_brief=ecosystem_brief,
+            )
             row.setdefault("title", suggested["title"])
             row.setdefault("keywords", suggested["keywords"])
             row.setdefault("highlights", suggested["highlights"])
