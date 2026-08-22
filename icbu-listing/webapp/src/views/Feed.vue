@@ -51,7 +51,26 @@
         </div>
 
         <section v-if="smartPlanLoading" class="plan-panel plan-panel-loading">
-          <p class="muted">AI 正在分析类目…</p>
+          <section class="ai-timeline ai-timeline-compact" aria-live="polite">
+            <header class="ai-timeline-head">
+              <strong>AI 正在分析类目</strong>
+              <span class="ai-timeline-badge is-live">进行中</span>
+            </header>
+            <ol class="ai-timeline-track">
+              <li
+                v-for="step in smartPlanAiSteps"
+                :key="step.id"
+                class="ai-timeline-item"
+                :class="`is-${step.status}`"
+              >
+                <span class="ai-timeline-dot" aria-hidden="true" />
+                <div class="ai-timeline-content">
+                  <span class="ai-timeline-label">{{ step.label }}</span>
+                  <span v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</span>
+                </div>
+              </li>
+            </ol>
+          </section>
         </section>
 
         <section v-else-if="doc.categoryId && smartPlan.column_count" class="plan-panel">
@@ -119,6 +138,32 @@
           <h3>内容审核</h3>
           <p class="audit-subtitle">核对 AI 生成的标题、关键词与商品图，确认后标记通过。</p>
         </header>
+
+        <section
+          v-if="showReviewAiTimeline"
+          class="ai-timeline ai-timeline-compact audit-ai-timeline"
+          aria-live="polite"
+        >
+          <header class="ai-timeline-head">
+            <strong>AI 审核助手</strong>
+            <span v-if="reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
+            <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
+          </header>
+          <ol class="ai-timeline-track">
+            <li
+              v-for="step in reviewAiSteps"
+              :key="step.id"
+              class="ai-timeline-item"
+              :class="`is-${step.status}`"
+            >
+              <span class="ai-timeline-dot" aria-hidden="true" />
+              <div class="ai-timeline-content">
+                <span class="ai-timeline-label">{{ step.label }}</span>
+                <span v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</span>
+              </div>
+            </li>
+          </ol>
+        </section>
 
         <section class="audit-toolbar-card">
           <div class="audit-toolbar">
@@ -419,14 +464,70 @@ const templateSuggesting = ref(false);
 const aiServiceReady = ref(null);
 const reviewAssistRunning = ref(false);
 const reviewAiSteps = ref(createReviewAiSteps());
+const smartPlanAiSteps = ref(createSmartPlanAiSteps());
+let smartPlanStepTimer = null;
+let smartPlanStepStartedAt = 0;
+
+function createSmartPlanAiSteps() {
+  return [
+    { id: "schema", label: "读取官方字段", status: "pending", detail: "" },
+    { id: "habits", label: "对照店铺模板", status: "pending", detail: "" },
+    { id: "plan", label: "规划最短填写列", status: "pending", detail: "" },
+  ];
+}
+
+function resetSmartPlanAiSteps() {
+  smartPlanAiSteps.value = createSmartPlanAiSteps();
+}
+
+function patchSmartPlanStep(id, patch) {
+  smartPlanAiSteps.value = smartPlanAiSteps.value.map((step) => (step.id === id ? { ...step, ...patch } : step));
+}
+
+function startSmartPlanStepAnimation() {
+  clearSmartPlanStepAnimation();
+  resetSmartPlanAiSteps();
+  smartPlanStepStartedAt = Date.now();
+  patchSmartPlanStep("schema", { status: "running", detail: "拉取类目 schema…" });
+  smartPlanStepTimer = window.setInterval(() => {
+    if (!smartPlanLoading.value) return;
+    const elapsed = Date.now() - smartPlanStepStartedAt;
+    if (elapsed >= 900) {
+      patchSmartPlanStep("schema", { status: "done", detail: "" });
+      patchSmartPlanStep("habits", { status: "running", detail: "店铺默认与刊登模板…" });
+    }
+    if (elapsed >= 1800) {
+      patchSmartPlanStep("habits", { status: "done", detail: "" });
+      patchSmartPlanStep("plan", { status: "running", detail: "LLM 规划填写列…" });
+    }
+  }, 400);
+}
+
+function clearSmartPlanStepAnimation() {
+  if (smartPlanStepTimer) {
+    clearInterval(smartPlanStepTimer);
+    smartPlanStepTimer = null;
+  }
+  smartPlanStepStartedAt = 0;
+}
+
+function finishSmartPlanStepAnimation() {
+  clearSmartPlanStepAnimation();
+  smartPlanAiSteps.value = smartPlanAiSteps.value.map((step) => ({
+    ...step,
+    status: "done",
+    detail: step.id === "plan" ? "完成" : "",
+  }));
+}
 
 function createReviewAiSteps() {
   return [
-    { id: "service", label: "1. 检查 AI 服务", status: "pending", detail: "" },
-    { id: "template", label: "2. 选刊登模板", status: "pending", detail: "" },
-    { id: "copy", label: "3. 写英文标题和关键词", status: "pending", detail: "" },
-    { id: "images", label: "4. 生成商品套图", status: "pending", detail: "" },
-    { id: "check", label: "5. 更新校验结果", status: "pending", detail: "" },
+    { id: "service", label: "检查 AI 服务", status: "pending", detail: "" },
+    { id: "template", label: "匹配刊登模板", status: "pending", detail: "" },
+    { id: "copy", label: "写标题和关键词", status: "pending", detail: "" },
+    { id: "attrs", label: "推断官方属性", status: "pending", detail: "" },
+    { id: "images", label: "配对/生成商品图", status: "pending", detail: "" },
+    { id: "check", label: "更新校验结果", status: "pending", detail: "" },
   ];
 }
 
@@ -445,6 +546,17 @@ function reviewStepStatusLabel(status) {
   if (status === "skip") return "跳过";
   return "等待";
 }
+
+const showReviewAiTimeline = computed(() => {
+  if (docStep.value !== 1) return false;
+  if (reviewAssistRunning.value || hasPendingImageJobs()) return true;
+  return reviewAiSteps.value.some((step) => step.status !== "pending");
+});
+
+const reviewAiAllDone = computed(() => {
+  if (reviewAssistRunning.value || hasPendingImageJobs()) return false;
+  return reviewAiSteps.value.every((step) => ["done", "skip"].includes(step.status));
+});
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const copyColumnIds = new Set(["title", "keywords", "highlights"]);
@@ -1174,6 +1286,7 @@ async function loadSmartPlan(override = null) {
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
   if (!store.shopId || !categoryId) return;
   smartPlanLoading.value = true;
+  startSmartPlanStepAnimation();
   try {
     smartPlan.value = normalizeSmartPlan(await api.excelSmartPlan({
       shop_id: store.shopId,
@@ -1182,6 +1295,7 @@ async function loadSmartPlan(override = null) {
       ...(override?.refresh ? { refresh: true } : {}),
     }));
     docGrid.columns = smartPlan.value.columns || [];
+    finishSmartPlanStepAnimation();
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
@@ -1194,9 +1308,11 @@ async function loadSmartPlan(override = null) {
           ...(override?.refresh ? { refresh: true } : {}),
         }));
         docGrid.columns = smartPlan.value.columns || [];
+        finishSmartPlanStepAnimation();
         return;
       }
     }
+    clearSmartPlanStepAnimation();
     throw error;
   } finally {
     smartPlanLoading.value = false;
@@ -1854,6 +1970,7 @@ async function runReviewAssist(force = false) {
     if (aiServiceReady.value === false) {
       patchReviewStep("service", { status: "error", detail: "未配置 OPENAI_API_KEY" });
       patchReviewStep("copy", { status: "skip", detail: "需要 AI 服务" });
+      patchReviewStep("attrs", { status: "skip", detail: "需要 AI 服务" });
       patchReviewStep("images", { status: "skip", detail: "需要 AI 服务" });
     } else {
       patchReviewStep("service", { status: "done", detail: "服务可用" });
@@ -1870,18 +1987,41 @@ async function runReviewAssist(force = false) {
         patchReviewStep("copy", { status: "error", detail: copyResult.error || "文案生成失败" });
       }
 
+      patchReviewStep("attrs", { status: "running", detail: "从备注推断官方属性…" });
+      docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+      const inferResult = await inferFieldsForRows([], { silent: true });
+      if (inferResult.skipped) {
+        patchReviewStep("attrs", { status: "skip", detail: "无可推断字段" });
+      } else if (inferResult.ok) {
+        patchReviewStep("attrs", {
+          status: "done",
+          detail: inferResult.filled_count ? `补了 ${inferResult.filled_count} 个属性` : "属性已齐",
+        });
+      } else {
+        patchReviewStep("attrs", { status: "error", detail: inferResult.error || "推断失败" });
+      }
+
+      const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
       const imageNeed = rowsNeedingImageJobs().length;
       if (imageNeed) {
-        patchReviewStep("images", { status: "running", detail: `提交 ${imageNeed} 行出图任务…` });
+        patchReviewStep("images", {
+          status: "running",
+          detail: matchedPhotos
+            ? `已配对 ${matchedPhotos} 行，提交 ${imageNeed} 行补图…`
+            : `提交 ${imageNeed} 行出图任务…`,
+        });
         const imageResult = await generateImagesForRows([], { silent: true });
         if (imageResult.ok) {
+          ensureGridPolling();
           patchReviewStep("images", {
             status: "running",
-            detail: `已提交，后台生成中（${docImageGenSummary.value || "刷新状态可看进度"}）`,
+            detail: docImageGenSummary.value || "后台生成中…",
           });
         } else {
           patchReviewStep("images", { status: "error", detail: imageResult.error || "出图失败" });
         }
+      } else if (matchedPhotos) {
+        patchReviewStep("images", { status: "done", detail: `已配对 ${matchedPhotos}/${docGrid.rows.length} 行图片` });
       } else {
         patchReviewStep("images", { status: "done", detail: "图片已齐或任务进行中" });
       }
@@ -1944,6 +2084,8 @@ async function parseDocuments() {
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
     parseStatus.value = "进入审核…";
+    resetReviewAiSteps();
+    patchReviewStep("service", { status: "running", detail: "正在进入审核…" });
     await persistSession();
     advanceDoc(1);
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
@@ -2140,6 +2282,7 @@ onUnmounted(() => {
   clearInterval(docTimer);
   clearInterval(gridPollTimer);
   clearTimeout(imageSyncTimer);
+  clearSmartPlanStepAnimation();
 });
 
 
@@ -2324,6 +2467,160 @@ onUnmounted(() => {
 .plan-panel-loading {
   background: var(--gray3);
 }
+
+.ai-timeline {
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+  padding: 10px 14px 12px;
+}
+
+.ai-timeline-compact {
+  max-width: 100%;
+}
+
+.audit-ai-timeline {
+  margin: 0 0 14px;
+}
+
+.ai-timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.ai-timeline-head strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-timeline-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.ai-timeline-badge.is-live {
+  color: var(--accent-text);
+  background: var(--accent-wash);
+}
+
+.ai-timeline-badge.is-done {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.ai-timeline-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ai-timeline-item {
+  position: relative;
+  flex: 1 1 120px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 10px 0 0;
+}
+
+.ai-timeline-item:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: calc(8px + 7px);
+  right: 4px;
+  height: 2px;
+  background: var(--line);
+  z-index: 0;
+}
+
+.ai-timeline-item.is-done:not(:last-child)::after {
+  background: var(--accent);
+}
+
+.ai-timeline-dot {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  box-sizing: border-box;
+}
+
+.ai-timeline-item.is-running .ai-timeline-dot {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.ai-timeline-item.is-done .ai-timeline-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ai-timeline-item.is-error .ai-timeline-dot {
+  border-color: #dc2626;
+  background: #fee2e2;
+}
+
+.ai-timeline-item.is-skip .ai-timeline-dot {
+  border-color: var(--muted);
+  background: var(--gray3);
+}
+
+.ai-timeline-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-timeline-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.ai-timeline-item.is-pending .ai-timeline-label {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.ai-timeline-detail {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.ai-timeline-item.is-running .ai-timeline-detail {
+  color: var(--accent-text);
+}
+
+@media (max-width: 900px) {
+  .ai-timeline-track {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ai-timeline-item:not(:last-child)::after {
+    display: none;
+  }
+}
+
 .plan-head {
   display: flex;
   align-items: center;
