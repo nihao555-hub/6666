@@ -20,12 +20,15 @@ from icbu_api import IcbuApi  # noqa: E402
 from ..models import CategoryMemory, CategoryRecentPick, Draft, Shop, Template, User, utcnow
 from . import catalog
 
-# product.list has no "distinct categories" filter. A few pages is enough to
-# surface the shop's usual leaves without walking every listing.
+# product.list has no "distinct categories" filter. Sidebar only needs one page;
+# full scans stay available for other callers via online_pages.
 _LIST_PAGES = 4
+_SIDEBAR_ONLINE_PAGES = 1
 _LIST_PAGE_SIZE = 50
 _CACHE_SECONDS = 30 * 60
+_SIDEBAR_CACHE_SECONDS = 5 * 60
 _ONLINE_CACHE: dict[str, tuple[float, Counter[str]]] = {}
+_SIDEBAR_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 def _listing_products(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
@@ -46,13 +49,13 @@ def _add(counts: Counter[str], sources: dict[str, str], category_id: str, source
     sources.setdefault(cid, source)
 
 
-def _online_counts(api: IcbuApi, shop_id: str) -> Counter[str]:
+def _online_counts(api: IcbuApi, shop_id: str, *, max_pages: int = _LIST_PAGES) -> Counter[str]:
     cached = _ONLINE_CACHE.get(shop_id)
     if cached and time.time() - cached[0] < _CACHE_SECONDS:
         return cached[1]
     counts: Counter[str] = Counter()
     try:
-        for page in range(1, _LIST_PAGES + 1):
+        for page in range(1, max(1, max_pages) + 1):
             payload = api.list_products(page, _LIST_PAGE_SIZE, "onSelling")
             products, total = _listing_products(payload if isinstance(payload, dict) else {})
             for item in products:
@@ -67,6 +70,29 @@ def _online_counts(api: IcbuApi, shop_id: str) -> Counter[str]:
     return counts
 
 
+def _label_hints(db: Session, shop: Shop) -> dict[str, str]:
+    hints: dict[str, str] = {}
+    for cid, name in (
+        db.query(CategoryMemory.category_id, CategoryMemory.category_name)
+        .filter(CategoryMemory.shop_id == shop.id, CategoryMemory.category_name != "")
+        .order_by(CategoryMemory.hits.desc())
+        .all()
+    ):
+        key = str(cid or "").strip()
+        if key and key not in hints:
+            hints[key] = str(name or "").strip()
+    for cid, name in (
+        db.query(Draft.category_id, Draft.category_name)
+        .filter(Draft.shop_id == shop.id, Draft.category_id != "", Draft.category_name != "")
+        .all()
+    ):
+        key = str(cid or "").strip()
+        label = str(name or "").strip()
+        if key and label and key not in hints:
+            hints[key] = label
+    return hints
+
+
 def _leaf_row(
     db: Session,
     api: IcbuApi,
@@ -74,16 +100,19 @@ def _leaf_row(
     *,
     fetch: bool,
     extra: dict[str, Any] | None = None,
+    label_hint: str = "",
 ) -> dict[str, Any]:
+    hint = str(label_hint or "").strip()
     node = catalog.get_node(db, api, cid, fetch=False)
+    if node is None and fetch and not hint:
+        node = catalog.get_node(db, api, cid, fetch=True)
     if node is None:
-        node = catalog.get_node(db, api, cid, fetch=fetch)
-    if node is None:
+        label = hint.split(" / ")[-1] if " / " in hint else (hint or cid)
         row = {
             "category_id": cid,
-            "name": cid,
+            "name": label,
             "cn_name": "",
-            "label": cid,
+            "label": label,
             "is_leaf": True,
             "level": 0,
         }
@@ -92,6 +121,9 @@ def _leaf_row(
         crumbs = [catalog.label(item) for item in catalog.path_of(db, api, cid, fetch=False)]
         row["path_label"] = " / ".join(crumbs) or row.get("label") or cid
     row.setdefault("path_label", row.get("label") or cid)
+    if hint:
+        row["path_label"] = hint
+        row["label"] = hint.split(" / ")[-1] if " / " in hint else hint
     if extra:
         row.update(extra)
     return row
@@ -145,6 +177,33 @@ def record_recent_pick(
             synchronize_session=False
         )
         db.commit()
+    _SIDEBAR_CACHE.pop(f"{shop.id}:{user.id}", None)
+
+
+def sidebar(
+    db: Session,
+    api: IcbuApi,
+    shop: Shop,
+    user: User,
+) -> dict[str, Any]:
+    """Fast sidebar payload: recent picks + ranked used leaves, cached briefly."""
+    key = f"{shop.id}:{user.id}"
+    cached = _SIDEBAR_CACHE.get(key)
+    if cached and time.time() - cached[0] < _SIDEBAR_CACHE_SECONDS:
+        return cached[1]
+    payload = {
+        "recent": recent_picks(db, api, shop, user, fetch=False),
+        "used": used_leaves(
+            db,
+            api,
+            shop,
+            include_online=True,
+            fetch=False,
+            online_pages=_SIDEBAR_ONLINE_PAGES,
+        ),
+    }
+    _SIDEBAR_CACHE[key] = (time.time(), payload)
+    return payload
 
 
 def recent_picks(
@@ -187,6 +246,8 @@ def used_leaves(
     *,
     limit: int = 12,
     include_online: bool = True,
+    fetch: bool = True,
+    online_pages: int = _LIST_PAGES,
 ) -> list[dict[str, Any]]:
     """Ranked leaves this shop already sells or has drafted."""
     counts: Counter[str] = Counter()
@@ -207,11 +268,12 @@ def used_leaves(
         _add(counts, sources, str(cid), "template")
 
     if include_online:
-        online = _online_counts(api, shop.id)
+        online = _online_counts(api, shop.id, max_pages=online_pages)
         for cid, n in online.items():
             _add(counts, sources, cid, "online", n)
 
     ranked = [cid for cid, _ in counts.most_common(limit)]
+    hints = _label_hints(db, shop) if not fetch else {}
     items: list[dict[str, Any]] = []
     for cid in ranked:
         items.append(
@@ -219,7 +281,8 @@ def used_leaves(
                 db,
                 api,
                 cid,
-                fetch=True,
+                fetch=fetch,
+                label_hint=hints.get(cid, ""),
                 extra={"count": int(counts[cid]), "source": sources.get(cid, "online")},
             )
         )

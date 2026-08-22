@@ -897,6 +897,17 @@ def browse_categories(
     }
 
 
+@router.get("/shops/{shop_id}/categories/sidebar")
+def category_sidebar(
+    shop_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    shop = shop_for(db, user, shop_id)
+    api = shop_api(shop)
+    return shop_categories.sidebar(db, api, shop, user)
+
+
 class CategoryPickIn(BaseModel):
     category_id: str
     category_name: str = ""
