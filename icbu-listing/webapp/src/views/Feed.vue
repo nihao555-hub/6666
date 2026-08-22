@@ -38,7 +38,7 @@
 
       <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
-      <div v-if="docStep === 0 && !docGrid.loading && !reviewAssistRunning" class="step-panel">
+      <div v-if="docStep === 0 && !awaitingReviewAssist && !docGrid.loading && !reviewAssistRunning" class="step-panel">
         <h3>选类目</h3>
         <div style="margin-top: 16px">
           <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
@@ -118,12 +118,16 @@
       </div>
 
       <section
-        v-if="docStep === 0 && showReviewAiTimeline"
-        class="ai-timeline ai-timeline-vertical audit-ai-timeline"
+        v-if="docStep === 0 && awaitingReviewAssist"
+        class="ai-timeline ai-timeline-vertical audit-ai-timeline audit-prep-panel"
         aria-live="polite"
       >
+        <header class="audit-prep-head">
+          <h2 class="audit-page-title">AI 审核助手</h2>
+          <p class="audit-subtitle">正在补全标题、属性与图片，完成后自动进入内容审核</p>
+        </header>
         <header class="ai-timeline-head">
-          <strong>AI 审核助手</strong>
+          <strong>处理进度</strong>
           <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
           <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
         </header>
@@ -149,33 +153,16 @@
         </ol>
       </section>
 
-      <div v-if="docStep === 1" class="step-panel audit-shell">
+      <div v-if="docStep === 1 && reviewAiAllDone" class="step-panel audit-shell">
         <header class="audit-page-head">
-          <button type="button" class="audit-back" @click="docStep = 0">← 返回上传</button>
+          <button type="button" class="audit-back" @click="docStep = 0; docReached = 1">← 返回</button>
           <div class="audit-page-head-main">
             <div>
               <h2 class="audit-page-title">内容审核</h2>
               <p class="audit-subtitle">请仔细检查 AI 生成的产品信息和图片，确认无误后即可批量发布到阿里国际站</p>
             </div>
-            <el-button
-              type="primary"
-              :loading="docGrid.loading"
-              :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
-              @click="importDocRows"
-            >
-              批量成稿
-            </el-button>
           </div>
         </header>
-
-        <div
-          v-if="reviewAssistRunning || hasPendingImageJobs()"
-          class="audit-ai-banner"
-          aria-live="polite"
-        >
-          <span v-if="reviewAssistRunning">AI 审核助手进行中…</span>
-          <span v-else>{{ docImageGenSummary }}</span>
-        </div>
 
         <section class="audit-toolbar-card">
           <div class="audit-toolbar">
@@ -188,7 +175,7 @@
                 :class="{ 'is-active': reviewFilter === item.id }"
                 @click="reviewFilter = item.id; reviewPage = 1"
               >
-                {{ item.label }}<small>({{ item.count }})</small>
+                {{ item.label }}<small> ({{ item.count }})</small>
               </button>
             </div>
             <div class="audit-toolbar-right">
@@ -286,7 +273,7 @@
           </div>
         </section>
 
-        <details v-if="docGrid.row_issues?.length" class="review-issues">
+        <details v-if="docGrid.row_issues?.length && false" class="review-issues">
           <summary>
             <span>成稿前先看这几行（{{ docGrid.row_issues.length }}）</span>
           </summary>
@@ -314,6 +301,14 @@
               layout="total, prev, pager, next, sizes"
               size="small"
             />
+            <el-button
+              type="primary"
+              :loading="docGrid.loading"
+              :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
+              @click="importDocRows"
+            >
+              批量成稿
+            </el-button>
           </div>
         </footer>
 
@@ -576,9 +571,12 @@ function reviewStepStatusLabel(status) {
   return "等待";
 }
 
-const showReviewAiTimeline = computed(() => {
+const showReviewAiTimeline = computed(() => awaitingReviewAssist.value);
+
+const awaitingReviewAssist = computed(() => {
+  if (docStep.value !== 0 || !docGrid.rows.length) return false;
   if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return true;
-  if (docStep.value === 1) return false;
+  if (docReached.value >= 1 && !reviewAiAllDone.value) return true;
   return false;
 });
 
@@ -586,6 +584,13 @@ const reviewAiAllDone = computed(() => {
   if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return false;
   return reviewAiSteps.value.every((step) => ["done", "skip"].includes(step.status));
 });
+
+function maybeEnterAuditStep() {
+  if (!docGrid.rows.length || !reviewAiAllDone.value) return;
+  if (docStep.value === 0 && docReached.value >= 1) {
+    goToAuditStep();
+  }
+}
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const copyColumnIds = new Set(["title", "keywords", "highlights"]);
@@ -1285,8 +1290,13 @@ function applySession(session) {
   }
   restoring.value = false;
   mergeLocalDraftIfNewer();
-  if (docGrid.rows.length > 0 && docStep.value === 0 && (docReached.value >= 1 || docGrid.source)) {
-    goToAuditStep();
+  if (docGrid.rows.length > 0 && (docReached.value >= 1 || docGrid.source)) {
+    docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+    if (reviewAiAllDone.value) {
+      goToAuditStep();
+    } else if (docStep.value === 0) {
+      void runReviewAssist(true);
+    }
   }
   if (doc.categoryId && store.shopId) {
     void loadCategoryTemplates();
@@ -1339,8 +1349,13 @@ async function finishResumeSession() {
     docTimer = setInterval(pollDoc, 3000);
     void pollDoc();
   }
-  if (docGrid.rows.length > 0 && docStep.value === 0 && (docReached.value >= 1 || docGrid.source)) {
-    goToAuditStep();
+  if (docGrid.rows.length > 0 && (docReached.value >= 1 || docGrid.source)) {
+    docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+    if (reviewAiAllDone.value) {
+      goToAuditStep();
+    } else if (docStep.value === 0) {
+      void runReviewAssist(true);
+    }
   }
   if (!doc.categoryId || !store.shopId) return;
   if (hasSmartPlanForCategory(doc.categoryId)) {
@@ -1548,8 +1563,8 @@ watch(
 watch(
   () => reviewAiAllDone.value,
   (done) => {
-    if (!done || docStep.value !== 0 || !docGrid.rows.length) return;
-    goToAuditStep();
+    if (!done || !docGrid.rows.length) return;
+    maybeEnterAuditStep();
   },
 );
 
@@ -1814,18 +1829,24 @@ function advanceDoc(index) {
 }
 
 function rowSlots(row) {
+  const imageNames = String(row?.images || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const httpUrls = imageNames.filter((name) => /^https?:\/\//i.test(name));
+  if (httpUrls.length) {
+    return slotsFromLocalUrls(httpUrls);
+  }
   const uploads = buildUploadMap(allUploadImageFiles());
-  if (Object.keys(uploads).length) {
-    const names = String(row?.images || "")
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean);
-    const matched = matchUploadFiles(row?.sku, names, uploads);
+  if (Object.keys(uploads).length && imageNames.length) {
+    const matched = matchUploadFiles(row?.sku, imageNames, uploads);
     if (matched.length) {
       return slotsFromLocalUrls(matched.map(([, raw]) => URL.createObjectURL(raw)));
     }
   }
-  if (row?.image_slots?.length) return row.image_slots;
+  if (row?.image_slots?.length && row.image_slots.some((slot) => slot.url)) {
+    return row.image_slots;
+  }
   return DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot }));
 }
 
@@ -1869,6 +1890,7 @@ async function pollGridImages() {
         detail: `六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
       });
       await recheckDocGrid({ silent: true });
+      maybeEnterAuditStep();
     } else {
       patchReviewStep("images", {
         status: "running",
@@ -2553,6 +2575,7 @@ async function runReviewAssistImpl(force = false) {
   } finally {
     reviewAssistRunning.value = false;
     void persistSession({ server: true });
+    maybeEnterAuditStep();
   }
 }
 
@@ -2608,11 +2631,12 @@ async function parseDocuments() {
     docGrid.row_count = result.row_count || docGrid.rows.length;
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
+    docReached.value = Math.max(docReached.value, 1);
     patchReviewStep("service", { status: "done", detail: "解析完成" });
-    goToAuditStep();
     void persistSession({ server: true });
     await runReviewAssist(true);
-    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
+    maybeEnterAuditStep();
+    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，AI 补全完成后进入审核`);
   } catch (error) {
     resetReviewAiSteps();
     ElMessage.error(error.message);
@@ -4317,8 +4341,29 @@ onUnmounted(() => {
 
 .audit-filter-tab.is-active {
   color: #1677ff;
-  background: #e6f4ff;
+  background: transparent;
   border-bottom-color: #1677ff;
+}
+
+.audit-prep-panel {
+  margin-top: 8px;
+  padding: 20px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.audit-prep-head {
+  margin-bottom: 16px;
+}
+
+.audit-table tr.is-selected td {
+  background: #f0f7ff;
+}
+
+.audit-table tr.is-approved td,
+.audit-table tr.is-rejected td {
+  background: #fff;
 }
 
 .audit-toolbar-right {

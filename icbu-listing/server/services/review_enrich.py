@@ -100,6 +100,7 @@ def suggest_copy_for_row(
         "price": str(row.get("price") or "").strip(),
         "moq": str(row.get("moq") or "").strip(),
         "category": category_name,
+        "images": str(row.get("images") or "").strip(),
         "title_formula": TITLE_FORMULA,
         "publishing_skill_rules": publishing_rules,
         "alibaba_ecosystem_tips": str((ecosystem_brief or {}).get("tips") or ""),
