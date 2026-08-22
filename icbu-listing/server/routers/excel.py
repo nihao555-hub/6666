@@ -526,7 +526,7 @@ async def parse_documents(
             item.setdefault("keywords", str(item.get("keywords") or ""))
             item.setdefault("highlights", str(item.get("highlights") or ""))
             enriched_rows.append(item)
-        enrich_warnings = ["标题和关键词可在审核页用「AI 重写文案」生成。"]
+        enrich_warnings = ["进入审核后会自动生成英文标题和关键词；单价/起订量/官方属性列需你填写。"]
         result["download_columns"] = download_columns
         result["columns"] = review_columns
         result["rows"] = enriched_rows

@@ -151,6 +151,19 @@
         </header>
 
         <el-alert
+          v-if="docGrid.regenerating"
+          type="info"
+          title="AI 正在写英文标题和关键词…"
+          :closable="false"
+          class="review-alert"
+        />
+        <el-alert
+          type="info"
+          title="AI 负责：英文标题、关键词、卖点、套图。你负责：单价、起订量、官方属性列（铅芯颜色等）。"
+          :closable="false"
+          class="review-alert"
+        />
+        <el-alert
           v-for="warning in docGrid.warnings || []"
           :key="warning"
           type="warning"
@@ -758,6 +771,7 @@ async function resumeSession(id) {
     if (doc.categoryId) {
       await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
       ensureGridPolling();
+      if (docStep.value === 1) void runReviewAssist();
     }
   } catch (error) {
     const msg = String(error.message || "");
@@ -825,7 +839,7 @@ watch(
 watch(
   () => docStep.value,
   (step) => {
-    if (step === 1) autoStartReviewImages();
+    if (step === 1) void runReviewAssist();
   },
 );
 watch(
@@ -1335,7 +1349,8 @@ function generateImagesForRow(row) {
   generateImagesForRows([row.line]);
 }
 
-async function regenCopyForRows(lines) {
+async function regenCopyForRows(lines, options = {}) {
+  const { silent = false } = options;
   if (!docGrid.rows.length) return;
   docGrid.regenerating = true;
   try {
@@ -1349,12 +1364,30 @@ async function regenCopyForRows(lines) {
     docGrid.rows = normalizeDocRows(result.rows || []);
     if (result.errors?.length) ElMessage.warning(result.errors[0]);
     await persistSession();
-    ElMessage.success(lines?.length ? "已重写选中行文案" : "已重写全部文案");
+    if (!silent) {
+      ElMessage.success(lines?.length ? "已重写选中行文案" : "已重写全部文案");
+    }
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!silent) ElMessage.error(error.message);
   } finally {
     docGrid.regenerating = false;
   }
+}
+
+function rowsNeedingCopy() {
+  return docGrid.rows.filter((row) => rowMissingCopy(row));
+}
+
+async function autoStartReviewCopy() {
+  if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return;
+  if (!rowsNeedingCopy().length) return;
+  await regenCopyForRows([], { silent: true });
+}
+
+async function runReviewAssist() {
+  if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return;
+  await Promise.all([autoStartReviewCopy(), autoStartReviewImages()]);
+  await recheckDocGrid({ silent: true });
 }
 
 function regenCopyForSelection() {
@@ -1406,6 +1439,7 @@ async function parseDocuments() {
     await persistSession();
     advanceDoc(1);
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
+    void runReviewAssist();
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -1414,7 +1448,8 @@ async function parseDocuments() {
   }
 }
 
-async function recheckDocGrid() {
+async function recheckDocGrid(options = {}) {
+  const { silent = false } = options;
   if (!docGrid.rows.length) return;
   const body = new FormData();
   body.append("shop_id", store.shopId || "");
@@ -1431,9 +1466,11 @@ async function recheckDocGrid() {
     docGrid.ready_count = result.ready_count || 0;
     docGrid.row_issues = result.row_issues || [];
     await persistSession();
-    ElMessage.success(`校验完成：${docGrid.ready_count}/${docGrid.row_count} 个价量齐`);
+    if (!silent) {
+      ElMessage.success(`校验完成：${docGrid.ready_count}/${docGrid.row_count} 个价量齐`);
+    }
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!silent) ElMessage.error(error.message);
   } finally {
     docGrid.checking = false;
   }
