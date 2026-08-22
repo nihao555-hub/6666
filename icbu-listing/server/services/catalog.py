@@ -62,7 +62,10 @@ def get_node(db: Session, api: IcbuApi, category_id: str | int, *, fetch: bool =
         return node
     if not fetch:
         return node
-    raw = _unwrap(api.get_category(category_id))
+    try:
+        raw = _unwrap(api.get_category(category_id))
+    except Exception:
+        return node
     if not raw.get("category_id") and category_id != ROOT_ID:
         return node
     node = _store_node(db, {**raw, "category_id": raw.get("category_id", category_id)})
@@ -79,15 +82,53 @@ def child_ids(node: CategoryNode) -> list[str]:
         return []
 
 
-def get_children(db: Session, api: IcbuApi, node: CategoryNode) -> list[CategoryNode]:
+def children_from_db(db: Session, parent_id: str | int) -> list[CategoryNode]:
+    """Return cached direct children without calling the category API."""
+    parent_id = str(parent_id)
+    parent = db.get(CategoryNode, parent_id)
+    ids = child_ids(parent) if parent is not None else []
+    if ids:
+        cached = {item.category_id: item for item in db.query(CategoryNode).filter(CategoryNode.category_id.in_(ids)).all()}
+        return [cached[cid] for cid in ids if cid in cached]
+    return (
+        db.query(CategoryNode)
+        .filter(CategoryNode.parent_id == parent_id)
+        .order_by(CategoryNode.name, CategoryNode.cn_name, CategoryNode.category_id)
+        .all()
+    )
+
+
+def path_from_db(db: Session, category_id: str) -> list[CategoryNode]:
+    """Root-to-leaf breadcrumb using only cached nodes."""
+    chain: list[CategoryNode] = []
+    current = db.get(CategoryNode, str(category_id))
+    seen: set[str] = set()
+    while current is not None and current.category_id not in seen and current.category_id != ROOT_ID:
+        seen.add(current.category_id)
+        chain.append(current)
+        if not current.parent_id or current.parent_id == ROOT_ID:
+            break
+        current = db.get(CategoryNode, current.parent_id)
+    return list(reversed(chain))
+
+
+def get_children(
+    db: Session,
+    api: IcbuApi,
+    node: CategoryNode,
+    *,
+    fetch_missing: bool = True,
+) -> list[CategoryNode]:
     """Fetch (and cache) the direct children of a node, in parallel."""
     ids = child_ids(node)
     if not ids:
-        return []
+        return children_from_db(db, node.category_id)
     cached = {item.category_id: item for item in db.query(CategoryNode).filter(CategoryNode.category_id.in_(ids)).all()}
+    if cached and not fetch_missing:
+        return [cached[cid] for cid in ids if cid in cached]
     missing = [cid for cid in ids if cid not in cached or datetime.utcnow() - cached[cid].fetched_at >= TREE_TTL]
 
-    if missing:
+    if missing and fetch_missing:
         with ThreadPoolExecutor(max_workers=8) as pool:
             fetched = list(pool.map(lambda cid: _safe_get(api, cid), missing))
         for raw in fetched:

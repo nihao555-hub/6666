@@ -58,8 +58,13 @@ export const api = {
         ...(extra.sidebar ? { sidebar: true } : {}),
       },
     }),
-  categorySidebar: (shopId) =>
-    http.get(`/shops/${shopId}/categories/sidebar`, { params: { shop_id: shopId } }),
+  categorySidebar: (shopId, extra = {}) =>
+    http.get(`/shops/${shopId}/categories/sidebar`, {
+      params: {
+        shop_id: shopId,
+        ...(extra.refresh ? { refresh: true } : {}),
+      },
+    }),
   recordCategoryPick: (shopId, body) => http.post(`/shops/${shopId}/categories/recent`, body),
   categorySchema: (shopId, categoryId) =>
     http.get(`/shops/${shopId}/categories/${categoryId}/schema`, { params: { shop_id: shopId } }),

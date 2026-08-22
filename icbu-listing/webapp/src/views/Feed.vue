@@ -456,6 +456,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { prefetchCategoryPicker } from "../categoryPickerCache";
 import CategoryPicker from "../components/CategoryPicker.vue";
 import FishboneSteps from "../components/FishboneSteps.vue";
 import { api } from "../api";
@@ -953,6 +954,7 @@ async function bootSession() {
 onMounted(async () => {
   try {
     await store.ensureShops();
+    if (store.shopId) void prefetchCategoryPicker(store.shopId);
   } catch {
     /* shop list loads again when user opens category picker */
   }
@@ -971,6 +973,12 @@ watch(
   () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistSession, 400);
+  },
+);
+watch(
+  () => store.shopId,
+  (shopId) => {
+    if (shopId) void prefetchCategoryPicker(shopId);
   },
 );
 watch(

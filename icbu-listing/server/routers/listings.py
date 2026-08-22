@@ -860,6 +860,44 @@ def browse_categories(
 ) -> dict[str, Any]:
     shop = shop_for(db, user, shop_id)
     api = shop_api(shop)
+    parent = str(parent or "0")
+    db_children = catalog.children_from_db(db, parent)
+    if db_children:
+        node = catalog.get_node(db, api, parent, fetch=False) or db.get(CategoryNode, parent)
+        if node is None and parent == "0":
+            node = CategoryNode(
+                category_id="0",
+                name="All Categories",
+                cn_name="全部类目",
+                level=0,
+                is_leaf=False,
+                parent_id="",
+            )
+        if node is None:
+            node = CategoryNode(
+                category_id=parent,
+                name=parent,
+                cn_name="",
+                level=0,
+                is_leaf=False,
+                parent_id="",
+            )
+        recent: list[dict[str, Any]] = []
+        used: list[dict[str, Any]] = []
+        if parent == "0" and sidebar:
+            recent = shop_categories.recent_picks(db, shop, user)
+            used = shop_categories.used_leaves(db, shop, api=api, include_online=True, cache_only=True)
+        return {
+            "origin": "official_icbu_tree",
+            "note": "这是国际站官方类目树，和后台选类目是同一棵。上面「最近选过」是你在这家店点过的叶子；「已经上过的」来自在线商品和本地草稿。",
+            "node": catalog.as_dict(node),
+            "path": catalog.summarise(catalog.path_from_db(db, parent)) if parent != "0" else [],
+            "children": catalog.summarise(db_children),
+            "recent": recent,
+            "used": used,
+            "cached": True,
+        }
+
     node = catalog.get_node(db, api, parent)
     if node is None:
         if parent == "0":
@@ -876,16 +914,17 @@ def browse_categories(
                 "is_leaf": False,
                 "label": parent,
             },
-            "path": catalog.summarise(catalog.path_of(db, api, parent, fetch=False)) if stale is not None else [],
+            "path": catalog.summarise(catalog.path_from_db(db, parent)) if stale is not None else [],
             "children": [],
             "recent": [],
             "used": [],
+            "cached": False,
         }
     recent: list[dict[str, Any]] = []
     used: list[dict[str, Any]] = []
     if parent == "0" and sidebar:
-        recent = shop_categories.recent_picks(db, api, shop, user, fetch=False)
-        used = shop_categories.used_leaves(db, api, shop, include_online=True)
+        recent = shop_categories.recent_picks(db, shop, user)
+        used = shop_categories.used_leaves(db, shop, api=api, include_online=True, online_pages=1)
     return {
         "origin": "official_icbu_tree",
         "note": "这是国际站官方类目树，和后台选类目是同一棵。上面「最近选过」是你在这家店点过的叶子；「已经上过的」来自在线商品和本地草稿。",
@@ -894,18 +933,20 @@ def browse_categories(
         "children": catalog.summarise(catalog.get_children(db, api, node)),
         "recent": recent,
         "used": used,
+        "cached": False,
     }
 
 
 @router.get("/shops/{shop_id}/categories/sidebar")
 def category_sidebar(
     shop_id: str,
+    refresh: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     shop = shop_for(db, user, shop_id)
     api = shop_api(shop)
-    return shop_categories.sidebar(db, api, shop, user)
+    return shop_categories.sidebar(db, api, shop, user, refresh_online=refresh)
 
 
 class CategoryPickIn(BaseModel):
