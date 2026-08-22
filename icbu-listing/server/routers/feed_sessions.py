@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db
-from ..db import reload_db_from_blob, reload_db_from_blob_throttled
+from ..db import reload_db_from_blob
 from ..models import User
 from ..services import feed_sessions as sessions
 
@@ -32,7 +32,7 @@ class SaveIn(BaseModel):
 
 @router.get("")
 def list_sessions(shop_id: str = "", db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    reload_db_from_blob_throttled()
+    reload_db_from_blob()
     db.expire_all()
     rows = sessions.list_open(db, user.id, shop_id)
     return {"sessions": [sessions.public_view(row) for row in rows]}

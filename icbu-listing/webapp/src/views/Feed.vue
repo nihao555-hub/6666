@@ -499,7 +499,10 @@ let startPathPromise = null;
 let persistInFlight = null;
 let sessionGeneration = 0;
 let persistBlockedUntil = 0;
-const sessionApiRetryDelays = [250, 500, 900];
+let sessionCreatedAt = 0;
+let sessionRecoveryInFlight = null;
+const sessionApiRetryDelaysFresh = [300, 700];
+const sessionApiRetryDelaysFetch = [200, 500, 900];
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -904,15 +907,39 @@ function isSessionApiMissing(error) {
   return msg.includes("不在了") || /not found/i.test(msg);
 }
 
+function isSessionFresh() {
+  return sessionCreatedAt > 0 && Date.now() - sessionCreatedAt < 10000;
+}
+
+function retryDelaysForSessionWrite() {
+  return isSessionFresh() ? sessionApiRetryDelaysFresh : [];
+}
+
+async function fetchFeedSessionWithRetry(id) {
+  let lastError = null;
+  const delays = sessionApiRetryDelaysFetch;
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await api.getFeedSession(id);
+    } catch (error) {
+      lastError = error;
+      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
+      await sleep(delays[attempt]);
+    }
+  }
+  throw lastError || new Error("读取任务失败");
+}
+
 async function saveSessionWithRetry(id, body) {
   let lastError = null;
-  for (let attempt = 0; attempt < sessionApiRetryDelays.length + 1; attempt += 1) {
+  const delays = retryDelaysForSessionWrite();
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
     try {
       return await api.saveFeedSession(id, body);
     } catch (error) {
       lastError = error;
-      if (!isSessionApiMissing(error) || attempt >= sessionApiRetryDelays.length) throw error;
-      await sleep(sessionApiRetryDelays[attempt]);
+      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
+      await sleep(delays[attempt]);
     }
   }
   throw lastError || new Error("保存失败");
@@ -920,13 +947,14 @@ async function saveSessionWithRetry(id, body) {
 
 async function uploadSessionFilesWithRetry(id, form) {
   let lastError = null;
-  for (let attempt = 0; attempt < sessionApiRetryDelays.length + 1; attempt += 1) {
+  const delays = retryDelaysForSessionWrite();
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
     try {
       return await api.uploadFeedSessionFiles(id, form);
     } catch (error) {
       lastError = error;
-      if (!isSessionApiMissing(error) || attempt >= sessionApiRetryDelays.length) throw error;
-      await sleep(sessionApiRetryDelays[attempt]);
+      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
+      await sleep(delays[attempt]);
     }
   }
   throw lastError || new Error("上传失败");
@@ -934,16 +962,24 @@ async function uploadSessionFilesWithRetry(id, form) {
 
 async function markSessionDeadAndRecover(deadId, options = {}) {
   const { quiet = true } = options;
-  if (deadId) forgetSession(deadId);
-  if (sessionId.value === deadId) {
-    sessionId.value = "";
+  if (deadId && sessionRecoveryInFlight) {
+    return sessionRecoveryInFlight;
   }
-  if (route.query.session === deadId) router.replace({ query: {} });
-  clearTimeout(saveTimer);
-  clearTimeout(imageSyncTimer);
-  persistBlockedUntil = Date.now() + 1500;
-  await migrateOrphanSession({ quiet });
-  if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
+  sessionRecoveryInFlight = (async () => {
+    if (deadId) forgetSession(deadId);
+    if (sessionId.value === deadId) {
+      sessionId.value = "";
+    }
+    if (route.query.session === deadId) router.replace({ query: {} });
+    clearTimeout(saveTimer);
+    clearTimeout(imageSyncTimer);
+    persistBlockedUntil = Date.now() + 2000;
+    await migrateOrphanSession({ quiet });
+    if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
+  })().finally(() => {
+    sessionRecoveryInFlight = null;
+  });
+  return sessionRecoveryInFlight;
 }
 
 function verifySession(id) {
@@ -969,6 +1005,10 @@ function loadDeadSessionIds() {
 
 function rememberOpenSession(id) {
   verifySession(id);
+}
+
+function touchSessionCreatedAt() {
+  sessionCreatedAt = Date.now();
 }
 
 function forgetSession(id) {
@@ -1055,6 +1095,10 @@ async function ensureFeedSessionImpl(options = {}) {
     verifySession(sessionId.value);
     return true;
   }
+  const remote = await resolveSessionById(sessionId.value);
+  if (remote) {
+    return true;
+  }
   const staleId = sessionId.value;
   await markSessionDeadAndRecover(staleId, { quiet });
   return Boolean(sessionId.value);
@@ -1071,6 +1115,7 @@ async function persistSession() {
 async function persistSessionImpl() {
   if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
   if (Date.now() < persistBlockedUntil) return;
+  if (sessionRecoveryInFlight) return;
   if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
   const generation = sessionGeneration;
   const targetId = sessionId.value;
@@ -1079,11 +1124,13 @@ async function persistSessionImpl() {
   if (!ok || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
   if (!isKnownOpenSession(sessionId.value)) {
     await loadOpenSessions();
-  }
-  if (generation !== sessionGeneration || sessionId.value !== targetId) return;
-  if (!isKnownOpenSession(sessionId.value)) {
-    await migrateOrphanSession({ quiet: true });
-    return;
+    if (!isKnownOpenSession(sessionId.value) && !sessionFromOpenList(sessionId.value)) {
+      const remote = await resolveSessionById(sessionId.value);
+      if (!remote) {
+        await migrateOrphanSession({ quiet: true });
+        return;
+      }
+    }
   }
   try {
     const saved = await saveSessionWithRetry(sessionId.value, {
@@ -1107,6 +1154,7 @@ function applySession(session) {
   restoring.value = true;
   sessionId.value = session.id;
   rememberOpenSession(session.id);
+  touchSessionCreatedAt();
   currentTitle.value = session.title || session.path_label;
   const payload = session.payload || {};
   if (payload.excel) {
@@ -1190,7 +1238,23 @@ async function startPathImpl() {
     docFiles.value = [];
     smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" };
     applySession(created);
+    touchSessionCreatedAt();
     verifySession(created.id);
+    try {
+      await saveSessionWithRetry(created.id, {
+        shop_id: store.shopId || "",
+        step: 0,
+        reached: 0,
+        payload: sessionPayload(),
+      });
+      rememberOpenSession(created.id);
+    } catch (error) {
+      if (isSessionApiMissing(error)) {
+        await markSessionDeadAndRecover(created.id, { quiet: true });
+        return;
+      }
+      throw error;
+    }
     router.replace({ query: { session: created.id } });
     void loadOpenSessions();
   } catch (error) {
@@ -1217,6 +1281,26 @@ async function finishResumeSession() {
   }
 }
 
+async function resolveSessionById(id) {
+  if (!id || deadSessionIds.has(id)) return null;
+  const cached = sessionFromOpenList(id);
+  if (cached) return cached;
+  try {
+    const remote = await fetchFeedSessionWithRetry(id);
+    if (remote?.id) {
+      verifySession(remote.id);
+      const existing = openSessions.value.some((item) => item.id === remote.id);
+      if (!existing) {
+        openSessions.value = [remote, ...openSessions.value.filter((item) => item.id !== remote.id)];
+      }
+      return remote;
+    }
+  } catch (error) {
+    if (isSessionApiMissing(error)) forgetSession(id);
+  }
+  return null;
+}
+
 async function resumeSession(id, options = {}) {
   const { deferHeavy = true, skipListReload = false } = options;
   if (!id || deadSessionIds.has(id)) {
@@ -1226,13 +1310,12 @@ async function resumeSession(id, options = {}) {
   if (!skipListReload) {
     await loadOpenSessions();
   }
-  const session = sessionFromOpenList(id);
+  const session = await resolveSessionById(id);
   if (!session) {
-    forgetSession(id);
     if (route.query.session === id) router.replace({ query: {} });
     const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (fallback && fallback.id !== id) {
-      await resumeSession(fallback.id, options);
+      await resumeSession(fallback.id, { ...options, skipListReload: true });
     } else {
       await startPath();
     }
@@ -1282,7 +1365,7 @@ async function bootSession() {
     if (wanted && deadSessionIds.has(wanted)) {
       router.replace({ query: {} });
     } else if (wanted && !deadSessionIds.has(wanted)) {
-      const cached = sessionFromOpenList(wanted);
+      const cached = await resolveSessionById(wanted);
       if (cached) {
         applySession(cached);
         verifySession(wanted);
@@ -1290,7 +1373,6 @@ async function bootSession() {
         void finishResumeSession();
         return;
       }
-      forgetSession(wanted);
       router.replace({ query: {} });
     }
     const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
@@ -1473,6 +1555,7 @@ function scheduleDocImageSync() {
 async function syncDocImagesToSession() {
   if (restoring.value || docGrid.loading || reviewAssistRunning.value) return;
   if (Date.now() < persistBlockedUntil) return;
+  if (sessionRecoveryInFlight) return;
   const ok = await ensureFeedSession({ quiet: true });
   if (!ok || !sessionId.value || !isKnownOpenSession(sessionId.value)) return;
   const images = allUploadImageFiles();

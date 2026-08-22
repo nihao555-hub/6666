@@ -163,10 +163,10 @@ def get_owned_with_retry(
     user_id: str,
     session_id: str,
     *,
-    attempts: int = 5,
-    delay_seconds: float = 0.12,
+    attempts: int = 10,
+    delay_seconds: float = 0.18,
 ) -> FeedSession | None:
-    """Resolve a session across serverless instances with brief blob propagation retries."""
+    """Resolve a session across serverless instances with blob propagation retries."""
     from ..db import reload_db_from_blob
 
     for attempt in range(max(1, attempts)):
