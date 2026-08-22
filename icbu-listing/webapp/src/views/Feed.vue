@@ -594,7 +594,8 @@ function reviewStepStatusLabel(status) {
 }
 
 const showReviewAiTimeline = computed(() => {
-  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return true;
+  if (docStep.value !== 0) return false;
+  if (docGrid.loading || reviewAssistRunning.value) return true;
   return reviewAiSteps.value.some((step) => step.status !== "pending");
 });
 
@@ -2128,8 +2129,8 @@ async function runReviewAssistImpl(force = false) {
     } else if (templateResult.ok) {
       const name = doc.templateName || "未配置";
       patchReviewStep("template", {
-        status: doc.templateId ? "done" : "skip",
-        detail: doc.templateId ? `已选「${name}」` : "无匹配模板，将用全局兜底",
+        status: "done",
+        detail: doc.templateId ? `已选「${name}」` : "本店无匹配模板，使用全局文案规则",
       });
     } else {
       patchReviewStep("template", { status: "error", detail: templateResult.error || "模板匹配失败" });
@@ -2259,11 +2260,11 @@ async function parseDocuments() {
     docGrid.row_count = result.row_count || docGrid.rows.length;
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
-    docReached.value = Math.max(docReached.value, 1);
-    docStep.value = 1;
     patchReviewStep("service", { status: "running", detail: "解析完成，AI 开始填写…" });
     void persistSession();
     await runReviewAssist(true);
+    docReached.value = Math.max(docReached.value, 1);
+    docStep.value = 1;
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
   } catch (error) {
     resetReviewAiSteps();
