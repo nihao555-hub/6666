@@ -49,6 +49,7 @@ def build_draft_for_shop(
     extra_defaults: dict[str, Any] | None = None,
     fact_bundle: FactBundle | None = None,
     bank_images: list[Any] | None = None,
+    template_id: str = "",
 ) -> Draft:
     api = shop_api(shop)
     defaults = shop_defaults(shop)
@@ -88,7 +89,13 @@ def build_draft_for_shop(
             result.title = str(seed_values["productTitle"])
     if result.category_id:
         before = dict(result.values)
-        filled = templates.apply_to_values(db, shop.id, result.category_id, result.values)
+        filled = templates.apply_to_values(
+            db,
+            shop.id,
+            result.category_id,
+            result.values,
+            template_id=template_id,
+        )
         if filled != result.values:
             field_sources = sources.mark_template_fills(before, filled, field_sources)
             result.values = filled

@@ -146,6 +146,37 @@
           </div>
         </header>
 
+        <section v-if="doc.categoryId" class="audit-template-panel">
+          <div class="audit-template-main">
+            <div class="audit-template-head">
+              <h4>刊登模板</h4>
+              <span v-if="doc.templateId && doc.templateName" class="audit-template-badge">AI 已选</span>
+            </div>
+            <p class="muted audit-template-intro">成稿时套用交易/物流习惯（单位、运费、交期等）。一家店可建多个模板，AI 会按本批商品帮你选，你也可以改。</p>
+            <div class="audit-template-controls">
+              <el-select
+                v-model="doc.templateId"
+                clearable
+                filterable
+                placeholder="选择刊登模板"
+                :loading="templateLoading"
+                class="audit-template-select"
+                @change="onTemplateChange"
+              >
+                <el-option v-for="item in categoryTemplates" :key="item.id" :label="item.name" :value="item.id">
+                  <span>{{ item.name }}</span>
+                  <span v-if="item.is_auto" class="muted"> · 从在线学习</span>
+                </el-option>
+              </el-select>
+              <el-button :loading="templateSuggesting" :disabled="!docGrid.rows.length" @click="suggestTemplates(true)">AI 重选</el-button>
+              <router-link v-if="!categoryTemplates.length && !templateLoading" to="/habits" class="audit-template-link">去建模板</router-link>
+            </div>
+            <p v-if="doc.templateReason" class="audit-template-reason">{{ doc.templateReason }}</p>
+            <p v-else-if="!categoryTemplates.length && !templateLoading" class="audit-template-reason muted">还没有这个类目的模板，成稿时会用全局兜底。</p>
+          </div>
+          <p v-if="templateRowOverrideCount" class="audit-template-meta muted">{{ templateRowOverrideCount }} 行单独用了别的模板（可在详情里改）</p>
+        </section>
+
         <section class="audit-quick-bar">
           <div class="audit-quick-actions">
             <el-button type="primary" :loading="reviewAssistRunning" @click="runReviewAssist(true)">一键 AI 补全</el-button>
@@ -260,6 +291,7 @@
                   </td>
                   <td class="col-category">
                     <span class="audit-category">{{ doc.categoryName || smartPlan.category_name || "—" }}</span>
+                    <span v-if="view.row._template_name" class="audit-template-chip" :title="view.row._template_reason || ''">{{ view.row._template_name }}</span>
                   </td>
                   <td class="col-keywords">
                     <el-input v-model="view.row.keywords" size="small" placeholder="关键词" />
@@ -384,6 +416,20 @@
         <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="520px" destroy-on-close>
           <div v-if="rowDetailRow" class="audit-drawer">
             <p v-if="rowDetailRow._infer_hint" class="audit-infer-hint">{{ rowDetailRow._infer_hint }}</p>
+            <div v-if="categoryTemplates.length" class="audit-drawer-section">
+              <h4>刊登模板</h4>
+              <p v-if="rowDetailRow._template_reason" class="audit-infer-hint">{{ rowDetailRow._template_reason }}</p>
+              <el-select
+                v-model="rowDetailRow._template_id"
+                clearable
+                filterable
+                placeholder="默认用上方选的模板"
+                style="width: 100%"
+                @change="onRowTemplateChange(rowDetailRow)"
+              >
+                <el-option v-for="item in categoryTemplates" :key="item.id" :label="item.name" :value="item.id" />
+              </el-select>
+            </div>
             <div class="audit-drawer-section">
               <h4>文案</h4>
               <label>英文标题</label>
@@ -504,6 +550,9 @@ const doc = reactive({
   categoryId: "",
   categoryName: "",
   batch: null,
+  templateId: "",
+  templateName: "",
+  templateReason: "",
 });
 const docGrid = reactive({
   columns: [],
@@ -529,6 +578,9 @@ const excel = reactive({
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
 const smartPlanLoading = ref(false);
 const categoryBrowser = ref(false);
+const categoryTemplates = ref([]);
+const templateLoading = ref(false);
+const templateSuggesting = ref(false);
 const aiServiceReady = ref(null);
 const reviewAssistRunning = ref(false);
 const reviewAiSteps = ref(createReviewAiSteps());
@@ -536,9 +588,10 @@ const reviewAiSteps = ref(createReviewAiSteps());
 function createReviewAiSteps() {
   return [
     { id: "service", label: "1. 检查 AI 服务", status: "pending", detail: "" },
-    { id: "copy", label: "2. 写英文标题和关键词", status: "pending", detail: "" },
-    { id: "images", label: "3. 生成商品套图", status: "pending", detail: "" },
-    { id: "check", label: "4. 更新校验结果", status: "pending", detail: "" },
+    { id: "template", label: "2. 选刊登模板", status: "pending", detail: "" },
+    { id: "copy", label: "3. 写英文标题和关键词", status: "pending", detail: "" },
+    { id: "images", label: "4. 生成商品套图", status: "pending", detail: "" },
+    { id: "check", label: "5. 更新校验结果", status: "pending", detail: "" },
   ];
 }
 
@@ -588,6 +641,12 @@ const docScoreAttrColumns = computed(() =>
   ),
 );
 const docSelectedCount = computed(() => docGrid.rows.filter((row) => row._selected).length);
+const templateRowOverrideCount = computed(() => {
+  if (!doc.templateId) {
+    return docGrid.rows.filter((row) => row._template_id).length;
+  }
+  return docGrid.rows.filter((row) => row._template_id && row._template_id !== doc.templateId).length;
+});
 const hasBrandColumn = computed(() => docGrid.columns.some((col) => col.id === "brand"));
 const issueLineSet = computed(() => new Set((docGrid.row_issues || []).map((item) => item.line)));
 const reviewStats = computed(() => {
@@ -739,6 +798,9 @@ function sessionPayload() {
       source: docGrid.source,
       batch: doc.batch,
       smartPlan: smartPlan.value,
+      templateId: doc.templateId,
+      templateName: doc.templateName,
+      templateReason: doc.templateReason,
       imageMode: excelImageMode.value,
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
@@ -845,6 +907,9 @@ function applySession(session) {
     doc.categoryId = payload.doc.categoryId || "";
     doc.categoryName = payload.doc.categoryName || payload.categoryName || "";
     doc.batch = payload.doc.batch || null;
+    doc.templateId = payload.doc.templateId || "";
+    doc.templateName = payload.doc.templateName || "";
+    doc.templateReason = payload.doc.templateReason || "";
     docGrid.columns = payload.doc.columns || [];
     docGrid.rows = normalizeDocRows(payload.doc.rows || []);
     docGrid.row_issues = payload.doc.row_issues || [];
@@ -862,6 +927,9 @@ function applySession(session) {
     doc.categoryId = "";
     doc.categoryName = "";
     doc.batch = null;
+    doc.templateId = "";
+    doc.templateName = "";
+    doc.templateReason = "";
     docGrid.columns = [];
     docGrid.rows = [];
     docGrid.row_issues = [];
@@ -879,6 +947,9 @@ function applySession(session) {
     docReached.value = Math.min(session.reached ?? 0, docSteps.length - 1);
   }
   restoring.value = false;
+  if (doc.categoryId && store.shopId) {
+    void loadCategoryTemplates();
+  }
 }
 
 async function startPath() {
@@ -897,6 +968,9 @@ async function startPathImpl() {
     doc.categoryId = "";
     doc.categoryName = "";
     doc.batch = null;
+    doc.templateId = "";
+    doc.templateName = "";
+    doc.templateReason = "";
     docGrid.columns = [];
     docGrid.rows = [];
     docGrid.row_issues = [];
@@ -1759,6 +1833,93 @@ async function autoStartReviewCopy() {
   return result;
 }
 
+async function loadCategoryTemplates() {
+  if (!store.shopId || !doc.categoryId) {
+    categoryTemplates.value = [];
+    return;
+  }
+  templateLoading.value = true;
+  try {
+    categoryTemplates.value = await api.templates({ shop_id: store.shopId, category_id: doc.categoryId });
+  } catch {
+    categoryTemplates.value = [];
+  } finally {
+    templateLoading.value = false;
+  }
+}
+
+function applyTemplateToRows(templateId, templateName, reason, rowsFromApi) {
+  const byLine = new Map((rowsFromApi || []).map((row) => [row.line, row]));
+  docGrid.rows = docGrid.rows.map((row) => {
+    const picked = byLine.get(row.line);
+    if (picked) {
+      return {
+        ...row,
+        _template_id: picked._template_id || templateId || "",
+        _template_name: picked._template_name || templateName || "",
+        _template_reason: picked._template_reason || reason || "",
+      };
+    }
+    if (templateId) {
+      return {
+        ...row,
+        _template_id: templateId,
+        _template_name: templateName || "",
+        _template_reason: reason || "",
+      };
+    }
+    return row;
+  });
+}
+
+async function suggestTemplates(force = false) {
+  if (!docGrid.rows.length || !doc.categoryId || !store.shopId) {
+    return { ok: true, skipped: true };
+  }
+  if (templateSuggesting.value && !force) {
+    return { ok: true, skipped: true };
+  }
+  templateSuggesting.value = true;
+  try {
+    await loadCategoryTemplates();
+    const body = new FormData();
+    body.append("shop_id", store.shopId);
+    body.append("category_id", doc.categoryId);
+    body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
+    body.append("rows", JSON.stringify(docGrid.rows));
+    const result = await api.excelGridSuggestTemplate(body);
+    if (result.templates?.length) {
+      categoryTemplates.value = result.templates;
+    }
+    const suggestion = result.suggestion || {};
+    doc.templateId = suggestion.template_id || "";
+    doc.templateName = suggestion.template_name || "";
+    doc.templateReason = suggestion.reasoning || "";
+    applyTemplateToRows(doc.templateId, doc.templateName, doc.templateReason, result.rows);
+    await persistSession();
+    return { ok: true, suggestion };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    templateSuggesting.value = false;
+  }
+}
+
+function onTemplateChange(templateId) {
+  const picked = categoryTemplates.value.find((item) => item.id === templateId);
+  doc.templateName = picked?.name || "";
+  doc.templateReason = templateId ? "你手动选择了刊登模板" : "";
+  applyTemplateToRows(templateId, doc.templateName, doc.templateReason);
+  persistSession();
+}
+
+function onRowTemplateChange(row) {
+  const picked = categoryTemplates.value.find((item) => item.id === row._template_id);
+  row._template_name = picked?.name || "";
+  row._template_reason = row._template_id ? "你手动改了这一行的模板" : "";
+  persistSession();
+}
+
 async function runReviewAssist(force = false) {
   if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return;
   if (reviewAssistRunning.value && !force) return;
@@ -1774,6 +1935,21 @@ async function runReviewAssist(force = false) {
         aiServiceReady.value = null;
       }
     }
+
+    patchReviewStep("template", { status: "running", detail: "匹配本店刊登习惯…" });
+    const templateResult = await suggestTemplates(force);
+    if (templateResult.skipped) {
+      patchReviewStep("template", { status: "skip", detail: "暂无商品行" });
+    } else if (templateResult.ok) {
+      const name = doc.templateName || "未配置";
+      patchReviewStep("template", {
+        status: doc.templateId ? "done" : "skip",
+        detail: doc.templateId ? `已选「${name}」` : "无匹配模板，将用全局兜底",
+      });
+    } else {
+      patchReviewStep("template", { status: "error", detail: templateResult.error || "模板匹配失败" });
+    }
+
     if (aiServiceReady.value === false) {
       patchReviewStep("service", { status: "error", detail: "未配置 OPENAI_API_KEY" });
       patchReviewStep("copy", { status: "skip", detail: "需要 AI 服务" });
@@ -1948,6 +2124,9 @@ async function importDocRows() {
   body.append("image_mode", excelImageMode.value);
   if (smartPlan.value.columns?.length) {
     body.append("columns", JSON.stringify(smartPlan.value.columns));
+  }
+  if (doc.templateId) {
+    body.append("listing_template_id", doc.templateId);
   }
   body.append("rows", JSON.stringify(targets));
   allUploadImageFiles().forEach((item) => body.append("images", item.raw, item.name));
@@ -3186,6 +3365,81 @@ onUnmounted(() => {
 .audit-meta {
   margin: 10px 0 0;
   font-size: 12px;
+}
+
+.audit-template-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: linear-gradient(180deg, rgba(255, 248, 235, 0.7), var(--surface));
+}
+
+.audit-template-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-template-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.audit-template-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 153, 0, 0.14);
+  color: #b45309;
+  font-size: 11px;
+}
+
+.audit-template-intro {
+  margin: 6px 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.audit-template-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-template-select {
+  min-width: 280px;
+}
+
+.audit-template-reason {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.audit-template-meta {
+  margin: 0;
+  font-size: 12px;
+}
+
+.audit-template-link {
+  font-size: 13px;
+  color: var(--brand);
+}
+
+.audit-template-chip {
+  display: block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 153, 0, 0.12);
+  color: #9a6700;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .audit-header-metrics,

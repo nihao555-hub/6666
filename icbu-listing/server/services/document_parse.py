@@ -197,6 +197,7 @@ def grid_item_to_row(
         line=int(item.get("line") or line),
         attributes=attributes,
         schema_top=schema_top,
+        listing_template_id=str(item.get("_template_id") or item.get("listing_template_id") or "").strip(),
         raw={
             **{str(col["id"]): str(item.get(col["id"]) or "") for col in columns},
             "highlights": str(item.get("highlights") or ""),

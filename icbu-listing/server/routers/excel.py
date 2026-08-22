@@ -19,7 +19,7 @@ from gop_client import GopError  # noqa: E402
 from ..db import SessionLocal
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, templates
+from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -413,6 +413,7 @@ def _rows_payload(rows: list[excel_import.ExcelRow]) -> list[dict[str, Any]]:
             "specs": row.specs,
             "line": row.line,
             "attributes": row.attributes,
+            "listing_template_id": row.listing_template_id,
         }
         for row in rows
     ]
@@ -721,6 +722,42 @@ async def grid_poll_images(
     return {"rows": refreshed, "pending": pending}
 
 
+@router.post("/grid-suggest-template")
+async def grid_suggest_template(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    rows: str = Form("[]"),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop = shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    ai = AiClient.from_env_or_none()
+    result = template_suggest.suggest(
+        db,
+        shop,
+        category_id,
+        [item for item in payload if isinstance(item, dict)],
+        category_name=category_name,
+        ai=ai,
+    )
+    if payload:
+        result["rows"] = template_suggest.apply_row_suggestions(
+            [dict(item) for item in payload if isinstance(item, dict)],
+            result.get("suggestion") or {},
+            result.get("row_suggestions") or [],
+        )
+    return result
+
+
 @router.post("/import-rows")
 async def import_rows(
     request: Request,
@@ -728,6 +765,7 @@ async def import_rows(
     category_id: str = Form(""),
     session_id: str = Form(""),
     image_mode: str = Form("keep_draw"),
+    listing_template_id: str = Form(""),
     rows: str = Form("[]"),
     columns: str = Form(""),
     images: list[UploadFile] = File(default_factory=list),
@@ -743,6 +781,17 @@ async def import_rows(
         raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
     if not isinstance(payload, list):
         raise HTTPException(status_code=400, detail="表格数据格式不对")
+    default_template_id = ""
+    if listing_template_id:
+        row = db.get(Template, listing_template_id)
+        if row is None or row.user_id != user.id or row.shop_id != shop.id:
+            raise HTTPException(status_code=404, detail="刊登模板不存在")
+        default_template_id = row.id
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        if not str(item.get("_template_id") or "").strip() and default_template_id:
+            item["_template_id"] = default_template_id
     plan_columns = _parse_plan_columns(columns)
     grid_columns, _profile, _extras = _resolve_grid_columns(
         db,
@@ -773,7 +822,7 @@ async def import_rows(
         rows=parsed,
         uploads=uploads,
         wants_drafts=True,
-        listing_id="",
+        listing_id=default_template_id,
         style="simple",
         image_mode=image_mode,
         public_base=public_refs.request_base(request),
@@ -912,10 +961,17 @@ def _run_import(
                 specs=dict(raw.get("specs") or {}),
                 line=int(raw.get("line") or 0),
                 attributes=dict(raw.get("attributes") or {}),
+                listing_template_id=str(raw.get("listing_template_id") or raw.get("_template_id") or "").strip(),
             )
+            row_template_id = row.listing_template_id
+            row_listing = listing
+            if row_template_id:
+                picked = db.get(Template, row_template_id)
+                if picked is not None and picked.shop_id == shop.id:
+                    row_listing = picked
             try:
                 _import_one(
-                    db, user, shop, row, uploads, ai, create_drafts, listing, batch_id, image_mode, public_base
+                    db, user, shop, row, uploads, ai, create_drafts, row_listing, batch_id, image_mode, public_base
                 )
             except Exception as exc:
                 if shop is not None and create_drafts:
@@ -1042,6 +1098,7 @@ def _import_one(
             provided_sources=row.provided_sources(),
             extra_defaults=row.extra_defaults(),
             fact_bundle=from_excel_row(row),
+            template_id=row.listing_template_id or (listing.id if listing is not None else ""),
         )
     except ShopNotConnected as exc:
         distribution.failed_draft(db, user.id, shop.id, product, batch_id, str(exc))

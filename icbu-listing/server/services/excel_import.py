@@ -274,6 +274,7 @@ class ExcelRow:
     raw: dict[str, str] = field(default_factory=dict)
     attributes: dict[str, dict[str, Any]] = field(default_factory=dict)
     schema_top: dict[str, str] = field(default_factory=dict)
+    listing_template_id: str = ""
     is_sample: bool = False
 
     def fact_text(self) -> str:
