@@ -262,6 +262,37 @@ def _suffix(name: str) -> str:
     return lower[lower.rfind(".") :]
 
 
+def _image_uploads(files: Sequence[tuple[str, bytes]]) -> dict[str, bytes]:
+    uploads: dict[str, bytes] = {}
+    for name, content in files:
+        if not content or _suffix(name) not in IMAGE_SUFFIXES:
+            continue
+        key = name.rsplit("/", 1)[-1].lower()
+        uploads[key] = content
+    return uploads
+
+
+def attach_uploaded_images(items: Sequence[dict[str, Any]], uploads: Mapping[str, bytes]) -> list[dict[str, Any]]:
+    """Pair co-uploaded image files to rows by filename or SKU prefix."""
+    if not uploads:
+        return [dict(item) for item in items]
+    attached: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for item in items:
+        row = dict(item)
+        sku = str(row.get("sku") or "").strip()
+        names = [part.strip() for part in str(row.get("images") or "").split(";") if part.strip()]
+        matched = excel_import.match_uploads(sku, names, dict(uploads))
+        matched_names = [name for name, _ in matched if name not in used]
+        for name in matched_names:
+            used.add(name)
+        if matched_names:
+            merged = list(dict.fromkeys(names + matched_names))
+            row["images"] = ";".join(merged)
+        attached.append(row)
+    return attached
+
+
 def _read_csv(content: bytes) -> list[list[str]]:
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(text))
@@ -371,6 +402,15 @@ def parse_documents(
 
     if not grid_items:
         raise ValueError("没能从资料里识别出商品行，请换更完整的报价单或表格")
+
+    image_files = _image_uploads(files)
+    if image_files:
+        grid_items = attach_uploaded_images(grid_items, image_files)
+        if not any(str(item.get("images") or "").strip() for item in grid_items):
+            warnings.append("已收到图片文件，但没和表格货号对上。请把图片命名为 SKU.jpg 或 SKU_1.jpg。")
+        else:
+            matched_rows = sum(1 for item in grid_items if str(item.get("images") or "").strip())
+            warnings.append(f"已按货号/文件名自动配对 {matched_rows} 行的图片。")
 
     grid_items = [attach_row_images(item) for item in grid_items]
     check = check_grid(grid_items, columns, category_id=category_id, image_mode=image_mode)

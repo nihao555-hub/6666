@@ -224,6 +224,7 @@ def smart_plan_endpoint(
     shop_id: str = "",
     category_id: str = "",
     category_name: str = "",
+    refresh: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -242,6 +243,7 @@ def smart_plan_endpoint(
             category_id=category_id,
             category_name=hint or category_name,
             ai=ai,
+            refresh=refresh,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -254,6 +256,7 @@ def download_smart_template(
     shop_id: str = "",
     category_id: str = "",
     category_name: str = "",
+    refresh: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Response:
@@ -269,6 +272,7 @@ def download_smart_template(
         category_id=category_id,
         category_name=hint or category_name,
         ai=ai,
+        refresh=refresh,
     )
     payload = smart_plan.build_smart_template_bytes(plan)
     ascii_name = f"auto-shoper-smart-{category_id}.xlsx"

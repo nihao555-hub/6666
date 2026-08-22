@@ -152,6 +152,19 @@ class Template(Base):
     __table_args__ = (Index("ix_templates_shop_cat", "shop_id", "category_id"),)
 
 
+class CategorySmartPlan(Base):
+    """Cached AI/rule smart-plan output per shop leaf category."""
+
+    __tablename__ = "category_smart_plans"
+
+    shop_id: Mapped[str] = mapped_column(String(32), ForeignKey("shops.id", ondelete="CASCADE"), primary_key=True)
+    category_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    input_hash: Mapped[str] = mapped_column(String(64), default="")
+    planner: Mapped[str] = mapped_column(String(16), default="rules")
+    plan_json: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class Draft(Base):
     __tablename__ = "drafts"
 

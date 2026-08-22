@@ -76,6 +76,72 @@ class SmartPlanUnitTests(unittest.TestCase):
         self.assertTrue(payload.startswith(b"PK"))
 
 
+class SmartPlanCacheTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        init_db()
+
+    def test_build_plan_uses_cache_without_second_llm_call(self) -> None:
+        from server.db import SessionLocal  # noqa: E402
+        from server.models import Shop, User  # noqa: E402
+
+        db = SessionLocal()
+        user = User(email=f"cache-{uuid.uuid4().hex[:8]}@example.com", password_hash="x")
+        db.add(user)
+        db.commit()
+        shop = Shop(user_id=user.id, name="缓存店", platform="alibaba_icbu")
+        db.add(shop)
+        db.commit()
+        calls = {"n": 0}
+
+        def fake_llm(*_args, **_kwargs):
+            calls["n"] += 1
+            return (["sku", "price", "moq", "name"], "测试规划", "一行一个 SKU")
+
+        with unittest.mock.patch(
+            "server.services.smart_plan.catalog.get_schema_xml",
+            return_value="<fields></fields>",
+        ), unittest.mock.patch(
+            "server.services.smart_plan.parse_schema",
+            return_value=[],
+        ), unittest.mock.patch.object(smart_plan, "_llm_user_columns", side_effect=fake_llm):
+            first = smart_plan.build_plan(db, object(), shop, category_id="21110712", category_name="彩铅", ai=object())
+            second = smart_plan.build_plan(db, object(), shop, category_id="21110712", category_name="彩铅", ai=object())
+        self.assertFalse(first.get("cached"))
+        self.assertTrue(second.get("cached"))
+        self.assertEqual(calls["n"], 1)
+        db.close()
+
+    def test_refresh_bypasses_cache(self) -> None:
+        from server.db import SessionLocal  # noqa: E402
+        from server.models import Shop, User  # noqa: E402
+
+        db = SessionLocal()
+        user = User(email=f"refresh-{uuid.uuid4().hex[:8]}@example.com", password_hash="x")
+        db.add(user)
+        db.commit()
+        shop = Shop(user_id=user.id, name="刷新店", platform="alibaba_icbu")
+        db.add(shop)
+        db.commit()
+        calls = {"n": 0}
+
+        def fake_llm(*_args, **_kwargs):
+            calls["n"] += 1
+            return (["sku", "price", "moq"], "再次规划", "准备报价单")
+
+        with unittest.mock.patch(
+            "server.services.smart_plan.catalog.get_schema_xml",
+            return_value="<fields></fields>",
+        ), unittest.mock.patch(
+            "server.services.smart_plan.parse_schema",
+            return_value=[],
+        ), unittest.mock.patch.object(smart_plan, "_llm_user_columns", side_effect=fake_llm):
+            smart_plan.build_plan(db, object(), shop, category_id="21110712", ai=object())
+            smart_plan.build_plan(db, object(), shop, category_id="21110712", ai=object(), refresh=True)
+        self.assertEqual(calls["n"], 2)
+        db.close()
+
+
 class SmartPlanApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

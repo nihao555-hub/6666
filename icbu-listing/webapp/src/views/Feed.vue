@@ -66,6 +66,7 @@
             </div>
           </div>
           <p v-if="smartPlan.tips" class="plan-tips">{{ smartPlan.tips }}</p>
+          <p v-if="smartPlan.cached" class="plan-cache-note muted">已使用上次规划结果，点「重新规划」才会再次调用 AI。</p>
         </section>
         <div class="toolbar" style="margin: 16px 0 12px">
           <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading" @click="downloadDocTemplate">
@@ -73,19 +74,15 @@
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
         </div>
-        <section v-if="hasImagesColumn" class="image-help">
-          <h4>图片怎么填？</h4>
-          <p>表格里的「图片」列<strong>不能插入图片</strong>，只能写文字。任选一种方式：</p>
-          <ol>
-            <li><b>写文件名</b>：如 <code>SKU-1001_1.jpg;SKU-1001_2.jpg</code>，上传时把 xlsx 和图片文件<strong>一起拖进来</strong>，系统按货号/文件名自动对上。</li>
-            <li><b>写链接</b>：如 <code>https://example.com/a.jpg;https://example.com/b.jpg</code>，多个用英文分号隔开。</li>
-            <li><b>先留空</b>：图片列可以不填。解析进审核后，在「图片」标签里按货号补传，或点「全部出图」让 AI 生成（生成图会标黄）。</li>
-          </ol>
+        <section v-if="doc.categoryId" class="image-help">
+          <h4>上传表格和图片</h4>
+          <p>
+            把填好的 <b>xlsx/csv</b> 和商品图片<strong>一起拖进来</strong>即可。图片<strong>不用写进表格</strong>，系统按货号自动配对，例如货号
+            <code>SKU-1001</code> 对应 <code>SKU-1001.jpg</code>、<code>SKU-1001_2.jpg</code>。
+          </p>
+          <p v-if="uploadSummary" class="upload-summary">{{ uploadSummary }}</p>
         </section>
-        <section v-else-if="doc.categoryId" class="image-help">
-          <h4>这批没规划「图片」列</h4>
-          <p>下载表里可以不写图。填好 xlsx 上传后，在审核页「图片」标签按货号补传，或让 AI 出图。</p>
-        </section>
+        <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
         <el-upload
           v-model:file-list="docFiles"
           :auto-upload="false"
@@ -93,8 +90,13 @@
           :disabled="!doc.categoryId"
           accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
           drag
+          @change="onDocFilesChange"
         >
-          <div style="padding: 22px 0">把填好的 xlsx / 报价单 / 目录拖到这里（可多文件）</div>
+          <div style="padding: 22px 0">
+            拖入表格 + 图片（可多选，或
+            <el-link type="primary" @click.stop.prevent="pickImageFolder">选整个图片文件夹</el-link>
+            ）
+          </div>
         </el-upload>
         <div class="step-actions" style="margin-top: 16px">
           <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.some((item) => item.raw)" @click="parseDocuments">
@@ -216,7 +218,7 @@
                     <el-button>按货号补传</el-button>
                   </el-upload>
                 </div>
-                <p class="review-tab-note">图片命名如 SKU-1001.jpg。缺图可点「全部出图」。</p>
+                <p class="review-tab-note">图片命名如 SKU-1001.jpg。缺图可点「全部出图」，不会自动出图。</p>
                 <div class="review-policy-row">
                   <label>有图</label>
                   <el-radio-group v-model="excel.photoPolicy" size="small">
@@ -416,6 +418,9 @@ const DEFAULT_IMAGE_SLOTS = [
 ];
 const excelImages = ref([]);
 const docFiles = ref([]);
+const folderInput = ref(null);
+let imageSyncTimer = null;
+const IMAGE_SUFFIXES = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]);
 const doc = reactive({
   categoryId: "",
   categoryName: "",
@@ -448,7 +453,15 @@ const categoryBrowser = ref(false);
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
-const hasImagesColumn = computed(() => (smartPlan.value.columns || []).some((col) => col.id === "images"));
+const uploadSummary = computed(() => {
+  const sheets = docFiles.value.filter((item) => isSpreadsheetFile(item.name)).length;
+  const images = docFiles.value.filter((item) => isImageFile(item.name)).length;
+  if (!sheets && !images) return "";
+  const bits = [];
+  if (sheets) bits.push(`${sheets} 个表格`);
+  if (images) bits.push(`${images} 张图片`);
+  return `已选 ${bits.join("，")}`;
+});
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
@@ -791,6 +804,136 @@ watch(
 
 
 
+function fileSuffix(name) {
+  const lower = String(name || "").toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  return dot >= 0 ? lower.slice(dot) : "";
+}
+
+function isImageFile(name) {
+  return IMAGE_SUFFIXES.has(fileSuffix(name));
+}
+
+function isSpreadsheetFile(name) {
+  return [".xlsx", ".xls", ".xlsm", ".csv"].includes(fileSuffix(name));
+}
+
+function matchUploadFiles(sku, names, uploads) {
+  const matched = [];
+  const used = new Set();
+  for (const name of names) {
+    const key = String(name || "").toLowerCase();
+    if (key && uploads[key] && !used.has(key)) {
+      matched.push([name, uploads[key]]);
+      used.add(key);
+    }
+  }
+  const prefix = String(sku || "").toLowerCase();
+  if (prefix) {
+    Object.entries(uploads).forEach(([filename, raw]) => {
+      if (used.has(filename)) return;
+      const stem = filename.includes(".") ? filename.slice(0, filename.lastIndexOf(".")) : filename;
+      if (stem === prefix || stem.startsWith(`${prefix}_`) || stem.startsWith(`${prefix}-`)) {
+        matched.push([filename, raw]);
+        used.add(filename);
+      }
+    });
+  }
+  return matched;
+}
+
+function slotsFromLocalUrls(urls) {
+  const slots = DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot }));
+  urls.slice(0, 6).forEach((url, index) => {
+    if (!url) return;
+    slots[index] = { ...slots[index], status: "uploaded", url };
+  });
+  return slots;
+}
+
+function applyLocalImageMatches(rows, files) {
+  const uploads = {};
+  files.forEach((item) => {
+    if (!item?.raw || !isImageFile(item.name)) return;
+    uploads[String(item.name).toLowerCase()] = item.raw;
+  });
+  if (!Object.keys(uploads).length) return rows;
+  return rows.map((row) => {
+    const names = String(row.images || "")
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const matched = matchUploadFiles(row.sku, names, uploads);
+    if (!matched.length) return row;
+    const mergedNames = [...new Set([...names, ...matched.map(([name]) => name)])];
+    const urls = matched.map(([, raw]) => URL.createObjectURL(raw));
+    return {
+      ...row,
+      images: mergedNames.join(";"),
+      image_slots: slotsFromLocalUrls(urls),
+    };
+  });
+}
+
+function allUploadImageFiles() {
+  const seen = new Set();
+  const items = [];
+  [...docFiles.value, ...excelImages.value].forEach((item) => {
+    if (!item?.raw || !isImageFile(item.name)) return;
+    const key = String(item.name).toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(item);
+  });
+  return items;
+}
+
+function pickImageFolder() {
+  folderInput.value?.click();
+}
+
+function onFolderPick(event) {
+  const picked = Array.from(event.target.files || []).filter((file) => isImageFile(file.name));
+  if (!picked.length) {
+    ElMessage.warning("文件夹里没找到图片");
+    return;
+  }
+  const existing = new Set(docFiles.value.map((item) => String(item.name).toLowerCase()));
+  picked.forEach((file) => {
+    const key = file.name.toLowerCase();
+    if (existing.has(key)) return;
+    docFiles.value.push({ name: file.name, raw: file, status: "success" });
+    existing.add(key);
+  });
+  event.target.value = "";
+  scheduleDocImageSync();
+}
+
+function onDocFilesChange() {
+  scheduleDocImageSync();
+}
+
+function scheduleDocImageSync() {
+  clearTimeout(imageSyncTimer);
+  imageSyncTimer = setTimeout(() => {
+    void syncDocImagesToSession();
+  }, 800);
+}
+
+async function syncDocImagesToSession() {
+  if (!sessionId.value || restoring.value) return;
+  const images = allUploadImageFiles();
+  if (!images.length) return;
+  try {
+    const form = new FormData();
+    form.append("kind", "excel_images");
+    images.forEach((item) => form.append("files", item.raw, item.name));
+    await api.uploadFeedSessionFiles(sessionId.value, form);
+  } catch {
+    /* optional persistence */
+  }
+}
+
 async function loadSmartPlan(override = null) {
   const categoryId = override?.categoryId ?? doc.categoryId ?? "";
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
@@ -801,6 +944,7 @@ async function loadSmartPlan(override = null) {
       shop_id: store.shopId,
       category_id: categoryId,
       category_name: categoryName,
+      ...(override?.refresh ? { refresh: true } : {}),
     }));
     docGrid.columns = smartPlan.value.columns || [];
   } catch (error) {
@@ -812,6 +956,7 @@ async function loadSmartPlan(override = null) {
           shop_id: store.shopId,
           category_id: categoryId,
           category_name: categoryName,
+          ...(override?.refresh ? { refresh: true } : {}),
         }));
         docGrid.columns = smartPlan.value.columns || [];
         return;
@@ -837,6 +982,8 @@ function normalizeSmartPlan(raw) {
     columns,
     reasoning: raw.reasoning || "",
     tips: raw.tips || "",
+    cached: Boolean(raw.cached),
+    planner: raw.planner || "",
   };
 }
 
@@ -846,8 +993,8 @@ async function refreshSmartPlan() {
     return;
   }
   try {
-    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    ElMessage.success(`已更新：需填 ${smartPlan.value.column_count || 0} 列`);
+    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName, refresh: true });
+    ElMessage.success(`已重新规划：需填 ${smartPlan.value.column_count || 0} 列`);
     await persistSession();
   } catch (error) {
     ElMessage.error(error.message);
@@ -1184,7 +1331,7 @@ async function parseDocuments() {
     if (result.download_columns?.length) {
       smartPlan.value = normalizeSmartPlan({ ...smartPlan.value, columns: result.download_columns, column_count: result.download_columns.length });
     }
-    docGrid.rows = normalizeDocRows(result.rows || []);
+    docGrid.rows = normalizeDocRows(applyLocalImageMatches(result.rows || [], docFiles.value));
     docGrid.row_issues = result.row_issues || [];
     docGrid.warnings = result.warnings || [];
     docGrid.row_count = result.row_count || docGrid.rows.length;
@@ -1194,7 +1341,6 @@ async function parseDocuments() {
     await persistSession();
     advanceDoc(1);
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
-    void autoStartReviewImages();
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -1258,7 +1404,7 @@ async function importDocRows() {
     body.append("columns", JSON.stringify(smartPlan.value.columns));
   }
   body.append("rows", JSON.stringify(docGrid.rows));
-  excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
+  allUploadImageFiles().forEach((item) => body.append("images", item.raw, item.name));
   docGrid.loading = true;
   try {
     doc.batch = await api.excelImportRows(body);
@@ -1321,6 +1467,7 @@ async function pickCategory(node) {
 onUnmounted(() => {
   clearInterval(docTimer);
   clearInterval(gridPollTimer);
+  clearTimeout(imageSyncTimer);
 });
 
 
@@ -1614,6 +1761,18 @@ onUnmounted(() => {
   background: var(--surface);
   padding: 1px 4px;
   border-radius: 4px;
+}
+.plan-cache-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.upload-summary {
+  margin: 8px 0 0;
+  color: var(--accent);
+  font-size: 13px;
+}
+.hidden-folder-input {
+  display: none;
 }
 .slot-grid {
   display: grid;

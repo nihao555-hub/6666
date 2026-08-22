@@ -9,6 +9,7 @@ Flow:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
@@ -16,7 +17,7 @@ from ai import AiClient, AiUnavailable  # noqa: E402
 from schema import SchemaField, index_fields, parse_schema  # noqa: E402
 from sqlalchemy.orm import Session
 
-from ..models import Shop
+from ..models import CategorySmartPlan, Shop
 from . import catalog, defaults as defaults_service, excel_import, schema_labels, templates as template_service
 from .icbu_publishing_skill import checklist_for_review, skill_prompt_block
 from .review_enrich import schema_inventory_summary
@@ -325,6 +326,67 @@ def columns_for_ids(candidates: Sequence[Mapping[str, Any]], user_ids: Sequence[
     return ordered
 
 
+def _plan_input_hash(
+    schema_xml: str,
+    shop_defaults: Mapping[str, Any],
+    template_values: Mapping[str, Any],
+) -> str:
+    blob = json.dumps(
+        {
+            "schema": hashlib.sha256(schema_xml.encode("utf-8", errors="replace")).hexdigest(),
+            "defaults": shop_defaults,
+            "template": template_values,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
+def _load_cached_plan(db: Session, shop_id: str, category_id: str, input_hash: str) -> dict[str, Any] | None:
+    row = db.get(CategorySmartPlan, {"shop_id": shop_id, "category_id": category_id})
+    if row is None or row.input_hash != input_hash:
+        return None
+    try:
+        payload = json.loads(row.plan_json or "{}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or not payload.get("columns"):
+        return None
+    payload["cached"] = True
+    payload["planner"] = row.planner or payload.get("planner") or "rules"
+    return payload
+
+
+def _save_cached_plan(
+    db: Session,
+    shop_id: str,
+    category_id: str,
+    input_hash: str,
+    planner: str,
+    plan: Mapping[str, Any],
+) -> None:
+    stored = {key: value for key, value in plan.items() if key != "cached"}
+    row = db.get(CategorySmartPlan, {"shop_id": shop_id, "category_id": category_id})
+    payload = json.dumps(stored, ensure_ascii=False)
+    if row is None:
+        db.add(
+            CategorySmartPlan(
+                shop_id=shop_id,
+                category_id=category_id,
+                input_hash=input_hash,
+                planner=planner,
+                plan_json=payload,
+            )
+        )
+    else:
+        row.input_hash = input_hash
+        row.planner = planner
+        row.plan_json = payload
+    db.commit()
+
+
 def build_plan(
     db: Session,
     api: Any,
@@ -333,6 +395,7 @@ def build_plan(
     category_id: str,
     category_name: str = "",
     ai: AiClient | None = None,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     if not category_id:
         raise ValueError("先选叶子类目")
@@ -343,6 +406,13 @@ def build_plan(
     schema_inventory = schema_inventory_summary(fields_flat)
     shop_defaults = _shop_defaults(shop)
     template_values = _template_values(db, shop.id, category_id)
+    input_hash = _plan_input_hash(xml, shop_defaults, template_values)
+    if not refresh:
+        cached = _load_cached_plan(db, shop.id, category_id, input_hash)
+        if cached is not None:
+            if category_name and not cached.get("category_name"):
+                cached["category_name"] = category_name
+            return cached
     candidates, covered_shop, covered_template = candidate_columns(
         fields,
         shop_defaults=shop_defaults,
@@ -375,7 +445,7 @@ def build_plan(
     ]
     required_attrs = [col for col in columns if str(col.get("id", "")).startswith("attr.") and col.get("required")]
     optional_user = [col for col in columns if col["id"] in CORE_OPTIONAL or col.get("source") == "schema_score"]
-    return {
+    plan = {
         "category_id": category_id,
         "category_name": category_name,
         "planner": planner,
@@ -401,7 +471,10 @@ def build_plan(
             "candidate_columns_sent": len(candidates),
             "mode": "llm reads full field-name inventory + candidate shortlist with options",
         },
+        "cached": False,
     }
+    _save_cached_plan(db, shop.id, category_id, input_hash, planner, plan)
+    return plan
 
 
 def build_smart_template_bytes(plan: Mapping[str, Any]) -> bytes:
