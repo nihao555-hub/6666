@@ -122,6 +122,34 @@ class ReviewEnrichTests(unittest.TestCase):
         )
         self.assertEqual(patch, {})
 
+    def test_infer_facts_include_ai_copy(self) -> None:
+        ai = MagicMock()
+        ai.chat_json.return_value = {"attr.icbuCatProp.p-hard": "HB"}
+        columns = [
+            {
+                "id": "attr.icbuCatProp.p-hard",
+                "label": "硬度",
+                "required": True,
+                "source": "schema_required",
+                "options": [{"label": "HB", "value": "HB"}],
+            }
+        ]
+        review_enrich.infer_fields_for_row(
+            {
+                "sku": "P-1",
+                "name": "铅笔",
+                "note": "素描",
+                "title": "HB Graphite Pencil Wholesale",
+                "keywords": "graphite pencil, hb pencil",
+            },
+            columns,
+            ai=ai,
+            user_column_ids={"sku", "name", "note"},
+        )
+        prompt = ai.chat_json.call_args[0][0][0]["content"]
+        self.assertIn("HB Graphite Pencil Wholesale", prompt)
+        self.assertIn("graphite pencil", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

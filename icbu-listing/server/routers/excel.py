@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ai import AiClient, AiUnavailable, ImageInput  # noqa: E402
 from gop_client import GopError  # noqa: E402
 
-from ..db import SessionLocal, reload_db_from_blob
+from ..db import SessionLocal, reload_db_from_blob, reload_db_from_blob_throttled
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
 from ..services import catalog, distribution, document_parse, ecosystem_brief, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
@@ -264,7 +264,7 @@ def smart_plan_endpoint(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    reload_db_from_blob()
+    reload_db_from_blob_throttled(min_interval_seconds=3.0)
     if not shop_id:
         raise HTTPException(status_code=400, detail="先选一个店铺")
     if not category_id:
@@ -297,7 +297,7 @@ def download_smart_template(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Response:
-    reload_db_from_blob()
+    reload_db_from_blob_throttled(min_interval_seconds=3.0)
     if not shop_id or not category_id:
         raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
     shop = shop_for(db, user, shop_id)
@@ -732,6 +732,7 @@ async def grid_infer_fields(
     rows: str = Form("[]"),
     lines: str = Form("[]"),
     columns: str = Form(""),
+    plan_columns: str = Form(""),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -744,18 +745,21 @@ async def grid_infer_fields(
         raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
     if not isinstance(payload, list):
         raise HTTPException(status_code=400, detail="表格数据格式不对")
-    plan_columns = _parse_plan_columns(columns)
+    download_columns = _parse_plan_columns(plan_columns or columns)
+    expanded_columns = _parse_plan_columns(columns)
     grid_columns, _profile, _extras = _resolve_grid_columns(
         db,
         user,
         shop_id,
         category_id,
-        plan_columns=plan_columns,
+        plan_columns=download_columns,
     )
-    if category_id and shop_id and plan_columns:
+    if category_id and shop_id and download_columns:
         shop = shop_for(db, user, shop_id)
-        grid_columns = smart_plan.expand_audit_columns(db, shop_api(shop), shop, category_id, plan_columns)
-    user_column_ids = {str(col.get("id") or "") for col in (plan_columns or []) if col.get("id")}
+        grid_columns = smart_plan.expand_audit_columns(db, shop_api(shop), shop, category_id, download_columns)
+    if expanded_columns and len(expanded_columns) >= len(grid_columns or []):
+        grid_columns = expanded_columns
+    user_column_ids = {str(col.get("id") or "") for col in (download_columns or []) if col.get("id")}
     targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
     ai = AiClient.from_env_or_none()
     shop_defaults_payload: dict[str, Any] = {}

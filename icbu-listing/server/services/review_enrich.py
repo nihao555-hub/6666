@@ -209,7 +209,7 @@ def _facts_from_user_columns(
     *,
     user_column_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Serialize every filled download-sheet cell for AI attribute inference."""
+    """Serialize download-sheet cells plus AI copy for attribute inference."""
     understanding = _understanding_from_row(row)
     by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
     facts: dict[str, Any] = {
@@ -221,6 +221,15 @@ def _facts_from_user_columns(
         "sku": str(row.get("sku") or ""),
         "name": str(row.get("name") or ""),
     }
+    for copy_key, label in (
+        ("title", "英文标题"),
+        ("keywords", "关键词"),
+        ("highlights", "卖点摘要"),
+    ):
+        text = str(row.get(copy_key) or "").strip()
+        if text:
+            facts[copy_key] = text
+            facts[label] = text
     skip = SKIP_INFER_IDS | {"title", "keywords", "highlights"}
     for key, value in row.items():
         key_text = str(key)
@@ -368,14 +377,16 @@ def _ai_fill_empty_columns(
     if not question:
         return {}, []
     prompt = (
-        "The seller filled ONLY the download spreadsheet columns listed under user_facts.\n"
-        "Infer official listing fields below from those values — do not invent beyond them.\n"
-        "For dropdown fields use an exact option label. Only fill when 100% sure.\n"
-        "Never guess price, MOQ, brand, origin, or certifications. If ambiguous, return empty string.\n"
-        "Never pick Other/其他.\n\n"
+        "You complete an Alibaba.com (ICBU) wholesale listing after the seller uploaded a smart spreadsheet.\n"
+        "user_facts = every column the seller typed on the download sheet.\n"
+        "title/keywords/highlights may already be AI-generated — treat them as evidence too.\n"
+        "Fill fields_to_fill when user_facts or AI copy support a value: official REQUIRED attrs and "
+        "quality-score OPTIONAL attrs that are not on the download sheet.\n"
+        "Use exact dropdown option labels. Leave empty only when there is no reasonable evidence.\n"
+        "Never guess price, MOQ, brand, origin, or certifications. Never pick Other/其他.\n\n"
         f"user_facts: {json.dumps(facts, ensure_ascii=False)}\n"
         f"fields_to_fill: {json.dumps(question, ensure_ascii=False)}\n"
-        "Return JSON only: {\"column_id\": \"value or empty\"}"
+        'Return JSON only: {"column_id": "value or empty string"}'
     )
     try:
         payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.0)

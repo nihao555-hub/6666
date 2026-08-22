@@ -44,7 +44,7 @@
           <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
         </div>
 
-        <section v-if="smartPlanLoading" class="plan-panel plan-panel-loading">
+        <section v-if="smartPlanShowAi" class="plan-panel plan-panel-loading">
           <section class="ai-timeline ai-timeline-vertical" aria-live="polite">
             <header class="ai-timeline-head">
               <strong>AI 正在分析类目</strong>
@@ -429,6 +429,7 @@ const router = useRouter();
 const route = useRoute();
 const DEAD_SESSIONS_KEY = "icbu-dead-feed-sessions";
 const LOCAL_DRAFT_PREFIX = "icbu-feed-draft";
+const SMART_PLAN_CACHE_PREFIX = "icbu-smart-plan-cache";
 const ECOSYSTEM_PREF_PREFIX = "icbu-feed-ecosystem";
 const sessionId = ref("");
 const deadSessionIds = loadDeadSessionIds();
@@ -508,6 +509,7 @@ const excel = reactive({
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
 const useEcosystemAssistant = ref(loadEcosystemPref());
 const smartPlanLoading = ref(false);
+const smartPlanShowAi = ref(false);
 const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
 const categoryTemplates = ref([]);
@@ -519,6 +521,7 @@ let reviewAssistPromise = null;
 const reviewAiSteps = ref(createReviewAiSteps());
 const smartPlanAiSteps = ref(createSmartPlanAiSteps());
 let smartPlanStepTimer = null;
+let smartPlanAiDelayTimer = null;
 let smartPlanStepStartedAt = 0;
 
 function createSmartPlanAiSteps() {
@@ -556,12 +559,21 @@ function startSmartPlanStepAnimation() {
   }, 400);
 }
 
+function clearSmartPlanAiDelay() {
+  if (smartPlanAiDelayTimer) {
+    clearTimeout(smartPlanAiDelayTimer);
+    smartPlanAiDelayTimer = null;
+  }
+}
+
 function clearSmartPlanStepAnimation() {
+  clearSmartPlanAiDelay();
   if (smartPlanStepTimer) {
     clearInterval(smartPlanStepTimer);
     smartPlanStepTimer = null;
   }
   smartPlanStepStartedAt = 0;
+  smartPlanShowAi.value = false;
 }
 
 function finishSmartPlanStepAnimation() {
@@ -842,6 +854,52 @@ function saveEcosystemPref(value) {
 function onEcosystemToggleChange(value) {
   saveEcosystemPref(value);
   void persistSession();
+}
+
+function smartPlanCacheKey(categoryId) {
+  return `${SMART_PLAN_CACHE_PREFIX}:${store.user?.id || "guest"}:${store.shopId || ""}:${categoryId}`;
+}
+
+function loadLocalSmartPlan(categoryId) {
+  if (!categoryId) return null;
+  try {
+    const raw = localStorage.getItem(smartPlanCacheKey(categoryId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalSmartPlan(categoryId, plan) {
+  if (!categoryId || !plan?.columns?.length) return;
+  try {
+    localStorage.setItem(
+      smartPlanCacheKey(categoryId),
+      JSON.stringify({
+        ...plan,
+        category_id: categoryId,
+        cached_at: Date.now(),
+      }),
+    );
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function hasSmartPlanForCategory(categoryId) {
+  return Boolean(
+    categoryId
+    && smartPlan.value.columns?.length
+    && String(smartPlan.value.category_id || doc.categoryId) === String(categoryId),
+  );
+}
+
+function applySmartPlan(raw, categoryId = "") {
+  const plan = normalizeSmartPlan({ ...raw, category_id: raw?.category_id || categoryId });
+  smartPlan.value = plan;
+  docGrid.columns = plan.columns || [];
+  if (categoryId) saveLocalSmartPlan(categoryId, plan);
+  return plan;
 }
 
 function loadLocalDraft() {
@@ -1321,6 +1379,13 @@ async function finishResumeSession() {
     goToAuditStep();
   }
   if (!doc.categoryId || !store.shopId) return;
+  if (hasSmartPlanForCategory(doc.categoryId)) {
+    ensureGridPolling();
+    if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+      void runReviewAssist(true);
+    }
+    return;
+  }
   try {
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
     ensureGridPolling();
@@ -1642,38 +1707,76 @@ async function syncDocImagesToSession() {
 async function loadSmartPlan(override = null) {
   const categoryId = override?.categoryId ?? doc.categoryId ?? "";
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
+  const refresh = Boolean(override?.refresh);
+  const background = Boolean(override?.background);
   if (!store.shopId || !categoryId) return;
-  smartPlanLoading.value = true;
-  startSmartPlanStepAnimation();
+
+  if (!background) {
+    smartPlanLoading.value = true;
+    clearSmartPlanStepAnimation();
+    if (refresh) {
+      smartPlanShowAi.value = true;
+      startSmartPlanStepAnimation();
+    } else {
+      smartPlanAiDelayTimer = window.setTimeout(() => {
+        if (!smartPlanLoading.value) return;
+        smartPlanShowAi.value = true;
+        startSmartPlanStepAnimation();
+      }, 400);
+    }
+  }
+
   try {
-    smartPlan.value = normalizeSmartPlan(await api.excelSmartPlan({
+    const raw = await api.excelSmartPlan({
       shop_id: store.shopId,
       category_id: categoryId,
       category_name: categoryName,
-      ...(override?.refresh ? { refresh: true } : {}),
-    }));
-    docGrid.columns = smartPlan.value.columns || [];
-    finishSmartPlanStepAnimation();
+      ...(refresh ? { refresh: true } : {}),
+    });
+    applySmartPlan(raw, categoryId);
+    if (!background) {
+      clearSmartPlanAiDelay();
+      if (raw.cached) {
+        smartPlanShowAi.value = false;
+        clearSmartPlanStepAnimation();
+      } else {
+        smartPlanShowAi.value = true;
+        finishSmartPlanStepAnimation();
+      }
+    }
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
       await store.ensureShops();
       if (store.shopId) {
-        smartPlan.value = normalizeSmartPlan(await api.excelSmartPlan({
+        const raw = await api.excelSmartPlan({
           shop_id: store.shopId,
           category_id: categoryId,
           category_name: categoryName,
-          ...(override?.refresh ? { refresh: true } : {}),
-        }));
-        docGrid.columns = smartPlan.value.columns || [];
-        finishSmartPlanStepAnimation();
+          ...(refresh ? { refresh: true } : {}),
+        });
+        applySmartPlan(raw, categoryId);
+        if (!background) {
+          clearSmartPlanAiDelay();
+          if (raw.cached) {
+            smartPlanShowAi.value = false;
+            clearSmartPlanStepAnimation();
+          } else {
+            smartPlanShowAi.value = true;
+            finishSmartPlanStepAnimation();
+          }
+        }
         return;
       }
     }
-    clearSmartPlanStepAnimation();
+    if (!background) {
+      clearSmartPlanStepAnimation();
+    }
     throw error;
   } finally {
-    smartPlanLoading.value = false;
+    if (!background) {
+      smartPlanLoading.value = false;
+    }
   }
 }
 
@@ -1690,6 +1793,7 @@ function normalizeSmartPlan(raw) {
     source: col.source,
   }));
   return {
+    category_id: raw.category_id || "",
     category_name: raw.category_name || "",
     column_count: raw.column_count || columns.length,
     columns,
@@ -1938,6 +2042,9 @@ async function inferFieldsForRows(lines, options = {}) {
     const body = new FormData();
     body.append("shop_id", store.shopId || "");
     body.append("category_id", doc.categoryId);
+    if (smartPlan.value.columns?.length) {
+      body.append("plan_columns", JSON.stringify(smartPlan.value.columns));
+    }
     if (docGrid.columns?.length) {
       body.append("columns", JSON.stringify(docGrid.columns));
     } else if (smartPlan.value.columns?.length) {
@@ -2365,9 +2472,12 @@ async function runReviewAssistImpl(force = false) {
       patchReviewStep("template", { status: "skip", detail: "暂无商品行" });
     } else if (templateResult.ok) {
       const name = doc.templateName || "未配置";
+      const reasoning = doc.templateReason || templateResult.suggestion?.reasoning || "";
       patchReviewStep("template", {
         status: "done",
-        detail: doc.templateId ? `已选「${name}」` : "本店无匹配模板，使用全局文案规则",
+        detail: doc.templateId
+          ? `已选「${name}」`
+          : reasoning || "本店尚无该类目刊登模板，可在「发品习惯 → 类目模板」添加；文案仍按国际站规则生成",
       });
     } else {
       patchReviewStep("template", { status: "error", detail: templateResult.error || "模板匹配失败" });
@@ -2397,7 +2507,7 @@ async function runReviewAssistImpl(force = false) {
         patchReviewStep("copy", { status: "error", detail: copyResult.error || "文案生成失败" });
       }
 
-      patchReviewStep("attrs", { status: "running", detail: "补全官方属性…" });
+      patchReviewStep("attrs", { status: "running", detail: "从填写表与文案补全官方属性…" });
       docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
       const inferResult = await inferFieldsForRows([], { silent: true });
       if (inferResult.skipped) {
@@ -2700,12 +2810,32 @@ async function downloadDocTemplate() {
 
 async function pickCategory(node) {
   await ensureFeedSession({ quiet: true });
-  doc.categoryId = node.category_id;
-  doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
+  const categoryId = node.category_id;
+  const categoryName = node.path_label || node.label || node.name || node.cn_name || "";
+  categoryBrowser.value = false;
+
+  if (doc.categoryId === categoryId && hasSmartPlanForCategory(categoryId)) {
+    ElMessage.success(`已选「${smartPlan.value.category_name || categoryName}」`);
+    await persistSession({ server: true });
+    return;
+  }
+
+  doc.categoryId = categoryId;
+  doc.categoryName = categoryName;
+
+  const localCached = loadLocalSmartPlan(categoryId);
+  if (localCached?.columns?.length) {
+    applySmartPlan({ ...localCached, cached: true }, categoryId);
+    ElMessage.success(`已选「${categoryName}」`);
+    await persistSession({ server: true });
+    void loadSmartPlan({ categoryId, categoryName, background: true });
+    return;
+  }
+
   try {
     await store.ensureShops();
-    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」`);
+    await loadSmartPlan({ categoryId, categoryName });
+    ElMessage.success(`已选「${smartPlan.value.category_name || categoryName}」`);
     await persistSession({ server: true });
   } catch (error) {
     ElMessage.error(error.message);

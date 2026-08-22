@@ -17,6 +17,7 @@ from ai import AiClient, AiUnavailable  # noqa: E402
 from schema import SchemaField, index_fields, parse_schema  # noqa: E402
 from sqlalchemy.orm import Session
 
+from ..db import persist_database
 from ..models import CategorySmartPlan, Shop
 from . import catalog, defaults as defaults_service, excel_import, schema_labels, templates as template_service
 from .icbu_publishing_skill import checklist_for_review, skill_prompt_block
@@ -135,13 +136,26 @@ def _ai_completes_block(
     return json.dumps(lines, ensure_ascii=False)
 
 
+def _cached_plan_payload(row: CategorySmartPlan, *, category_name: str = "") -> dict[str, Any] | None:
+    try:
+        payload = json.loads(row.plan_json or "{}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or not payload.get("columns"):
+        return None
+    payload["cached"] = True
+    payload["planner"] = row.planner or payload.get("planner") or "rules"
+    if category_name and not payload.get("category_name"):
+        payload["category_name"] = category_name
+    return payload
+
+
 def _try_fast_cached_plan(
     db: Session,
     shop_id: str,
     category_id: str,
     *,
     category_name: str,
-    habits_fp: str,
     refresh: bool,
 ) -> dict[str, Any] | None:
     """Return cached plan without fetching schema or calling LLM."""
@@ -150,20 +164,31 @@ def _try_fast_cached_plan(
     row = db.get(CategorySmartPlan, {"shop_id": shop_id, "category_id": category_id})
     if row is None:
         return None
-    try:
-        payload = json.loads(row.plan_json or "{}")
-    except json.JSONDecodeError:
+    return _cached_plan_payload(row, category_name=category_name)
+
+
+def _try_user_category_cached_plan(
+    db: Session,
+    user_id: str,
+    shop_id: str,
+    category_id: str,
+    *,
+    category_name: str,
+    refresh: bool,
+) -> dict[str, Any] | None:
+    """Reuse a plan from another shop when the same leaf category was planned before."""
+    if refresh:
         return None
-    if not payload.get("columns"):
+    row = (
+        db.query(CategorySmartPlan)
+        .join(Shop, Shop.id == CategorySmartPlan.shop_id)
+        .filter(Shop.user_id == user_id, CategorySmartPlan.category_id == category_id, CategorySmartPlan.shop_id != shop_id)
+        .order_by(CategorySmartPlan.updated_at.desc())
+        .first()
+    )
+    if row is None:
         return None
-    stored_fp = str(payload.get("habits_fingerprint") or "")
-    if stored_fp and stored_fp != habits_fp:
-        return None
-    payload["cached"] = True
-    payload["planner"] = row.planner or payload.get("planner") or "rules"
-    if category_name and not payload.get("category_name"):
-        payload["category_name"] = category_name
-    return payload
+    return _cached_plan_payload(row, category_name=category_name)
 
 
 def _shop_defaults(shop: Shop) -> dict[str, Any]:
@@ -447,15 +472,7 @@ def _load_cached_plan(db: Session, shop_id: str, category_id: str, input_hash: s
     row = db.get(CategorySmartPlan, {"shop_id": shop_id, "category_id": category_id})
     if row is None or row.input_hash != input_hash:
         return None
-    try:
-        payload = json.loads(row.plan_json or "{}")
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict) or not payload.get("columns"):
-        return None
-    payload["cached"] = True
-    payload["planner"] = row.planner or payload.get("planner") or "rules"
-    return payload
+    return _cached_plan_payload(row)
 
 
 def _save_cached_plan(
@@ -485,6 +502,7 @@ def _save_cached_plan(
         row.plan_json = payload
     try:
         db.commit()
+        persist_database()
     except Exception:
         db.rollback()
 
@@ -510,11 +528,20 @@ def build_plan(
             shop.id,
             category_id,
             category_name=category_name,
-            habits_fp=habits_fp,
             refresh=refresh,
         )
         if fast is not None:
             return fast
+        cross_shop = _try_user_category_cached_plan(
+            db,
+            shop.user_id,
+            shop.id,
+            category_id,
+            category_name=category_name,
+            refresh=refresh,
+        )
+        if cross_shop is not None:
+            return cross_shop
     xml = catalog.get_schema_xml(db, api, category_id, "zh")
     fields = parse_schema(xml)
     fields_flat = excel_import.flatten_schema_fields(fields)
