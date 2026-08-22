@@ -587,7 +587,18 @@ async def parse_documents(
         )
         result["planner"] = "smart" if plan_columns else "simple"
         download_columns = plan_columns or result.get("columns") or []
-        review_columns = review_enrich.order_review_columns(download_columns)
+        review_columns = download_columns
+        if category_id and shop_id and download_columns:
+            shop = shop_for(db, user, shop_id)
+            review_columns = smart_plan.expand_audit_columns(
+                db,
+                shop_api(shop),
+                shop,
+                category_id,
+                download_columns,
+            )
+        else:
+            review_columns = review_enrich.order_review_columns(download_columns)
         enriched_rows = []
         for row in result.get("rows") or []:
             item = dict(row)
@@ -733,13 +744,33 @@ async def grid_infer_fields(
         category_id,
         plan_columns=plan_columns,
     )
+    if category_id and shop_id and plan_columns:
+        shop = shop_for(db, user, shop_id)
+        grid_columns = smart_plan.expand_audit_columns(db, shop_api(shop), shop, category_id, plan_columns)
     targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
-    updated, errors, filled_count = review_enrich.infer_fields_for_rows(
+    ai = AiClient.from_env_or_none()
+    shop_defaults_payload: dict[str, Any] = {}
+    if shop_id:
+        try:
+            shop = shop_for(db, user, shop_id)
+            shop_defaults_payload = smart_plan._shop_defaults(shop)
+        except Exception:
+            shop_defaults_payload = {}
+    updated, errors, filled_count, meta = review_enrich.infer_fields_for_rows(
         payload,
         grid_columns,
         lines=targets or None,
+        ai=ai,
+        shop_defaults=shop_defaults_payload,
     )
-    return {"rows": updated, "errors": errors, "filled_count": filled_count}
+    return {
+        "rows": updated,
+        "errors": errors,
+        "filled_count": filled_count,
+        "fillable_columns": meta.get("fillable_columns", 0),
+        "missing_required_cells": meta.get("missing_required_cells", 0),
+        "columns": grid_columns,
+    }
 
 
 @router.post("/grid-generate-images")

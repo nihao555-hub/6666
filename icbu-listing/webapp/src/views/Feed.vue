@@ -1800,7 +1800,8 @@ function onReviewImageDrop(event) {
 
 async function inferFieldsForRows(lines, options = {}) {
   const { silent = false } = options;
-  if (!docGrid.rows.length) return { ok: true, skipped: true };
+  if (!docGrid.rows.length) return { ok: true, skipped: true, reason: "no_rows" };
+  if (aiServiceReady.value === false) return { ok: true, skipped: true, reason: "no_ai" };
   docInferring.value = true;
   try {
     const body = new FormData();
@@ -1814,17 +1815,30 @@ async function inferFieldsForRows(lines, options = {}) {
     body.append("rows", JSON.stringify(docGrid.rows));
     body.append("lines", JSON.stringify(lines || []));
     const result = await api.excelGridInferFields(body);
-    docGrid.rows = normalizeDocRows(result.rows || []);
+    if (Array.isArray(result.rows) && result.rows.length) {
+      docGrid.rows = normalizeDocRows(result.rows);
+    }
+    if (Array.isArray(result.columns) && result.columns.length) {
+      docGrid.columns = result.columns;
+    }
     await recheckDocGrid({ silent: true });
-    await persistSession();
+    scheduleLocalDraft();
+    scheduleServerSync();
     if (!silent) {
       if (result.filled_count) {
-        ElMessage.success(`已从备注推断 ${result.filled_count} 个属性`);
+        ElMessage.success(`已补全 ${result.filled_count} 个属性`);
+      } else if (result.missing_required_cells) {
+        ElMessage.warning(`仍有 ${result.missing_required_cells} 个必填属性缺依据，请补备注或手填`);
       } else {
-        ElMessage.info("没有找到有依据可补的空属性");
+        ElMessage.info("属性已齐");
       }
     }
-    return { ok: true, filled_count: result.filled_count || 0 };
+    return {
+      ok: true,
+      filled_count: result.filled_count || 0,
+      fillable_columns: result.fillable_columns || 0,
+      missing_required_cells: result.missing_required_cells || 0,
+    };
   } catch (error) {
     if (!silent) ElMessage.error(error.message);
     return { ok: false, error: error.message };
@@ -2060,7 +2074,9 @@ async function regenCopyForRows(lines, options = {}) {
     body.append("rows", JSON.stringify(docGrid.rows));
     body.append("lines", JSON.stringify(lines || []));
     const result = await api.excelGridRegenCopy(body);
-    docGrid.rows = normalizeDocRows(result.rows || []);
+    if (Array.isArray(result.rows) && result.rows.length) {
+      docGrid.rows = normalizeDocRows(result.rows);
+    }
     const copyOk = docGrid.rows.filter((row) => !rowMissingCopy(row)).length;
     if (result.errors?.length) {
       if (!silent) ElMessage.warning(result.errors[0]);
@@ -2084,12 +2100,13 @@ function rowsNeedingCopy() {
 }
 
 async function autoStartReviewCopy() {
-  if (!docGrid.rows.length || !doc.categoryId) return { ok: true, skipped: true };
-  if (!rowsNeedingCopy().length) return { ok: true, skipped: true, copyOk: docGrid.rows.length };
+  if (!docGrid.rows.length || !doc.categoryId) return { ok: true, skipped: true, reason: "no_rows" };
+  if (!rowsNeedingCopy().length) {
+    return { ok: true, skipped: true, reason: "has_copy", copyOk: docGrid.rows.length };
+  }
   const need = rowsNeedingCopy().length;
   patchReviewStep("copy", { status: "running", detail: `共 ${need} 行` });
-  const result = await regenCopyForRows([], { silent: true });
-  return result;
+  return regenCopyForRows([], { silent: true });
 }
 
 async function loadCategoryTemplates() {
@@ -2234,7 +2251,11 @@ async function runReviewAssistImpl(force = false) {
 
       const copyResult = await autoStartReviewCopy();
       if (copyResult.skipped) {
-        patchReviewStep("copy", { status: "done", detail: "已有文案" });
+        if (copyResult.reason === "no_rows") {
+          patchReviewStep("copy", { status: "error", detail: "无商品行" });
+        } else {
+          patchReviewStep("copy", { status: "done", detail: "已有文案" });
+        }
       } else if (copyResult.ok) {
         patchReviewStep("copy", {
           status: "done",
@@ -2244,16 +2265,27 @@ async function runReviewAssistImpl(force = false) {
         patchReviewStep("copy", { status: "error", detail: copyResult.error || "文案生成失败" });
       }
 
-      patchReviewStep("attrs", { status: "running", detail: "从备注推断官方属性…" });
+      patchReviewStep("attrs", { status: "running", detail: "补全官方属性…" });
       docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
       const inferResult = await inferFieldsForRows([], { silent: true });
       if (inferResult.skipped) {
-        patchReviewStep("attrs", { status: "skip", detail: "无可推断字段" });
+        if (inferResult.reason === "no_rows") {
+          patchReviewStep("attrs", { status: "error", detail: "无商品行" });
+        } else if (inferResult.reason === "no_ai") {
+          patchReviewStep("attrs", { status: "error", detail: "需要 AI 服务" });
+        } else {
+          patchReviewStep("attrs", { status: "done", detail: "无可补属性列" });
+        }
       } else if (inferResult.ok) {
-        patchReviewStep("attrs", {
-          status: "done",
-          detail: inferResult.filled_count ? `补了 ${inferResult.filled_count} 个属性` : "属性已齐",
-        });
+        const filled = inferResult.filled_count || 0;
+        const missing = inferResult.missing_required_cells || 0;
+        if (missing) {
+          patchReviewStep("attrs", { status: "error", detail: `已补 ${filled} 项，仍缺 ${missing} 个必填` });
+        } else if (filled) {
+          patchReviewStep("attrs", { status: "done", detail: `已补 ${filled} 项属性` });
+        } else {
+          patchReviewStep("attrs", { status: "done", detail: "属性已齐" });
+        }
       } else {
         patchReviewStep("attrs", { status: "error", detail: inferResult.error || "推断失败" });
       }
@@ -2284,12 +2316,16 @@ async function runReviewAssistImpl(force = false) {
       }
     }
 
-    patchReviewStep("check", { status: "running", detail: "重新统计价量/文案/图片…" });
+    patchReviewStep("check", { status: "running", detail: "校验…" });
     await recheckDocGrid({ silent: true });
-    patchReviewStep("check", {
-      status: "done",
-      detail: `文案 ${reviewStats.value.copyOk}/${reviewStats.value.total} · 六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
-    });
+    if (!reviewStats.value.total) {
+      patchReviewStep("check", { status: "error", detail: "无商品行" });
+    } else {
+      patchReviewStep("check", {
+        status: "done",
+        detail: `文案 ${reviewStats.value.copyOk}/${reviewStats.value.total} · 六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
+      });
+    }
   } finally {
     reviewAssistRunning.value = false;
     void persistSession({ server: true });

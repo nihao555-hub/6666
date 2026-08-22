@@ -580,6 +580,35 @@ def build_plan(
     return plan
 
 
+def expand_audit_columns(
+    db: Session,
+    api: Any,
+    shop: Shop,
+    category_id: str,
+    plan_columns: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Add AI-fill schema columns to the review grid (not on the download sheet)."""
+    from . import review_enrich
+
+    if not category_id:
+        return review_enrich.order_review_columns(plan_columns)
+    try:
+        xml = catalog.get_schema_xml(db, api, category_id, "zh")
+        fields = parse_schema(xml)
+        shop_defaults = _shop_defaults(shop)
+        template_values = _template_values(db, shop.id, category_id)
+        candidates, _, _ = candidate_columns(
+            fields,
+            shop_defaults=shop_defaults,
+            template_values=template_values,
+        )
+        user_ids = {str(col.get("id") or "") for col in plan_columns if col.get("id")}
+        ai_targets = review_enrich.ai_target_columns(candidates, user_ids)
+        return review_enrich.audit_columns(plan_columns, ai_targets)
+    except Exception:
+        return review_enrich.order_review_columns(plan_columns)
+
+
 def build_smart_template_bytes(plan: Mapping[str, Any]) -> bytes:
     columns = list(plan.get("columns") or [])
     category_id = str(plan.get("category_id") or "")

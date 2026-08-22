@@ -64,6 +64,7 @@ class ReviewEnrichTests(unittest.TestCase):
             {
                 "id": "attr.icbuCatProp.p-hard",
                 "label": "硬度",
+                "required": True,
                 "options": [{"label": "HB", "value": "HB"}, {"label": "2B", "value": "2B"}],
             }
         ]
@@ -73,6 +74,39 @@ class ReviewEnrichTests(unittest.TestCase):
         )
         self.assertEqual(patch.get("attr.icbuCatProp.p-hard"), "HB")
         self.assertTrue(hints)
+
+    def test_ai_target_columns_excludes_user_sheet(self) -> None:
+        candidates = [
+            {"id": "sku", "label": "货号", "required": True},
+            {"id": "attr.icbuCatProp.p-hard", "label": "硬度", "required": True, "source": "schema_required"},
+            {"id": "schema.paymentMethod", "label": "付款", "source": "schema_score"},
+        ]
+        targets = review_enrich.ai_target_columns(candidates, {"sku", "price", "moq"})
+        ids = {item["id"] for item in targets}
+        self.assertIn("attr.icbuCatProp.p-hard", ids)
+        self.assertIn("schema.paymentMethod", ids)
+        self.assertNotIn("sku", ids)
+
+    def test_infer_fields_with_mock_ai(self) -> None:
+        ai = MagicMock()
+        ai.chat_json.return_value = {"attr.icbuCatProp.p-hard": "HB"}
+        columns = [
+            {
+                "id": "attr.icbuCatProp.p-hard",
+                "label": "硬度",
+                "required": True,
+                "source": "schema_required",
+                "options": [{"label": "HB", "value": "HB"}, {"label": "2B", "value": "2B"}],
+            }
+        ]
+        rows, _errors, filled, meta = review_enrich.infer_fields_for_rows(
+            [{"line": 2, "sku": "P-1", "name": "铅笔", "note": "素描铅笔"}],
+            columns,
+            ai=ai,
+        )
+        self.assertEqual(filled, 1)
+        self.assertEqual(rows[0].get("attr.icbuCatProp.p-hard"), "HB")
+        self.assertGreaterEqual(meta.get("fillable_columns", 0), 1)
 
     def test_infer_fields_skips_ambiguous(self) -> None:
         columns = [
