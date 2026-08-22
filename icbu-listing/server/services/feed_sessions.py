@@ -148,9 +148,9 @@ def get_owned(db: Session, user_id: str, session_id: str) -> FeedSession | None:
     row = db.get(FeedSession, session_id)
     if row is not None and row.user_id == user_id:
         return row
-    from ..db import reload_db_from_blob
+    from ..db import reload_db_from_blob_throttled
 
-    if reload_db_from_blob():
+    if reload_db_from_blob_throttled(min_interval_seconds=2.0):
         db.expire_all()
         row = db.get(FeedSession, session_id)
         if row is not None and row.user_id == user_id:
@@ -163,14 +163,14 @@ def get_owned_with_retry(
     user_id: str,
     session_id: str,
     *,
-    attempts: int = 10,
-    delay_seconds: float = 0.18,
+    attempts: int = 4,
+    delay_seconds: float = 0.12,
 ) -> FeedSession | None:
     """Resolve a session across serverless instances with blob propagation retries."""
-    from ..db import reload_db_from_blob
+    from ..db import reload_db_from_blob_throttled
 
     for attempt in range(max(1, attempts)):
-        reload_db_from_blob()
+        reload_db_from_blob_throttled(min_interval_seconds=1.5)
         db.expire_all()
         row = db.get(FeedSession, session_id)
         if row is not None and row.user_id == user_id:

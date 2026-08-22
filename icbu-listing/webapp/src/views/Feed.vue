@@ -980,9 +980,10 @@ function retryDelaysForSessionWrite() {
   return isSessionFresh() ? sessionApiRetryDelaysFresh : [];
 }
 
-async function fetchFeedSessionWithRetry(id) {
+async function fetchFeedSessionWithRetry(id, options = {}) {
+  const { boot = false } = options;
   let lastError = null;
-  const delays = sessionApiRetryDelaysFetch;
+  const delays = boot ? [0, 80, 160] : sessionApiRetryDelaysFetch;
   for (let attempt = 0; attempt <= delays.length; attempt += 1) {
     try {
       return await api.getFeedSession(id);
@@ -1331,12 +1332,12 @@ async function finishResumeSession() {
   }
 }
 
-async function resolveSessionById(id) {
+async function resolveSessionById(id, options = {}) {
   if (!id || deadSessionIds.has(id)) return null;
   const cached = sessionFromOpenList(id);
   if (cached) return cached;
   try {
-    const remote = await fetchFeedSessionWithRetry(id);
+    const remote = await fetchFeedSessionWithRetry(id, options);
     if (remote?.id) {
       verifySession(remote.id);
       const existing = openSessions.value.some((item) => item.id === remote.id);
@@ -1407,15 +1408,45 @@ async function backToChooser() {
   await startPath();
 }
 
+async function hydrateSessionFromServer(id) {
+  if (!id || deadSessionIds.has(id)) return;
+  try {
+    await loadOpenSessions();
+    const remote = await resolveSessionById(id, { boot: true });
+    if (remote) {
+      applySession(remote);
+      void finishResumeSession();
+    }
+  } catch {
+    /* keep local draft visible */
+  }
+}
+
 async function bootSession() {
   sessionBooting.value = true;
   try {
-    await loadOpenSessions();
     const wanted = route.query.session ? String(route.query.session) : "";
+    const localDraft = !wanted ? loadLocalDraft() : null;
+    if (localDraft?.sessionId && !deadSessionIds.has(localDraft.sessionId)) {
+      sessionId.value = localDraft.sessionId;
+      applyDraftPayload(localDraft);
+      verifySession(localDraft.sessionId);
+      router.replace({ query: { session: localDraft.sessionId } });
+      sessionBooting.value = false;
+      void hydrateSessionFromServer(localDraft.sessionId);
+      return;
+    }
+
+    const shopsReady = store.shops.length ? Promise.resolve() : store.ensureShops();
+
     if (wanted && deadSessionIds.has(wanted)) {
       router.replace({ query: {} });
     } else if (wanted && !deadSessionIds.has(wanted)) {
-      const cached = await resolveSessionById(wanted);
+      const [, cached] = await Promise.all([
+        shopsReady,
+        resolveSessionById(wanted, { boot: true }),
+      ]);
+      void loadOpenSessions();
       if (cached) {
         applySession(cached);
         verifySession(wanted);
@@ -1425,6 +1456,8 @@ async function bootSession() {
       }
       router.replace({ query: {} });
     }
+
+    await Promise.all([shopsReady, loadOpenSessions()]);
     const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (latest) {
       applySession(latest);
@@ -1440,17 +1473,14 @@ async function bootSession() {
 }
 
 onMounted(async () => {
-  const [, healthResult] = await Promise.allSettled([
-    store.ensureShops().then(() => {
-      if (store.shopId) void prefetchCategoryPicker(store.shopId);
-    }),
-    api.health(),
-  ]);
-  if (healthResult.status === "fulfilled") {
-    aiServiceReady.value = healthResult.value.ai_enabled !== false;
-  } else {
+  void api.health().then((health) => {
+    aiServiceReady.value = health.ai_enabled !== false;
+  }).catch(() => {
     aiServiceReady.value = null;
-  }
+  });
+  void store.ensureShops().then(() => {
+    if (store.shopId) void prefetchCategoryPicker(store.shopId);
+  });
   await bootSession();
   useEcosystemAssistant.value = loadEcosystemPref();
 });
