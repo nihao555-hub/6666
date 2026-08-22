@@ -150,19 +150,25 @@
           </div>
         </header>
 
-        <el-alert
-          v-if="docGrid.regenerating"
-          type="info"
-          title="AI 正在写英文标题和关键词…"
-          :closable="false"
-          class="review-alert"
-        />
-        <el-alert
-          type="info"
-          title="AI 负责：英文标题、关键词、卖点、套图。你负责：单价、起订量、官方属性列（铅芯颜色等）。"
-          :closable="false"
-          class="review-alert"
-        />
+        <section class="review-ai-progress">
+          <div class="review-ai-progress-head">
+            <h4>AI 处理进度</h4>
+            <el-button v-if="!reviewAssistRunning" text type="primary" @click="runReviewAssist(true)">
+              重跑 AI 步骤
+            </el-button>
+          </div>
+          <ol class="review-ai-steps">
+            <li v-for="step in reviewAiSteps" :key="step.id" :class="`is-${step.status}`">
+              <span class="review-ai-step-dot" />
+              <div class="review-ai-step-body">
+                <b>{{ step.label }}</b>
+                <span>{{ reviewStepStatusLabel(step.status) }}</span>
+                <small v-if="step.detail">{{ step.detail }}</small>
+              </div>
+            </li>
+          </ol>
+        </section>
+
         <el-alert
           v-for="warning in docGrid.warnings || []"
           :key="warning"
@@ -470,6 +476,34 @@ const excel = reactive({
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
 const smartPlanLoading = ref(false);
 const categoryBrowser = ref(false);
+const aiServiceReady = ref(null);
+const reviewAssistRunning = ref(false);
+const reviewAiSteps = ref(createReviewAiSteps());
+
+function createReviewAiSteps() {
+  return [
+    { id: "service", label: "1. 检查 AI 服务", status: "pending", detail: "" },
+    { id: "copy", label: "2. 写英文标题和关键词", status: "pending", detail: "" },
+    { id: "images", label: "3. 生成商品套图", status: "pending", detail: "" },
+    { id: "check", label: "4. 更新校验结果", status: "pending", detail: "" },
+  ];
+}
+
+function resetReviewAiSteps() {
+  reviewAiSteps.value = createReviewAiSteps();
+}
+
+function patchReviewStep(id, patch) {
+  reviewAiSteps.value = reviewAiSteps.value.map((step) => (step.id === id ? { ...step, ...patch } : step));
+}
+
+function reviewStepStatusLabel(status) {
+  if (status === "running") return "进行中";
+  if (status === "done") return "完成";
+  if (status === "error") return "失败";
+  if (status === "skip") return "跳过";
+  return "等待";
+}
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
@@ -771,7 +805,9 @@ async function resumeSession(id) {
     if (doc.categoryId) {
       await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
       ensureGridPolling();
-      if (docStep.value === 1) void runReviewAssist();
+      if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+        void runReviewAssist(true);
+      }
     }
   } catch (error) {
     const msg = String(error.message || "");
@@ -825,6 +861,12 @@ onMounted(async () => {
   } catch {
     /* shop list loads again when user opens category picker */
   }
+  try {
+    const health = await api.health();
+    aiServiceReady.value = health.ai_enabled !== false;
+  } catch {
+    aiServiceReady.value = null;
+  }
   await bootSession();
 });
 
@@ -834,12 +876,6 @@ watch(
   () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistSession, 400);
-  },
-);
-watch(
-  () => docStep.value,
-  (step) => {
-    if (step === 1) void runReviewAssist();
   },
 );
 watch(
@@ -1095,6 +1131,7 @@ function advanceDoc(index) {
   docReached.value = Math.max(docReached.value, index);
   docStep.value = index;
   persistSession();
+  if (index === 1) void runReviewAssist();
 }
 
 function rowSlots(row) {
@@ -1132,6 +1169,16 @@ async function pollGridImages() {
     if (!result.pending) {
       clearInterval(gridPollTimer);
       gridPollTimer = null;
+      patchReviewStep("images", {
+        status: "done",
+        detail: `六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
+      });
+      await recheckDocGrid({ silent: true });
+    } else {
+      patchReviewStep("images", {
+        status: "running",
+        detail: docImageGenSummary.value || "后台生成中…",
+      });
     }
     await persistSession();
   } catch {
@@ -1289,7 +1336,7 @@ async function batchSetField(field) {
 
 async function generateImagesForRows(lines, options = {}) {
   const { silent = false } = options;
-  if (!docGrid.rows.length) return;
+  if (!docGrid.rows.length) return { ok: true, skipped: true };
   docGrid.generating = true;
   try {
     const body = new FormData();
@@ -1300,14 +1347,19 @@ async function generateImagesForRows(lines, options = {}) {
     body.append("lines", JSON.stringify(lines || []));
     const result = await api.excelGridGenerateImages(body);
     docGrid.rows = normalizeDocRows(result.rows || []);
-    if (result.errors?.length) ElMessage.warning(result.errors[0]);
+    if (result.errors?.length) {
+      if (!silent) ElMessage.warning(result.errors[0]);
+      return { ok: false, error: result.errors[0] };
+    }
     ensureGridPolling();
     await persistSession();
     if (!silent) {
       ElMessage.success(lines?.length ? "已开始为选中行出图" : "已开始为全部商品出图");
     }
+    return { ok: true };
   } catch (error) {
     if (!silent) ElMessage.error(error.message);
+    return { ok: false, error: error.message };
   } finally {
     docGrid.generating = false;
   }
@@ -1351,7 +1403,7 @@ function generateImagesForRow(row) {
 
 async function regenCopyForRows(lines, options = {}) {
   const { silent = false } = options;
-  if (!docGrid.rows.length) return;
+  if (!docGrid.rows.length) return { ok: true, skipped: true };
   docGrid.regenerating = true;
   try {
     const body = new FormData();
@@ -1362,13 +1414,19 @@ async function regenCopyForRows(lines, options = {}) {
     body.append("lines", JSON.stringify(lines || []));
     const result = await api.excelGridRegenCopy(body);
     docGrid.rows = normalizeDocRows(result.rows || []);
-    if (result.errors?.length) ElMessage.warning(result.errors[0]);
+    const copyOk = docGrid.rows.filter((row) => !rowMissingCopy(row)).length;
+    if (result.errors?.length) {
+      if (!silent) ElMessage.warning(result.errors[0]);
+      return { ok: false, error: result.errors[0], copyOk };
+    }
     await persistSession();
     if (!silent) {
       ElMessage.success(lines?.length ? "已重写选中行文案" : "已重写全部文案");
     }
+    return { ok: true, copyOk };
   } catch (error) {
     if (!silent) ElMessage.error(error.message);
+    return { ok: false, error: error.message };
   } finally {
     docGrid.regenerating = false;
   }
@@ -1379,15 +1437,74 @@ function rowsNeedingCopy() {
 }
 
 async function autoStartReviewCopy() {
-  if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return;
-  if (!rowsNeedingCopy().length) return;
-  await regenCopyForRows([], { silent: true });
+  if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return { ok: true, skipped: true };
+  if (!rowsNeedingCopy().length) return { ok: true, skipped: true, copyOk: docGrid.rows.length };
+  const need = rowsNeedingCopy().length;
+  patchReviewStep("copy", { status: "running", detail: `共 ${need} 行` });
+  const result = await regenCopyForRows([], { silent: true });
+  return result;
 }
 
-async function runReviewAssist() {
+async function runReviewAssist(force = false) {
   if (docStep.value !== 1 || !docGrid.rows.length || !doc.categoryId) return;
-  await Promise.all([autoStartReviewCopy(), autoStartReviewImages()]);
-  await recheckDocGrid({ silent: true });
+  if (reviewAssistRunning.value && !force) return;
+  reviewAssistRunning.value = true;
+  resetReviewAiSteps();
+  try {
+    patchReviewStep("service", { status: "running", detail: "检查文案与出图服务…" });
+    if (aiServiceReady.value === null) {
+      try {
+        const health = await api.health();
+        aiServiceReady.value = health.ai_enabled !== false;
+      } catch {
+        aiServiceReady.value = null;
+      }
+    }
+    if (aiServiceReady.value === false) {
+      patchReviewStep("service", { status: "error", detail: "未配置 OPENAI_API_KEY" });
+      patchReviewStep("copy", { status: "skip", detail: "需要 AI 服务" });
+      patchReviewStep("images", { status: "skip", detail: "需要 AI 服务" });
+    } else {
+      patchReviewStep("service", { status: "done", detail: "服务可用" });
+
+      const copyResult = await autoStartReviewCopy();
+      if (copyResult.skipped) {
+        patchReviewStep("copy", { status: "done", detail: "已有文案" });
+      } else if (copyResult.ok) {
+        patchReviewStep("copy", {
+          status: "done",
+          detail: `已完成 ${copyResult.copyOk || 0}/${docGrid.rows.length} 行`,
+        });
+      } else {
+        patchReviewStep("copy", { status: "error", detail: copyResult.error || "文案生成失败" });
+      }
+
+      const imageNeed = rowsNeedingImageJobs().length;
+      if (imageNeed) {
+        patchReviewStep("images", { status: "running", detail: `提交 ${imageNeed} 行出图任务…` });
+        const imageResult = await generateImagesForRows([], { silent: true });
+        if (imageResult.ok) {
+          patchReviewStep("images", {
+            status: "running",
+            detail: `已提交，后台生成中（${docImageGenSummary.value || "刷新状态可看进度"}）`,
+          });
+        } else {
+          patchReviewStep("images", { status: "error", detail: imageResult.error || "出图失败" });
+        }
+      } else {
+        patchReviewStep("images", { status: "done", detail: "图片已齐或任务进行中" });
+      }
+    }
+
+    patchReviewStep("check", { status: "running", detail: "重新统计价量/文案/图片…" });
+    await recheckDocGrid({ silent: true });
+    patchReviewStep("check", {
+      status: "done",
+      detail: `文案 ${reviewStats.value.copyOk}/${reviewStats.value.total} · 六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
+    });
+  } finally {
+    reviewAssistRunning.value = false;
+  }
 }
 
 function regenCopyForSelection() {
@@ -1439,7 +1556,6 @@ async function parseDocuments() {
     await persistSession();
     advanceDoc(1);
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
-    void runReviewAssist();
   } catch (error) {
     ElMessage.error(error.message);
   } finally {
@@ -2277,7 +2393,87 @@ onUnmounted(() => {
 }
 
 .review-alert {
+  margin: 12px 0 0;
+}
+
+.review-ai-progress {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+  padding: 14px 16px;
+}
+
+.review-ai-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.review-ai-progress-head h4 {
   margin: 0;
+  font-size: 14px;
+}
+
+.review-ai-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.review-ai-steps li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.review-ai-step-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 4px;
+  background: var(--muted);
+}
+
+.review-ai-step-body {
+  display: grid;
+  gap: 2px;
+}
+
+.review-ai-step-body b {
+  font-size: 13px;
+}
+
+.review-ai-step-body span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.review-ai-step-body small {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.review-ai-steps li.is-running .review-ai-step-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-wash);
+}
+
+.review-ai-steps li.is-done .review-ai-step-dot {
+  background: #16a34a;
+}
+
+.review-ai-steps li.is-error .review-ai-step-dot {
+  background: #dc2626;
+}
+
+.review-ai-steps li.is-skip .review-ai-step-dot {
+  background: #94a3b8;
 }
 
 .review-panel {
