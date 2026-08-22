@@ -29,12 +29,15 @@ class ApplyIn(BaseModel):
 @router.get("/templates")
 def list_templates(
     shop_id: str = "",
+    category_id: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> list[dict[str, Any]]:
     query = db.query(Template).filter(Template.user_id == user.id)
     if shop_id:
         query = query.filter(Template.shop_id == shop_id)
+    if category_id:
+        query = query.filter(Template.category_id == category_id)
     return [service.as_dict(item) for item in query.order_by(Template.created_at.desc()).all()]
 
 

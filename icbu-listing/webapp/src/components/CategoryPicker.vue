@@ -13,7 +13,7 @@
           <el-link v-if="path.length" type="info" style="margin-left: 8px" @click="openNode('0')">回到顶层</el-link>
         </p>
         <el-table
-          v-loading="loading"
+          v-loading="loading && !children.length"
           :data="children"
           height="420"
           empty-text="还没有拉到类目。请确认已登录店铺，或点右侧常用类目。"
@@ -75,7 +75,7 @@
         <p v-if="!loadingSide && !recent.length && !used.length" class="muted side-empty">
           还没有常用类目。先在线发几个货，或从左侧树里选一次，之后就会出现在这里。
         </p>
-        <p v-if="loadingSide" class="muted side-empty">正在拉常用类目…</p>
+        <p v-if="loadingSide && !recent.length && !used.length" class="muted side-empty">正在拉常用类目…</p>
       </aside>
     </div>
   </el-dialog>
@@ -86,6 +86,12 @@ import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { store } from "../store";
+import {
+  readCategoryCache,
+  sidebarCacheKey,
+  treeCacheKey,
+  writeCategoryCache,
+} from "../categoryPickerCache";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -99,7 +105,6 @@ const children = ref([]);
 const path = ref([]);
 const recent = ref([]);
 const used = ref([]);
-const sideLoaded = ref(false);
 
 watch(
   () => props.modelValue,
@@ -108,6 +113,20 @@ watch(
   },
 );
 watch(open, (value) => emit("update:modelValue", value));
+
+function applySidebar(data) {
+  if (!data) return false;
+  recent.value = data.recent || [];
+  used.value = data.used || [];
+  return Boolean(recent.value.length || used.value.length);
+}
+
+function applyTree(data) {
+  if (!data) return false;
+  children.value = data.children || [];
+  path.value = data.path || [];
+  return children.value.length > 0;
+}
 
 function usedHint(item) {
   if (item.source === "recent") return "最近选过";
@@ -126,16 +145,21 @@ function chooseUsed(item) {
   openNode(item.category_id);
 }
 
-async function loadSidebar() {
+async function loadSidebar(options = {}) {
+  const { silent = false } = options;
   if (!store.shopId) return;
-  loadingSide.value = true;
+  const cached = readCategoryCache(sidebarCacheKey(store.shopId));
+  if (cached) applySidebar(cached);
+  if (cached && !silent) loadingSide.value = false;
+  else if (!cached) loadingSide.value = true;
   try {
-    const data = await api.categories(store.shopId, "0", { sidebar: true });
-    recent.value = data.recent || [];
-    used.value = data.used || [];
-    sideLoaded.value = true;
+    const data = await api.categorySidebar(store.shopId);
+    applySidebar(data);
+    if ((data.used || []).length || (data.recent || []).length) {
+      writeCategoryCache(sidebarCacheKey(store.shopId), data);
+    }
   } catch (error) {
-    if (!String(error.message || "").includes("登录")) {
+    if (!cached && !String(error.message || "").includes("登录")) {
       ElMessage.error(error.message);
     }
   } finally {
@@ -148,23 +172,26 @@ async function openNode(parent) {
     ElMessage.warning("先登录一个店铺");
     return;
   }
-  loading.value = true;
+  const cacheKey = treeCacheKey(store.shopId, parent);
+  const cached = readCategoryCache(cacheKey);
+  if (cached) applyTree(cached);
+  if (!cached || !children.value.length) loading.value = true;
   try {
     const data = await api.categories(store.shopId, parent);
     children.value = data.children || [];
     path.value = data.path || [];
+    writeCategoryCache(cacheKey, { children: children.value, path: path.value });
   } catch (error) {
-    children.value = [];
-    ElMessage.error(error.message);
+    if (!cached) {
+      children.value = [];
+      ElMessage.error(error.message);
+    }
   } finally {
     loading.value = false;
   }
 }
 
 async function onOpen() {
-  sideLoaded.value = false;
-  recent.value = [];
-  used.value = [];
   if (store.user) {
     try {
       await store.ensureShops();
@@ -172,8 +199,9 @@ async function onOpen() {
       /* shop binding happens on Feed mount */
     }
   }
-  await openNode("0");
-  loadSidebar();
+  applySidebar(readCategoryCache(sidebarCacheKey(store.shopId)));
+  applyTree(readCategoryCache(treeCacheKey(store.shopId, "0")));
+  await Promise.all([openNode("0"), loadSidebar({ silent: Boolean(recent.value.length || used.value.length) })]);
 }
 
 function pathLabel(node) {
@@ -200,6 +228,7 @@ async function recordPick(payload) {
       category_id: payload.category_id,
       category_name: payload.path_label || payload.label || payload.name || "",
     });
+    sessionStorage.removeItem(sidebarCacheKey(store.shopId));
   } catch {
     /* remembering recent picks is optional */
   }

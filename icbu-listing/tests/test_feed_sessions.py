@@ -125,6 +125,19 @@ class FeedSessionTests(unittest.TestCase):
         self.assertEqual(uploaded.status_code, 200, uploaded.text)
         self.assertEqual(uploaded.json()["files"][0]["kind"], "doc")
 
+    def test_patch_recreates_missing_session(self) -> None:
+        import uuid
+
+        client = signup("feed-upsert@example.com")
+        ghost_id = uuid.uuid4().hex
+        resp = client.patch(
+            f"/api/v1/feed-sessions/{ghost_id}",
+            json={"step": 1, "reached": 1, "payload": {"doc": {"categoryName": "测试类目", "rowCount": 2}}},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["id"], ghost_id)
+        self.assertIn("测试类目", resp.json()["title"])
+
     def test_drop_hides_the_unfinished_path(self) -> None:
         client = signup("feed-drop@example.com")
         session = client.post("/api/v1/feed-sessions", json={"path": "excel"}).json()

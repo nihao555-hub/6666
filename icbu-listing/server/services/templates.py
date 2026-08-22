@@ -54,7 +54,12 @@ def _empty(value: Any) -> bool:
     return value in (None, "", [], {})
 
 
-def find_for(db: Session, shop_id: str, category_id: str) -> Template | None:
+def find_for(db: Session, shop_id: str, category_id: str, *, template_id: str = "") -> Template | None:
+    if template_id:
+        row = db.get(Template, template_id)
+        if row is not None and row.shop_id == shop_id:
+            if not category_id or row.category_id == category_id:
+                return row
     if not shop_id or not category_id:
         return None
     return (
@@ -73,8 +78,15 @@ def values_of(template: Template) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def apply_to_values(db: Session, shop_id: str, category_id: str, values: Mapping[str, Any]) -> dict[str, Any]:
-    template = find_for(db, shop_id, category_id)
+def apply_to_values(
+    db: Session,
+    shop_id: str,
+    category_id: str,
+    values: Mapping[str, Any],
+    *,
+    template_id: str = "",
+) -> dict[str, Any]:
+    template = find_for(db, shop_id, category_id, template_id=template_id)
     if template is None:
         return dict(values)
     return fill_blank(values_of(template), dict(values))

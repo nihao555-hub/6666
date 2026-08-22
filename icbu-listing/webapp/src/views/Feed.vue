@@ -1,10 +1,7 @@
 <template>
   <div class="page">
-    <div class="page-head">
-      <div>
-        <h2>批量上品</h2>
-        <p class="muted">选类目 → 下载智能填写表 → 上传解析 → 审核出图成稿。做到一半会自动记下，关掉也能回来。</p>
-      </div>
+    <div v-if="docStep !== 1" class="page-head">
+      <h2>批量上品</h2>
     </div>
 
     <el-alert
@@ -12,18 +9,16 @@
       type="warning"
       show-icon
       :closable="false"
-      title="先登录一个店铺"
-      description="登录之后才能按这家店的规则成稿、把图传到店铺图库。"
+      title="先登录店铺"
       style="margin-bottom: 14px"
     />
 
     <div v-if="sessionBooting" class="boot-panel">
-      <p class="muted">正在准备批量任务…</p>
+      <p class="muted">加载中…</p>
     </div>
 
     <template v-else-if="sessionId">
       <div v-if="otherSessions.length" class="resume-inline">
-        <span class="muted">其他进行中的任务：</span>
         <button
           v-for="item in otherSessions"
           :key="item.id"
@@ -35,254 +30,228 @@
         </button>
       </div>
 
-      <div class="flow-bar">
+      <div v-if="docStep !== 1" class="flow-bar">
         <el-button @click="backToChooser">新建任务</el-button>
-        <span class="muted">{{ currentTitle }} · 做到一半会自动记下，关掉也能回来</span>
-        <el-button text @click="dropCurrent">不要这条了</el-button>
+        <span class="muted">{{ currentTitle }}</span>
+        <el-button text @click="dropCurrent">删除</el-button>
       </div>
 
-      <FishboneSteps v-model="docStep" :steps="docSteps" :reached="docReached" />
+      <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
-      <div v-if="docStep === 0" class="step-panel">
-        <h3>选类目，生成填写表</h3>
-        <p class="muted">选好叶子类目后，AI 会分析需要填哪些列。</p>
+      <div v-if="docStep === 0 && !docGrid.loading && !reviewAssistRunning" class="step-panel">
+        <h3>选类目</h3>
         <div style="margin-top: 16px">
           <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
         </div>
 
         <section v-if="smartPlanLoading" class="plan-panel plan-panel-loading">
-          <p class="muted">AI 正在分析类目…</p>
+          <section class="ai-timeline ai-timeline-vertical" aria-live="polite">
+            <header class="ai-timeline-head">
+              <strong>AI 正在分析类目</strong>
+              <span class="ai-timeline-badge is-live">进行中</span>
+            </header>
+            <ol class="ai-timeline-track">
+              <li
+                v-for="(step, index) in smartPlanAiSteps"
+                :key="step.id"
+                class="ai-timeline-item"
+                :class="`is-${step.status}`"
+              >
+                <div class="ai-timeline-rail" aria-hidden="true">
+                  <span class="ai-timeline-dot" />
+                  <span v-if="index < smartPlanAiSteps.length - 1" class="ai-timeline-line" />
+                </div>
+                <div class="ai-timeline-content">
+                  <div class="ai-timeline-row">
+                    <span class="ai-timeline-label">{{ step.label }}</span>
+                    <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
+                  </div>
+                </div>
+              </li>
+            </ol>
+          </section>
         </section>
 
         <section v-else-if="doc.categoryId && smartPlan.column_count" class="plan-panel">
           <header class="plan-head">
             <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
-            <span class="plan-badge">需填 {{ smartPlan.column_count }} 列</span>
+            <span class="plan-badge">{{ smartPlan.column_count }} 列</span>
           </header>
-          <p v-if="smartPlan.reasoning" class="plan-reasoning">{{ smartPlan.reasoning }}</p>
           <div v-if="smartColumnLabels.length" class="plan-columns">
             <div class="plan-column-tags">
               <span v-for="label in smartColumnLabels" :key="label" class="plan-tag">{{ label }}</span>
             </div>
           </div>
-          <p v-if="smartPlan.tips" class="plan-tips">{{ smartPlan.tips }}</p>
         </section>
         <div class="toolbar" style="margin: 16px 0 12px">
-          <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading" @click="downloadDocTemplate">
-            下载智能填写表
+          <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading || docTemplateDownloading" :loading="docTemplateDownloading" @click="downloadDocTemplate">
+            下载填写表
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
+          <label class="eco-toggle">
+            <el-switch v-model="useEcosystemAssistant" size="small" @change="onEcosystemToggleChange" />
+            <span>国际站生态助手</span>
+          </label>
         </div>
-        <section v-if="hasImagesColumn" class="image-help">
-          <h4>图片怎么填？</h4>
-          <p>表格里的「图片」列<strong>不能插入图片</strong>，只能写文字。任选一种方式：</p>
-          <ol>
-            <li><b>写文件名</b>：如 <code>SKU-1001_1.jpg;SKU-1001_2.jpg</code>，上传时把 xlsx 和图片文件<strong>一起拖进来</strong>，系统按货号/文件名自动对上。</li>
-            <li><b>写链接</b>：如 <code>https://example.com/a.jpg;https://example.com/b.jpg</code>，多个用英文分号隔开。</li>
-            <li><b>先留空</b>：图片列可以不填。解析进审核后，在「图片」标签里按货号补传，或点「全部出图」让 AI 生成（生成图会标黄）。</li>
-          </ol>
-        </section>
-        <section v-else-if="doc.categoryId" class="image-help">
-          <h4>这批没规划「图片」列</h4>
-          <p>下载表里可以不写图。填好 xlsx 上传后，在审核页「图片」标签按货号补传，或让 AI 出图。</p>
-        </section>
-        <el-upload
-          v-model:file-list="docFiles"
-          :auto-upload="false"
-          multiple
-          :disabled="!doc.categoryId"
-          accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
-          drag
+        <div
+          class="upload-drop-zone"
+          @dragover.prevent
+          @dragenter.prevent
+          @drop.prevent="onDropFiles"
         >
-          <div style="padding: 22px 0">把填好的 xlsx / 报价单 / 目录拖到这里（可多文件）</div>
-        </el-upload>
+          <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
+          <el-upload
+            v-model:file-list="docFiles"
+            :auto-upload="false"
+            multiple
+            accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
+            drag
+            @change="onDocFilesChange"
+          >
+            <div class="upload-drop-inner">
+              <p>拖入表格 + 图片</p>
+              <el-button type="primary" plain @click.stop="pickImageFolder">选图片文件夹</el-button>
+            </div>
+          </el-upload>
+        </div>
         <div class="step-actions" style="margin-top: 16px">
           <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.some((item) => item.raw)" @click="parseDocuments">
-            {{ parseStatus || "解析并进入审核" }}
+            {{ parseStatus || "解析" }}
           </el-button>
         </div>
       </div>
 
-      <div v-else class="step-panel review-shell">
-        <header class="review-hero">
-          <div class="review-hero-main">
-            <span class="review-kicker">批量上品 · 审核出图</span>
-            <h3>{{ doc.categoryName || smartPlan.category_name || "未命名类目" }}</h3>
-            <p class="review-hero-meta">
-              {{ docGrid.row_count || docGrid.rows.length }} 个商品
-              <span v-if="docImageGenSummary"> · {{ docImageGenSummary }}</span>
-            </p>
-          </div>
-          <div class="review-metrics">
-            <div class="review-metric" :class="{ 'is-done': reviewStats.ready === reviewStats.total && reviewStats.total }">
-              <strong>{{ reviewStats.ready }}/{{ reviewStats.total }}</strong>
-              <span>价量齐</span>
+      <section
+        v-if="docStep === 0 && showReviewAiTimeline"
+        class="ai-timeline ai-timeline-vertical audit-ai-timeline"
+        aria-live="polite"
+      >
+        <header class="ai-timeline-head">
+          <strong>AI 审核助手</strong>
+          <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
+          <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
+        </header>
+        <ol class="ai-timeline-track">
+          <li
+            v-for="(step, index) in reviewAiSteps"
+            :key="step.id"
+            class="ai-timeline-item"
+            :class="`is-${step.status}`"
+          >
+            <div class="ai-timeline-rail" aria-hidden="true">
+              <span class="ai-timeline-dot" />
+              <span v-if="index < reviewAiSteps.length - 1" class="ai-timeline-line" />
             </div>
-            <div class="review-metric" :class="{ 'is-done': reviewStats.imagesOk === reviewStats.total && reviewStats.total }">
-              <strong>{{ reviewStats.imagesOk }}/{{ reviewStats.total }}</strong>
-              <span>六图齐</span>
+            <div class="ai-timeline-content">
+              <div class="ai-timeline-row">
+                <span class="ai-timeline-label">{{ step.label }}</span>
+                <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
+              </div>
+              <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
             </div>
-            <div class="review-metric" :class="{ 'is-done': reviewStats.copyOk === reviewStats.total && reviewStats.total }">
-              <strong>{{ reviewStats.copyOk }}/{{ reviewStats.total }}</strong>
-              <span>文案齐</span>
-            </div>
-            <div class="review-metric" :class="{ 'is-warn': reviewStats.issueCount > 0 }">
-              <strong>{{ reviewStats.issueCount }}</strong>
-              <span>待改</span>
-            </div>
-            <div class="review-metric">
-              <strong>{{ reviewStats.selected }}</strong>
-              <span>已选</span>
-            </div>
-          </div>
-          <div class="review-hero-actions">
-            <el-button @click="downloadDocTemplate">下载填写表</el-button>
-            <el-button @click="docStep = 0">重新导入</el-button>
-          </div>
+          </li>
+        </ol>
+      </section>
+
+      <div v-if="docStep === 1" class="step-panel audit-shell">
+        <header class="audit-header">
+          <button type="button" class="audit-back" @click="docStep = 0">← 返回</button>
+          <h3>审核</h3>
         </header>
 
-        <el-alert
-          v-for="warning in docGrid.warnings || []"
-          :key="warning"
-          type="warning"
-          :title="warning"
-          :closable="false"
-          class="review-alert"
-        />
-
-        <section class="review-panel">
-          <div class="review-panel-top">
-            <div class="review-filters" role="tablist" aria-label="筛选商品行">
-              <button
-                v-for="item in reviewFilterOptions"
-                :key="item.id"
-                type="button"
-                class="review-filter-pill"
-                :class="{ 'is-active': reviewFilter === item.id }"
-                @click="reviewFilter = item.id"
-              >
-                {{ item.label }}
-                <small>{{ item.count }}</small>
-              </button>
-            </div>
-          </div>
-
-          <el-tabs v-model="reviewOpsTab" class="review-tabs">
-            <el-tab-pane label="选择" name="select">
-              <div class="review-tab-body">
-                <p class="review-tab-note">先勾选要批量处理的行，再切到其他标签执行操作。</p>
-                <div class="review-tab-actions">
-                  <el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll">全选当前列表</el-checkbox>
-                  <el-button @click="invertDocSelection">反选</el-button>
-                  <el-button @click="clearDocSelection">取消选择</el-button>
+        <section
+          v-if="showReviewAiTimeline"
+          class="ai-timeline ai-timeline-vertical audit-ai-timeline audit-ai-timeline-inline"
+          aria-live="polite"
+        >
+          <header class="ai-timeline-head">
+            <strong>AI 审核助手</strong>
+            <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
+            <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
+          </header>
+          <ol class="ai-timeline-track">
+            <li
+              v-for="(step, index) in reviewAiSteps"
+              :key="step.id"
+              class="ai-timeline-item"
+              :class="`is-${step.status}`"
+            >
+              <div class="ai-timeline-rail" aria-hidden="true">
+                <span class="ai-timeline-dot" />
+                <span v-if="index < reviewAiSteps.length - 1" class="ai-timeline-line" />
+              </div>
+              <div class="ai-timeline-content">
+                <div class="ai-timeline-row">
+                  <span class="ai-timeline-label">{{ step.label }}</span>
+                  <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
                 </div>
               </div>
-            </el-tab-pane>
-
-            <el-tab-pane label="文案" name="copy">
-              <div class="review-tab-body">
-                <div class="review-tab-actions">
-                  <el-button :loading="docGrid.regenerating" type="primary" @click="regenCopyForSelection">AI 重写选中</el-button>
-                  <el-button :loading="docGrid.regenerating" @click="regenCopyForAll">全部重写</el-button>
-                  <el-button @click="clearCopyForSelection">清空选中</el-button>
-                  <el-button @click="clearCopyForAll">清空全部</el-button>
-                </div>
-              </div>
-            </el-tab-pane>
-
-            <el-tab-pane label="价量" name="trade">
-              <div class="review-tab-body">
-                <div class="review-tab-actions">
-                  <el-button type="primary" @click="batchSetField('price')">批量改价</el-button>
-                  <el-button @click="batchSetField('moq')">批量改起订量</el-button>
-                  <el-button v-if="hasBrandColumn" @click="batchSetField('brand')">批量改品牌</el-button>
-                </div>
-              </div>
-            </el-tab-pane>
-
-            <el-tab-pane label="图片" name="images">
-              <div class="review-tab-body">
-                <div class="review-tab-actions">
-                  <el-button :loading="docGrid.generating" type="primary" @click="generateImagesForSelection">选中行出图</el-button>
-                  <el-button :loading="docGrid.generating" @click="generateImagesForAll">全部出图</el-button>
-                  <el-button :loading="docGrid.generating" @click="refreshGridImages">刷新状态</el-button>
-                  <el-upload
-                    v-model:file-list="excelImages"
-                    :auto-upload="false"
-                    multiple
-                    accept="image/*"
-                    :show-file-list="false"
-                  >
-                    <el-button>按货号补传</el-button>
-                  </el-upload>
-                </div>
-                <p class="review-tab-note">图片命名如 SKU-1001.jpg。缺图可点「全部出图」。</p>
-                <div class="review-policy-row">
-                  <label>有图</label>
-                  <el-radio-group v-model="excel.photoPolicy" size="small">
-                    <el-radio-button value="keep">原图</el-radio-button>
-                    <el-radio-button value="complete">补位</el-radio-button>
-                    <el-radio-button value="boost">重画</el-radio-button>
-                  </el-radio-group>
-                  <label>没图</label>
-                  <el-radio-group v-model="excel.emptyPolicy" size="small">
-                    <el-radio-button value="draw">套图</el-radio-button>
-                    <el-radio-button value="skip">跳过</el-radio-button>
-                  </el-radio-group>
-                </div>
-              </div>
-            </el-tab-pane>
-
-            <el-tab-pane label="表格" name="table">
-              <div class="review-tab-body">
-                <div class="review-tab-actions">
-                  <el-button type="primary" @click="addDocRow">加一行</el-button>
-                  <el-button @click="duplicateSelectedRows">复制选中</el-button>
-                  <el-button type="danger" plain @click="deleteSelectedRows">删除选中</el-button>
-                  <el-button :loading="docGrid.checking" @click="recheckDocGrid">重新校验</el-button>
-                </div>
-              </div>
-            </el-tab-pane>
-          </el-tabs>
+            </li>
+          </ol>
         </section>
 
-        <section class="review-grid-card">
-          <div class="review-grid-head">
-            <div>
-              <b>商品明细</b>
-              <span class="muted">显示 {{ filteredDocRowViews.length }}/{{ docGrid.rows.length }} 行</span>
+        <section class="audit-toolbar-card">
+          <div class="audit-toolbar">
+            <div class="audit-filters" role="tablist" aria-label="筛选商品">
+              <button
+                v-for="item in auditFilterOptions"
+                :key="item.id"
+                type="button"
+                class="audit-filter-tab"
+                :class="{ 'is-active': reviewFilter === item.id }"
+                @click="reviewFilter = item.id; reviewPage = 1"
+              >
+                {{ item.label }}<small>{{ item.count }}</small>
+              </button>
             </div>
-            <span class="muted">可直接改单元格</span>
+            <div class="audit-toolbar-right">
+              <el-input v-model="reviewSearch" clearable placeholder="搜索商品名称或关键词" class="audit-search" />
+              <el-button plain disabled>筛选</el-button>
+              <el-button plain :loading="docGrid.checking" @click="recheckDocGrid">刷新</el-button>
+            </div>
           </div>
-          <div class="doc-grid-wrap review-grid-scroll">
-            <table class="doc-grid doc-grid-wide review-grid">
+        </section>
+
+        <section class="audit-field-legend">
+          <span><i class="legend-dot is-required" />必填</span>
+          <span><i class="legend-dot is-score" />加分</span>
+        </section>
+
+        <section class="audit-table-card">
+          <div class="audit-table-scroll">
+            <table class="audit-table doc-grid-wide">
               <thead>
                 <tr>
-                  <th class="col-check"></th>
-                  <th>#</th>
-                  <th class="col-status">状态</th>
+                  <th class="col-check"><el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll" /></th>
+                  <th class="col-row-num">#</th>
                   <th class="col-slots">商品图 ×6</th>
-                  <th v-for="col in docDataColumns" :key="col.id">
+                  <th
+                    v-for="col in docDataColumns"
+                    :key="col.id"
+                    class="col-field"
+                    :class="auditColumnClass(col)"
+                  >
                     {{ col.label }}<span v-if="col.required" class="need">必填</span>
                   </th>
-                  <th class="col-row-actions">操作</th>
+                  <th class="col-status">状态</th>
+                  <th class="col-actions">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr
-                  v-for="view in filteredDocRowViews"
+                  v-for="view in paginatedDocRowViews"
                   :key="view.row.line || view.index"
-                  :class="{ 'is-issue': rowHasIssues(view.row), 'is-selected': view.row._selected }"
+                  :class="{
+                    'is-issue': rowHasIssues(view.row),
+                    'is-selected': view.row._selected,
+                    'is-approved': rowAuditStatus(view.row) === 'approved',
+                    'is-rejected': rowAuditStatus(view.row) === 'rejected',
+                  }"
                 >
                   <td class="col-check">
                     <el-checkbox v-model="view.row._selected" />
                   </td>
-                  <td>{{ view.index + 1 }}</td>
-                  <td class="col-status">
-                    <span v-if="rowHasIssues(view.row)" class="row-badge is-warn">待改</span>
-                    <span v-else-if="rowReady(view.row) && rowImageCount(view.row) >= 6" class="row-badge is-ok">可成稿</span>
-                    <span v-else class="row-badge">编辑中</span>
-                  </td>
+                  <td class="col-row-num">{{ view.index + 1 }}</td>
                   <td class="col-slots">
                     <div class="slot-strip">
                       <div
@@ -297,36 +266,47 @@
                       </div>
                     </div>
                   </td>
-                  <td v-for="col in docDataColumns" :key="`${view.index}-${col.id}`">
-                    <el-input
-                      v-if="col.kind === 'textarea'"
-                      v-model="view.row[col.id]"
-                      type="textarea"
-                      :rows="col.id === 'title' ? 2 : 1"
-                      size="small"
-                    />
+                  <td
+                    v-for="col in docDataColumns"
+                    :key="`${view.index}-${col.id}`"
+                    class="col-field"
+                    :class="auditColumnClass(col)"
+                  >
                     <el-select
-                      v-else-if="col.options?.length"
+                      v-if="col.options?.length"
                       v-model="view.row[col.id]"
                       filterable
                       clearable
-                      placeholder="选"
+                      :placeholder="col.required ? '请选择' : '选填'"
                       size="small"
                       style="width: 100%"
                     >
                       <el-option v-for="opt in col.options" :key="opt.value" :label="opt.label" :value="opt.label" />
                     </el-select>
-                    <el-input v-else v-model="view.row[col.id]" size="small" />
+                    <el-input
+                      v-else-if="col.id === 'title' || col.id === 'note'"
+                      v-model="view.row[col.id]"
+                      type="textarea"
+                      :rows="2"
+                      size="small"
+                      :placeholder="col.label"
+                    />
+                    <el-input v-else v-model="view.row[col.id]" size="small" :placeholder="col.label" />
                   </td>
-                  <td class="col-row-actions">
-                    <el-button text @click="duplicateDocRow(view.index)">复制</el-button>
-                    <el-button text @click="generateImagesForRow(view.row)">出图</el-button>
-                    <el-button text type="danger" @click="removeDocRow(view.index)">删</el-button>
+                  <td class="col-status">
+                    <span class="audit-status" :class="`is-${rowAuditStatus(view.row)}`">{{ rowStatusLabel(view.row) }}</span>
+                  </td>
+                  <td class="col-actions">
+                    <div class="audit-row-actions">
+                      <button type="button" class="audit-action is-approve" title="通过" @click="approveRow(view.row)">✓</button>
+                      <button type="button" class="audit-action is-reject" title="不通过" @click="rejectRow(view.row)">✕</button>
+                      <button type="button" class="audit-action is-view" title="查看详情" @click="openRowDetail(view)">👁</button>
+                    </div>
                   </td>
                 </tr>
-                <tr v-if="!filteredDocRowViews.length">
-                  <td :colspan="docDataColumns.length + 5" class="review-empty">
-                    当前筛选下没有行。<el-button text @click="reviewFilter = 'all'">显示全部</el-button>
+                <tr v-if="!paginatedDocRowViews.length">
+                  <td :colspan="auditTableColSpan" class="review-empty">
+                    暂无商品<el-button text @click="reviewFilter = 'all'; reviewSearch = ''">显示全部</el-button>
                   </td>
                 </tr>
               </tbody>
@@ -334,46 +314,99 @@
           </div>
         </section>
 
-        <details v-if="docGrid.row_issues?.length" class="review-issues" :open="reviewStats.issueCount > 0">
+        <details v-if="docGrid.row_issues?.length" class="review-issues">
           <summary>
             <span>成稿前先看这几行（{{ docGrid.row_issues.length }}）</span>
-            <el-button text size="small" @click.stop="reviewFilter = 'issues'">只看有问题行</el-button>
           </summary>
           <ul>
-            <li v-for="(issue, idx) in docGrid.row_issues.slice(0, 16)" :key="idx">
-              <span :class="['dot', issue.level]"></span>
+            <li v-for="(issue, idx) in docGrid.row_issues.slice(0, 20)" :key="idx">
               第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
             </li>
           </ul>
         </details>
 
-        <footer class="review-actionbar">
-          <div class="review-actionbar-main">
+        <footer class="audit-footer">
+          <div class="audit-footer-left">
+            已选择 <b>{{ docSelectedCount }}</b> 项
+          </div>
+          <div class="audit-footer-center">
+            <el-button @click="batchApprove">批量通过</el-button>
+            <el-button @click="batchReject">批量不通过</el-button>
+          </div>
+          <div class="audit-footer-right">
+            <el-pagination
+              v-model:current-page="reviewPage"
+              v-model:page-size="reviewPageSize"
+              :total="filteredDocRowViews.length"
+              :page-sizes="[10, 20, 50]"
+              layout="total, prev, pager, next, sizes"
+              size="small"
+            />
             <el-button
               type="primary"
-              size="large"
               :loading="docGrid.loading"
               :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
               @click="importDocRows"
             >
-              批量成稿（{{ docGrid.rows.length }} 个）
+              批量成稿
             </el-button>
-            <p class="muted">每行需 6 张图或已生成套图。成稿后进草稿审，5.0 分且审过才能发。</p>
           </div>
         </footer>
 
         <div v-if="doc.batch" class="review-batch-progress">
-          <p>
-            共 {{ doc.batch.count }} 个商品，已成稿 {{ docProgress.done }}/{{ doc.batch.count }}。
-            <template v-if="docProgress.complete">
-              待审 {{ docProgress.pending || 0 }} · 待改 {{ docProgress.counts?.red || 0 }} · 已审可发 {{ docProgress.ready || 0 }}。
-            </template>
-          </p>
-          <el-progress :percentage="docPercent" :stroke-width="10" />
-          <div style="margin-top: 12px">
-            <el-button type="primary" :disabled="!docProgress.complete" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
-          </div>
+          <p>成稿 {{ docProgress.done }}/{{ doc.batch.count }}</p>
+          <el-progress :percentage="docPercent" :stroke-width="8" />
+          <el-button v-if="docProgress.complete" type="primary" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
         </div>
+
+        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="560px" destroy-on-close>
+          <div v-if="rowDetailRow" class="audit-drawer">
+            <div class="audit-drawer-section">
+              <h4>全部字段</h4>
+              <div v-for="col in docDataColumns" :key="col.id" class="audit-drawer-field">
+                <label>
+                  {{ col.label }}
+                  <span v-if="col.required" class="need">必填</span>
+                </label>
+                <el-select
+                  v-if="col.options?.length"
+                  v-model="rowDetailRow[col.id]"
+                  filterable
+                  clearable
+                  :placeholder="col.required ? '请选择' : '选填'"
+                  style="width: 100%"
+                >
+                  <el-option v-for="opt in col.options" :key="opt.value" :label="opt.label" :value="opt.label" />
+                </el-select>
+                <el-input
+                  v-else-if="col.id === 'title' || col.id === 'note'"
+                  v-model="rowDetailRow[col.id]"
+                  type="textarea"
+                  :rows="2"
+                />
+                <el-input v-else v-model="rowDetailRow[col.id]" />
+              </div>
+            </div>
+            <div class="audit-drawer-section">
+              <h4>图片</h4>
+              <div class="slot-strip">
+                <div
+                  v-for="slot in rowSlots(rowDetailRow)"
+                  :key="slot.index"
+                  class="slot-thumb"
+                  :class="`is-${slot.status || 'empty'}`"
+                >
+                  <img v-if="slot.url" :src="slot.url" :alt="slot.name" />
+                  <span v-else>{{ slot.index }}</span>
+                </div>
+              </div>
+              <div class="audit-drawer-actions">
+                <el-button type="primary" @click="approveRow(rowDetailRow); rowDetailOpen = false">通过</el-button>
+                <el-button @click="rejectRow(rowDetailRow); rowDetailOpen = false">不通过</el-button>
+              </div>
+            </div>
+          </div>
+        </el-drawer>
       </div>
     </template>
 
@@ -385,14 +418,32 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { prefetchCategoryPicker } from "../categoryPickerCache";
 import CategoryPicker from "../components/CategoryPicker.vue";
 import FishboneSteps from "../components/FishboneSteps.vue";
+import { buildUploadMap, fileStorageKey, matchUploadFiles } from "../imageMatch";
 import { api } from "../api";
 import { store } from "../store";
 
 const router = useRouter();
 const route = useRoute();
+const DEAD_SESSIONS_KEY = "icbu-dead-feed-sessions";
+const LOCAL_DRAFT_PREFIX = "icbu-feed-draft";
+const ECOSYSTEM_PREF_PREFIX = "icbu-feed-ecosystem";
 const sessionId = ref("");
+const deadSessionIds = loadDeadSessionIds();
+const verifiedSessionIds = ref(new Set());
+let sessionEnsurePromise = null;
+let startPathPromise = null;
+let persistInFlight = null;
+let sessionGeneration = 0;
+let persistBlockedUntil = 0;
+let sessionCreatedAt = 0;
+let sessionRecoveryInFlight = null;
+let localDraftTimer = null;
+let serverSyncTimer = null;
+const sessionApiRetryDelaysFresh = [300, 700, 1200];
+const sessionApiRetryDelaysFetch = [200, 500, 900];
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -404,7 +455,13 @@ const docSteps = [
   { key: "grid", label: "审核出图成稿" },
 ];
 const reviewFilter = ref("all");
-const reviewOpsTab = ref("select");
+const reviewSearch = ref("");
+const reviewPage = ref(1);
+const reviewPageSize = ref(10);
+const rowDetailOpen = ref(false);
+const rowDetailRow = ref(null);
+const reviewImageInput = ref(null);
+const docInferring = ref(false);
 const parseStatus = ref("");
 const DEFAULT_IMAGE_SLOTS = [
   { index: 1, id: "slot-1", name: "白底主图", status: "empty", url: "" },
@@ -416,10 +473,16 @@ const DEFAULT_IMAGE_SLOTS = [
 ];
 const excelImages = ref([]);
 const docFiles = ref([]);
+const folderInput = ref(null);
+let imageSyncTimer = null;
+const IMAGE_SUFFIXES = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]);
 const doc = reactive({
   categoryId: "",
   categoryName: "",
   batch: null,
+  templateId: "",
+  templateName: "",
+  templateReason: "",
 });
 const docGrid = reactive({
   columns: [],
@@ -443,19 +506,139 @@ const excel = reactive({
   emptyPolicy: "draw",
 });
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
+const useEcosystemAssistant = ref(loadEcosystemPref());
 const smartPlanLoading = ref(false);
+const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
+const categoryTemplates = ref([]);
+const templateLoading = ref(false);
+const templateSuggesting = ref(false);
+const aiServiceReady = ref(null);
+const reviewAssistRunning = ref(false);
+let reviewAssistPromise = null;
+const reviewAiSteps = ref(createReviewAiSteps());
+const smartPlanAiSteps = ref(createSmartPlanAiSteps());
+let smartPlanStepTimer = null;
+let smartPlanStepStartedAt = 0;
+
+function createSmartPlanAiSteps() {
+  return [
+    { id: "schema", label: "读取官方字段", status: "pending", detail: "" },
+    { id: "habits", label: "对照店铺模板", status: "pending", detail: "" },
+    { id: "plan", label: "规划最短填写列", status: "pending", detail: "" },
+  ];
+}
+
+function resetSmartPlanAiSteps() {
+  smartPlanAiSteps.value = createSmartPlanAiSteps();
+}
+
+function patchSmartPlanStep(id, patch) {
+  smartPlanAiSteps.value = smartPlanAiSteps.value.map((step) => (step.id === id ? { ...step, ...patch } : step));
+}
+
+function startSmartPlanStepAnimation() {
+  clearSmartPlanStepAnimation();
+  resetSmartPlanAiSteps();
+  smartPlanStepStartedAt = Date.now();
+  patchSmartPlanStep("schema", { status: "running", detail: "拉取类目 schema…" });
+  smartPlanStepTimer = window.setInterval(() => {
+    if (!smartPlanLoading.value) return;
+    const elapsed = Date.now() - smartPlanStepStartedAt;
+    if (elapsed >= 900) {
+      patchSmartPlanStep("schema", { status: "done", detail: "" });
+      patchSmartPlanStep("habits", { status: "running", detail: "店铺默认与刊登模板…" });
+    }
+    if (elapsed >= 1800) {
+      patchSmartPlanStep("habits", { status: "done", detail: "" });
+      patchSmartPlanStep("plan", { status: "running", detail: "LLM 规划填写列…" });
+    }
+  }, 400);
+}
+
+function clearSmartPlanStepAnimation() {
+  if (smartPlanStepTimer) {
+    clearInterval(smartPlanStepTimer);
+    smartPlanStepTimer = null;
+  }
+  smartPlanStepStartedAt = 0;
+}
+
+function finishSmartPlanStepAnimation() {
+  clearSmartPlanStepAnimation();
+  smartPlanAiSteps.value = smartPlanAiSteps.value.map((step) => ({
+    ...step,
+    status: "done",
+    detail: step.id === "plan" ? "完成" : "",
+  }));
+}
+
+function createReviewAiSteps() {
+  return [
+    { id: "service", label: "检查 AI 服务", status: "pending", detail: "" },
+    { id: "template", label: "匹配刊登模板", status: "pending", detail: "" },
+    { id: "copy", label: "写标题和关键词", status: "pending", detail: "" },
+    { id: "attrs", label: "推断官方属性", status: "pending", detail: "" },
+    { id: "images", label: "配对/生成商品图", status: "pending", detail: "" },
+    { id: "check", label: "更新校验结果", status: "pending", detail: "" },
+  ];
+}
+
+function resetReviewAiSteps() {
+  reviewAiSteps.value = createReviewAiSteps();
+}
+
+function patchReviewStep(id, patch) {
+  reviewAiSteps.value = reviewAiSteps.value.map((step) => (step.id === id ? { ...step, ...patch } : step));
+}
+
+function reviewStepStatusLabel(status) {
+  if (status === "running") return "进行中";
+  if (status === "done") return "完成";
+  if (status === "error") return "失败";
+  if (status === "skip") return "跳过";
+  return "等待";
+}
+
+const showReviewAiTimeline = computed(() => {
+  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return true;
+  if (docStep.value === 1) return false;
+  return false;
+});
+
+const reviewAiAllDone = computed(() => {
+  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return false;
+  return reviewAiSteps.value.every((step) => ["done", "skip"].includes(step.status));
+});
 
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
+const copyColumnIds = new Set(["title", "keywords", "highlights"]);
+const tableCoreIds = new Set(["sku", "name", "price", "moq", "brand", "note", "title", "keywords", "highlights"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
-const hasImagesColumn = computed(() => (smartPlan.value.columns || []).some((col) => col.id === "images"));
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
   return Math.min(100, Math.round((docProgress.value.done / doc.batch.count) * 100));
 });
 const docDataColumns = computed(() => docGrid.columns.filter((col) => col.id !== "images"));
+const auditTableColSpan = computed(() => 5 + docDataColumns.value.length);
+const docRequiredAttrColumns = computed(() =>
+  docDataColumns.value.filter((col) => col.required && !copyColumnIds.has(col.id) && !tableCoreIds.has(col.id)),
+);
+const docScoreAttrColumns = computed(() =>
+  docDataColumns.value.filter(
+    (col) =>
+      !col.required
+      && (col.source === "schema_score" || col.id.startsWith("attr.") || col.id.startsWith("schema.")),
+  ),
+);
 const docSelectedCount = computed(() => docGrid.rows.filter((row) => row._selected).length);
+const templateRowOverrideCount = computed(() => {
+  if (!doc.templateId) {
+    return docGrid.rows.filter((row) => row._template_id).length;
+  }
+  return docGrid.rows.filter((row) => row._template_id && row._template_id !== doc.templateId).length;
+});
 const hasBrandColumn = computed(() => docGrid.columns.some((col) => col.id === "brand"));
 const issueLineSet = computed(() => new Set((docGrid.row_issues || []).map((item) => item.line)));
 const reviewStats = computed(() => {
@@ -480,19 +663,41 @@ const reviewStats = computed(() => {
     selected: docSelectedCount.value,
   };
 });
-const reviewFilterOptions = computed(() => [
-  { id: "all", label: "全部", count: reviewStats.value.total },
-  { id: "issues", label: "有问题", count: reviewStats.value.issueCount },
-  { id: "no_images", label: "缺图", count: reviewStats.value.total - reviewStats.value.imagesOk },
-  { id: "no_copy", label: "缺文案", count: reviewStats.value.total - reviewStats.value.copyOk },
-  { id: "not_ready", label: "价量未齐", count: reviewStats.value.total - reviewStats.value.ready },
-  { id: "selected", label: "已选", count: reviewStats.value.selected },
+const auditStats = computed(() => {
+  const rows = docGrid.rows || [];
+  let pending = 0;
+  let approved = 0;
+  let rejected = 0;
+  rows.forEach((row) => {
+    const status = rowAuditStatus(row);
+    if (status === "approved") approved += 1;
+    else if (status === "rejected") rejected += 1;
+    else pending += 1;
+  });
+  return { pending, approved, rejected, total: rows.length };
+});
+const auditFilterOptions = computed(() => [
+  { id: "all", label: "全部", count: auditStats.value.total },
+  { id: "pending", label: "待审核", count: auditStats.value.pending },
+  { id: "approved", label: "审核通过", count: auditStats.value.approved },
+  { id: "rejected", label: "审核不通过", count: auditStats.value.rejected },
 ]);
-const filteredDocRowViews = computed(() =>
-  docGrid.rows
+const rowDetailTitle = computed(() => {
+  if (!rowDetailRow.value) return "商品详情";
+  return rowDetailRow.value.name || rowDetailRow.value.sku || "商品详情";
+});
+const filteredDocRowViews = computed(() => {
+  const q = reviewSearch.value.trim().toLowerCase();
+  return docGrid.rows
     .map((row, index) => ({ row, index }))
     .filter(({ row }) => {
       switch (reviewFilter.value) {
+        case "pending":
+          return rowAuditStatus(row) === "pending";
+        case "approved":
+          return rowAuditStatus(row) === "approved";
+        case "rejected":
+          return rowAuditStatus(row) === "rejected";
         case "issues":
           return rowHasIssues(row);
         case "no_images":
@@ -506,8 +711,21 @@ const filteredDocRowViews = computed(() =>
         default:
           return true;
       }
-    }),
-);
+    })
+    .filter(({ row }) => {
+      if (!q) return true;
+      const haystack = docDataColumns.value
+        .map((col) => row[col.id])
+        .concat([row.sku, row.name, row.title, row.keywords])
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ");
+      return haystack.includes(q);
+    });
+});
+const paginatedDocRowViews = computed(() => {
+  const start = (reviewPage.value - 1) * reviewPageSize.value;
+  return filteredDocRowViews.value.slice(start, start + reviewPageSize.value);
+});
 const otherSessions = computed(() => openSessions.value.filter((item) => item.id !== sessionId.value));
 const docImageGenSummary = computed(() => {
   const rows = docGrid.rows || [];
@@ -573,10 +791,14 @@ function sessionPayload() {
       source: docGrid.source,
       batch: doc.batch,
       smartPlan: smartPlan.value,
+      templateId: doc.templateId,
+      templateName: doc.templateName,
+      templateReason: doc.templateReason,
       imageMode: excelImageMode.value,
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
       uploadNames: docFiles.value.map((item) => item.name).filter(Boolean),
+      useEcosystemAssistant: useEcosystemAssistant.value,
     },
     rowCount: docGrid.row_count || docGrid.rows.length || doc.batch?.count || 0,
     batchId: doc.batch?.batch_id || "",
@@ -591,30 +813,392 @@ function currentReached() {
   return docReached.value;
 }
 
+function localDraftStorageKey() {
+  const uid = store.user?.id || "guest";
+  const sid = store.shopId || "";
+  return `${LOCAL_DRAFT_PREFIX}:${uid}:${sid}`;
+}
+
+function ecosystemPrefKey() {
+  return `${ECOSYSTEM_PREF_PREFIX}:${store.user?.id || "guest"}`;
+}
+
+function loadEcosystemPref() {
+  try {
+    return localStorage.getItem(ecosystemPrefKey()) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveEcosystemPref(value) {
+  try {
+    localStorage.setItem(ecosystemPrefKey(), value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function onEcosystemToggleChange(value) {
+  saveEcosystemPref(value);
+  void persistSession();
+}
+
+function loadLocalDraft() {
+  try {
+    const raw = localStorage.getItem(localDraftStorageKey());
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalDraft() {
+  if (sessionBooting.value || restoring.value) return;
+  try {
+    localStorage.setItem(
+      localDraftStorageKey(),
+      JSON.stringify({
+        sessionId: sessionId.value,
+        step: docStep.value,
+        reached: docReached.value,
+        payload: sessionPayload(),
+        updatedAt: Date.now(),
+      }),
+    );
+  } catch {
+    /* quota */
+  }
+}
+
+function clearLocalDraft() {
+  try {
+    localStorage.removeItem(localDraftStorageKey());
+  } catch {
+    /* ignore */
+  }
+}
+
+function scheduleLocalDraft() {
+  clearTimeout(localDraftTimer);
+  localDraftTimer = setTimeout(saveLocalDraft, 250);
+}
+
+function applyDraftPayload(draft) {
+  const payload = draft?.payload || {};
+  if (payload.doc) {
+    doc.categoryId = payload.doc.categoryId || doc.categoryId;
+    doc.categoryName = payload.doc.categoryName || doc.categoryName;
+    doc.batch = payload.doc.batch ?? doc.batch;
+    doc.templateId = payload.doc.templateId || doc.templateId;
+    doc.templateName = payload.doc.templateName || doc.templateName;
+    doc.templateReason = payload.doc.templateReason || doc.templateReason;
+    docGrid.columns = payload.doc.columns?.length ? payload.doc.columns : docGrid.columns;
+    docGrid.rows = payload.doc.rows?.length ? normalizeDocRows(payload.doc.rows) : docGrid.rows;
+    docGrid.row_issues = payload.doc.row_issues || docGrid.row_issues;
+    docGrid.warnings = payload.doc.warnings || docGrid.warnings;
+    docGrid.row_count = payload.doc.row_count || docGrid.rows.length;
+    docGrid.ready_count = payload.doc.ready_count || docGrid.ready_count;
+    docGrid.source = payload.doc.source || docGrid.source;
+    if (payload.doc.smartPlan?.columns?.length) {
+      smartPlan.value = normalizeSmartPlan(payload.doc.smartPlan);
+    }
+    applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
+    if (typeof payload.doc.useEcosystemAssistant === "boolean") {
+      useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
+    }
+  }
+  if (typeof draft?.step === "number") {
+    let step = Math.min(draft.step, docSteps.length - 1);
+    const rowCount = payload.doc?.rows?.length || payload.doc?.row_count || docGrid.rows.length;
+    if (step === 0 && rowCount > 0 && (draft.reached >= 1 || payload.doc?.source)) {
+      step = 1;
+    }
+    docStep.value = step;
+  }
+  if (typeof draft?.reached === "number") {
+    docReached.value = Math.min(Math.max(draft.reached, docStep.value), docSteps.length - 1);
+  }
+}
+
+function mergeLocalDraftIfNewer() {
+  const draft = loadLocalDraft();
+  if (!draft?.payload) return;
+  if (draft.sessionId && sessionId.value && draft.sessionId !== sessionId.value) return;
+  applyDraftPayload(draft);
+}
+
+function shouldSyncToServer() {
+  if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return false;
+  if (Date.now() < persistBlockedUntil) return false;
+  if (sessionRecoveryInFlight) return false;
+  if (!sessionId.value || deadSessionIds.has(sessionId.value)) return false;
+  if (!isKnownOpenSession(sessionId.value) && !sessionFromOpenList(sessionId.value)) return false;
+  return true;
+}
+
+function scheduleServerSync() {
+  if (!shouldSyncToServer()) return;
+  clearTimeout(serverSyncTimer);
+  serverSyncTimer = setTimeout(() => {
+    void persistSessionToServer();
+  }, 4000);
+}
+
 async function loadOpenSessions() {
   if (!store.user) return;
   try {
     const data = await api.feedSessions(store.shopId);
-    openSessions.value = (data.sessions || []).filter((item) =>
-      ["doc", "excel", "full"].includes(item.path),
+    openSessions.value = (data.sessions || []).filter(
+      (item) => ["doc", "excel", "full"].includes(item.path) && !deadSessionIds.has(item.id),
     );
   } catch {
     openSessions.value = [];
   }
 }
 
-async function persistSession() {
-  if (!sessionId.value || restoring.value) return;
+function bumpSessionGeneration() {
+  sessionGeneration += 1;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isSessionApiMissing(error) {
+  const status = Number(error?.status || 0);
+  if (status === 404) return true;
+  const msg = String(error?.message || "");
+  return msg.includes("不在了") || /not found/i.test(msg);
+}
+
+function isSessionFresh() {
+  return sessionCreatedAt > 0 && Date.now() - sessionCreatedAt < 10000;
+}
+
+function retryDelaysForSessionWrite() {
+  return isSessionFresh() ? sessionApiRetryDelaysFresh : [];
+}
+
+async function fetchFeedSessionWithRetry(id) {
+  let lastError = null;
+  const delays = sessionApiRetryDelaysFetch;
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await api.getFeedSession(id);
+    } catch (error) {
+      lastError = error;
+      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
+      await sleep(delays[attempt]);
+    }
+  }
+  throw lastError || new Error("读取任务失败");
+}
+
+async function saveSessionWithRetry(id, body) {
+  let lastError = null;
+  const delays = retryDelaysForSessionWrite();
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await api.saveFeedSession(id, body);
+    } catch (error) {
+      lastError = error;
+      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
+      await sleep(delays[attempt]);
+    }
+  }
+  throw lastError || new Error("保存失败");
+}
+
+async function uploadSessionFilesWithRetry(id, form) {
+  let lastError = null;
+  const delays = retryDelaysForSessionWrite();
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await api.uploadFeedSessionFiles(id, form);
+    } catch (error) {
+      lastError = error;
+      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
+      await sleep(delays[attempt]);
+    }
+  }
+  throw lastError || new Error("上传失败");
+}
+
+async function markSessionDeadAndRecover(deadId, options = {}) {
+  const { quiet = true } = options;
+  if (deadId && sessionRecoveryInFlight) {
+    return sessionRecoveryInFlight;
+  }
+  sessionRecoveryInFlight = (async () => {
+    if (deadId) forgetSession(deadId);
+    if (sessionId.value === deadId) {
+      sessionId.value = "";
+    }
+    if (route.query.session === deadId) router.replace({ query: {} });
+    clearTimeout(saveTimer);
+    clearTimeout(imageSyncTimer);
+    persistBlockedUntil = Date.now() + 2000;
+    await migrateOrphanSession({ quiet });
+    if (!quiet) ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
+  })().finally(() => {
+    sessionRecoveryInFlight = null;
+  });
+  return sessionRecoveryInFlight;
+}
+
+function verifySession(id) {
+  if (!id || deadSessionIds.has(id)) return;
+  verifiedSessionIds.value = new Set([...verifiedSessionIds.value, id]);
+}
+
+function loadDeadSessionIds() {
+  const dead = new Set();
   try {
-    const saved = await api.saveFeedSession(sessionId.value, {
+    const raw = sessionStorage.getItem(DEAD_SESSIONS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) {
+      parsed.forEach((id) => {
+        if (id) dead.add(String(id));
+      });
+    }
+  } catch {
+    /* ignore corrupt cache */
+  }
+  return dead;
+}
+
+function rememberOpenSession(id) {
+  verifySession(id);
+}
+
+function touchSessionCreatedAt() {
+  sessionCreatedAt = Date.now();
+}
+
+function forgetSession(id) {
+  if (!id) return;
+  deadSessionIds.add(id);
+  bumpSessionGeneration();
+  try {
+    sessionStorage.setItem(DEAD_SESSIONS_KEY, JSON.stringify([...deadSessionIds].slice(-80)));
+  } catch {
+    /* sessionStorage may be unavailable */
+  }
+  const next = new Set(verifiedSessionIds.value);
+  next.delete(id);
+  verifiedSessionIds.value = next;
+  openSessions.value = openSessions.value.filter((item) => item.id !== id);
+}
+
+function isKnownOpenSession(id) {
+  return Boolean(id && !deadSessionIds.has(id) && verifiedSessionIds.value.has(id));
+}
+
+function sessionFromOpenList(id) {
+  return openSessions.value.find((item) => item.id === id) || null;
+}
+
+async function migrateOrphanSession(options = {}) {
+  const { quiet = true } = options;
+  const payload = sessionPayload();
+  const step = currentStep();
+  const reached = currentReached();
+  const staleId = sessionId.value;
+  if (staleId) forgetSession(staleId);
+  sessionId.value = "";
+  if (route.query.session) router.replace({ query: {} });
+  await startPath();
+  if (!sessionId.value) return false;
+  const generation = sessionGeneration;
+  try {
+    const saved = await saveSessionWithRetry(sessionId.value, {
+      shop_id: store.shopId || "",
+      step,
+      reached,
+      payload,
+    });
+    if (generation !== sessionGeneration) return false;
+    verifySession(sessionId.value);
+    currentTitle.value = saved.title || currentTitle.value;
+    router.replace({ query: { session: sessionId.value } });
+    return true;
+  } catch {
+    if (!quiet) ElMessage.error("无法恢复批量任务，请点「新建任务」重试");
+    return false;
+  }
+}
+
+async function ensureFeedSession(options = {}) {
+  if (sessionEnsurePromise) return sessionEnsurePromise;
+  sessionEnsurePromise = ensureFeedSessionImpl(options).finally(() => {
+    sessionEnsurePromise = null;
+  });
+  return sessionEnsurePromise;
+}
+
+async function ensureFeedSessionImpl(options = {}) {
+  const { quiet = false } = options;
+  if (!sessionId.value) {
+    await startPath();
+    return Boolean(sessionId.value);
+  }
+  if (deadSessionIds.has(sessionId.value)) {
+    sessionId.value = "";
+    if (route.query.session) router.replace({ query: {} });
+    await startPath();
+    return Boolean(sessionId.value);
+  }
+  if (isKnownOpenSession(sessionId.value)) {
+    return true;
+  }
+  await loadOpenSessions();
+  if (isKnownOpenSession(sessionId.value)) {
+    return true;
+  }
+  if (sessionFromOpenList(sessionId.value)) {
+    verifySession(sessionId.value);
+    return true;
+  }
+  const remote = await resolveSessionById(sessionId.value);
+  if (remote) {
+    return true;
+  }
+  const staleId = sessionId.value;
+  await markSessionDeadAndRecover(staleId, { quiet });
+  return Boolean(sessionId.value);
+}
+
+async function persistSession(options = {}) {
+  const { server = false } = options;
+  saveLocalDraft();
+  if (server) {
+    if (persistInFlight) return persistInFlight;
+    persistInFlight = persistSessionToServer().finally(() => {
+      persistInFlight = null;
+    });
+    return persistInFlight;
+  }
+  scheduleServerSync();
+}
+
+async function persistSessionToServer() {
+  if (!shouldSyncToServer()) return;
+  const generation = sessionGeneration;
+  const targetId = sessionId.value;
+  try {
+    const saved = await saveSessionWithRetry(sessionId.value, {
       shop_id: store.shopId || "",
       step: currentStep(),
       reached: currentReached(),
       payload: sessionPayload(),
     });
+    if (generation !== sessionGeneration || sessionId.value !== targetId) return;
+    rememberOpenSession(sessionId.value);
     currentTitle.value = saved.title || currentTitle.value;
-  } catch {
-    /* keep typing even if save is slow */
+  } catch (error) {
+    if (!isSessionApiMissing(error)) return;
+    await markSessionDeadAndRecover(targetId, { quiet: true });
   }
 }
 
@@ -623,6 +1207,8 @@ async function persistSession() {
 function applySession(session) {
   restoring.value = true;
   sessionId.value = session.id;
+  rememberOpenSession(session.id);
+  touchSessionCreatedAt();
   currentTitle.value = session.title || session.path_label;
   const payload = session.payload || {};
   if (payload.excel) {
@@ -632,6 +1218,9 @@ function applySession(session) {
     doc.categoryId = payload.doc.categoryId || "";
     doc.categoryName = payload.doc.categoryName || payload.categoryName || "";
     doc.batch = payload.doc.batch || null;
+    doc.templateId = payload.doc.templateId || "";
+    doc.templateName = payload.doc.templateName || "";
+    doc.templateReason = payload.doc.templateReason || "";
     docGrid.columns = payload.doc.columns || [];
     docGrid.rows = normalizeDocRows(payload.doc.rows || []);
     docGrid.row_issues = payload.doc.row_issues || [];
@@ -643,12 +1232,18 @@ function applySession(session) {
       smartPlan.value = normalizeSmartPlan(payload.doc.smartPlan);
     }
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
+    if (typeof payload.doc.useEcosystemAssistant === "boolean") {
+      useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
+    }
     const names = payload.doc.uploadNames || [];
     docFiles.value = names.map((name) => ({ name, status: "success" }));
   } else {
     doc.categoryId = "";
     doc.categoryName = "";
     doc.batch = null;
+    doc.templateId = "";
+    doc.templateName = "";
+    doc.templateReason = "";
     docGrid.columns = [];
     docGrid.rows = [];
     docGrid.row_issues = [];
@@ -666,9 +1261,24 @@ function applySession(session) {
     docReached.value = Math.min(session.reached ?? 0, docSteps.length - 1);
   }
   restoring.value = false;
+  mergeLocalDraftIfNewer();
+  if (docGrid.rows.length > 0 && docStep.value === 0 && (docReached.value >= 1 || docGrid.source)) {
+    goToAuditStep();
+  }
+  if (doc.categoryId && store.shopId) {
+    void loadCategoryTemplates();
+  }
 }
 
 async function startPath() {
+  if (startPathPromise) return startPathPromise;
+  startPathPromise = startPathImpl().finally(() => {
+    startPathPromise = null;
+  });
+  return startPathPromise;
+}
+
+async function startPathImpl() {
   try {
     const created = await api.createFeedSession({ path: "doc", shop_id: store.shopId || "" });
     docStep.value = 0;
@@ -676,6 +1286,9 @@ async function startPath() {
     doc.categoryId = "";
     doc.categoryName = "";
     doc.batch = null;
+    doc.templateId = "";
+    doc.templateName = "";
+    doc.templateReason = "";
     docGrid.columns = [];
     docGrid.rows = [];
     docGrid.row_issues = [];
@@ -686,51 +1299,103 @@ async function startPath() {
     docFiles.value = [];
     smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" };
     applySession(created);
+    touchSessionCreatedAt();
+    verifySession(created.id);
+    clearLocalDraft();
+    saveLocalDraft();
     router.replace({ query: { session: created.id } });
-    await loadOpenSessions();
+    void loadOpenSessions();
   } catch (error) {
     ElMessage.error(error.message);
   }
 }
 
-async function resumeSession(id) {
+async function finishResumeSession() {
+  if (doc.batch?.batch_id) {
+    clearInterval(docTimer);
+    docTimer = setInterval(pollDoc, 3000);
+    void pollDoc();
+  }
+  if (docGrid.rows.length > 0 && docStep.value === 0 && (docReached.value >= 1 || docGrid.source)) {
+    goToAuditStep();
+  }
+  if (!doc.categoryId || !store.shopId) return;
   try {
-    const session = await api.feedSession(id);
-    applySession(session);
-    router.replace({ query: { session: id } });
-    if (doc.batch?.batch_id) {
-      clearInterval(docTimer);
-      docTimer = setInterval(pollDoc, 3000);
-      await pollDoc();
-    }
-    if (doc.categoryId) {
-      await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-      ensureGridPolling();
+    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    ensureGridPolling();
+    if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+      void runReviewAssist(true);
     }
   } catch (error) {
-    const msg = String(error.message || "");
-    if (msg.includes("不在了")) {
-      ElMessage.warning("这条做到一半的记录已失效，请新建批量任务");
-      sessionId.value = "";
-      router.replace({ query: {} });
-      await loadOpenSessions();
-      return;
-    }
     ElMessage.error(error.message);
   }
+}
+
+async function resolveSessionById(id) {
+  if (!id || deadSessionIds.has(id)) return null;
+  const cached = sessionFromOpenList(id);
+  if (cached) return cached;
+  try {
+    const remote = await fetchFeedSessionWithRetry(id);
+    if (remote?.id) {
+      verifySession(remote.id);
+      const existing = openSessions.value.some((item) => item.id === remote.id);
+      if (!existing) {
+        openSessions.value = [remote, ...openSessions.value.filter((item) => item.id !== remote.id)];
+      }
+      return remote;
+    }
+  } catch (error) {
+    if (isSessionApiMissing(error)) forgetSession(id);
+  }
+  return null;
+}
+
+async function resumeSession(id, options = {}) {
+  const { deferHeavy = true, skipListReload = false } = options;
+  if (!id || deadSessionIds.has(id)) {
+    await startPath();
+    return;
+  }
+  if (!skipListReload) {
+    await loadOpenSessions();
+  }
+  const session = await resolveSessionById(id);
+  if (!session) {
+    if (route.query.session === id) router.replace({ query: {} });
+    const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
+    if (fallback && fallback.id !== id) {
+      await resumeSession(fallback.id, { ...options, skipListReload: true });
+    } else {
+      await startPath();
+    }
+    return;
+  }
+  applySession(session);
+  verifySession(id);
+  router.replace({ query: { session: id } });
+  if (deferHeavy) {
+    void finishResumeSession();
+    return;
+  }
+  await finishResumeSession();
 }
 
 async function dropSession(id) {
   try {
     await api.dropFeedSession(id);
-    if (sessionId.value === id) {
-      sessionId.value = "";
-      router.replace({ query: {} });
-    }
-    await loadOpenSessions();
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!isSessionApiMissing(error)) {
+      ElMessage.error(error.message);
+      return;
+    }
   }
+  forgetSession(id);
+  if (sessionId.value === id) {
+    sessionId.value = "";
+    router.replace({ query: {} });
+  }
+  await loadOpenSessions();
 }
 
 async function dropCurrent() {
@@ -738,7 +1403,7 @@ async function dropCurrent() {
 }
 
 async function backToChooser() {
-  await persistSession();
+  await persistSession({ server: true });
   await startPath();
 }
 
@@ -746,63 +1411,219 @@ async function bootSession() {
   sessionBooting.value = true;
   try {
     await loadOpenSessions();
-    if (route.query.session) {
-      await resumeSession(String(route.query.session));
-    } else {
-      await startPath();
+    const wanted = route.query.session ? String(route.query.session) : "";
+    if (wanted && deadSessionIds.has(wanted)) {
+      router.replace({ query: {} });
+    } else if (wanted && !deadSessionIds.has(wanted)) {
+      const cached = await resolveSessionById(wanted);
+      if (cached) {
+        applySession(cached);
+        verifySession(wanted);
+        router.replace({ query: { session: wanted } });
+        void finishResumeSession();
+        return;
+      }
+      router.replace({ query: {} });
     }
+    const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
+    if (latest) {
+      applySession(latest);
+      verifySession(latest.id);
+      router.replace({ query: { session: latest.id } });
+      void finishResumeSession();
+      return;
+    }
+    await startPath();
   } finally {
     sessionBooting.value = false;
   }
 }
 
 onMounted(async () => {
-  try {
-    await store.ensureShops();
-  } catch {
-    /* shop list loads again when user opens category picker */
+  const [, healthResult] = await Promise.allSettled([
+    store.ensureShops().then(() => {
+      if (store.shopId) void prefetchCategoryPicker(store.shopId);
+    }),
+    api.health(),
+  ]);
+  if (healthResult.status === "fulfilled") {
+    aiServiceReady.value = healthResult.value.ai_enabled !== false;
+  } else {
+    aiServiceReady.value = null;
   }
   await bootSession();
+  useEcosystemAssistant.value = loadEcosystemPref();
 });
+
+watch(
+  () => store.user?.id,
+  () => {
+    useEcosystemAssistant.value = loadEcosystemPref();
+  },
+);
 
 let saveTimer = null;
 watch(
-  () => [excel.photoPolicy, excel.emptyPolicy],
+  () => [excel.photoPolicy, excel.emptyPolicy, docStep.value, doc.categoryId, docGrid.row_count],
   () => {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(persistSession, 400);
+    if (sessionBooting.value || restoring.value) return;
+    scheduleLocalDraft();
+    if (docStep.value >= 0) scheduleServerSync();
   },
 );
 watch(
-  () => docStep.value,
-  (step) => {
-    if (step === 1) autoStartReviewImages();
+  () => store.shopId,
+  (shopId) => {
+    if (shopId) void prefetchCategoryPicker(shopId);
   },
 );
 watch(
-  () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.rows],
+  () => docGrid.rows,
   () => {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(persistSession, 500);
+    if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
+    scheduleLocalDraft();
   },
   { deep: true },
 );
+watch(
+  () => reviewAiAllDone.value,
+  (done) => {
+    if (!done || docStep.value !== 0 || !docGrid.rows.length) return;
+    goToAuditStep();
+  },
+);
 
 
 
+
+function fileSuffix(name) {
+  const lower = String(name || "").toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  return dot >= 0 ? lower.slice(dot) : "";
+}
+
+function isImageFile(name) {
+  return IMAGE_SUFFIXES.has(fileSuffix(name));
+}
+
+function isSpreadsheetFile(name) {
+  return [".xlsx", ".xls", ".xlsm", ".csv"].includes(fileSuffix(name));
+}
+
+function slotsFromLocalUrls(urls) {
+  const slots = DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot }));
+  (urls || []).slice(0, 6).forEach((url, index) => {
+    if (!String(url || "").trim()) return;
+    slots[index] = { ...slots[index], status: "uploaded", url: String(url).trim() };
+  });
+  return slots;
+}
+
+function applyLocalImageMatches(rows, files) {
+  const uploads = buildUploadMap(files);
+  if (!Object.keys(uploads).length) return rows;
+  return rows.map((row) => {
+    const names = String(row.images || "")
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const matched = matchUploadFiles(row.sku, names, uploads);
+    if (!matched.length) return row;
+    const mergedNames = [...new Set([...names, ...matched.map(([name]) => name)])];
+    const urls = matched.map(([, raw]) => URL.createObjectURL(raw));
+    return {
+      ...row,
+      images: mergedNames.join(";"),
+      image_slots: slotsFromLocalUrls(urls),
+    };
+  });
+}
+
+function allUploadImageFiles() {
+  const seen = new Set();
+  const items = [];
+  [...docFiles.value, ...excelImages.value].forEach((item) => {
+    if (!item?.raw || !isImageFile(item.name)) return;
+    const key = fileStorageKey(item.raw);
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(item);
+  });
+  return items;
+}
+
+function addDocFiles(files) {
+  const existing = new Set(docFiles.value.map((item) => fileStorageKey(item.raw || { name: item.name })));
+  let added = 0;
+  files.forEach((file) => {
+    if (!file) return;
+    const key = fileStorageKey(file);
+    if (!key || existing.has(key)) return;
+    const label = file.webkitRelativePath || file.name;
+    docFiles.value.push({ name: label, raw: file, status: "success" });
+    existing.add(key);
+    added += 1;
+  });
+  if (added) {
+    docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+    scheduleLocalDraft();
+  }
+  return added;
+}
+
+function onDropFiles(event) {
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  const added = addDocFiles(files);
+  if (added) {
+    ElMessage.success(`已添加 ${added} 个文件`);
+  } else {
+    ElMessage.info("这些文件已经在列表里了");
+  }
+}
+
+function pickImageFolder() {
+  folderInput.value?.click();
+}
+
+function onFolderPick(event) {
+  const picked = Array.from(event.target.files || []).filter((file) => isImageFile(file.name));
+  if (!picked.length) {
+    ElMessage.warning("文件夹里没找到图片");
+    return;
+  }
+  const added = addDocFiles(picked);
+  event.target.value = "";
+  if (added) ElMessage.success(`已添加 ${added} 张图片`);
+}
+
+function onDocFilesChange() {
+  scheduleLocalDraft();
+}
+
+function scheduleDocImageSync() {
+  /* Images stay in browser until parse; server staging caused 404 noise on Vercel. */
+}
+
+async function syncDocImagesToSession() {
+  /* no-op — see scheduleDocImageSync */
+}
 
 async function loadSmartPlan(override = null) {
   const categoryId = override?.categoryId ?? doc.categoryId ?? "";
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
   if (!store.shopId || !categoryId) return;
   smartPlanLoading.value = true;
+  startSmartPlanStepAnimation();
   try {
     smartPlan.value = normalizeSmartPlan(await api.excelSmartPlan({
       shop_id: store.shopId,
       category_id: categoryId,
       category_name: categoryName,
+      ...(override?.refresh ? { refresh: true } : {}),
     }));
     docGrid.columns = smartPlan.value.columns || [];
+    finishSmartPlanStepAnimation();
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
@@ -812,11 +1633,14 @@ async function loadSmartPlan(override = null) {
           shop_id: store.shopId,
           category_id: categoryId,
           category_name: categoryName,
+          ...(override?.refresh ? { refresh: true } : {}),
         }));
         docGrid.columns = smartPlan.value.columns || [];
+        finishSmartPlanStepAnimation();
         return;
       }
     }
+    clearSmartPlanStepAnimation();
     throw error;
   } finally {
     smartPlanLoading.value = false;
@@ -826,10 +1650,14 @@ async function loadSmartPlan(override = null) {
 function normalizeSmartPlan(raw) {
   const columns = (raw.columns || []).map((col) => ({
     id: col.id,
+    header: col.header || col.label || col.id,
     label: col.label || col.header || col.id,
     required: Boolean(col.required),
     options: col.options,
     kind: col.kind,
+    group: col.group,
+    field_id: col.field_id,
+    source: col.source,
   }));
   return {
     category_name: raw.category_name || "",
@@ -837,6 +1665,11 @@ function normalizeSmartPlan(raw) {
     columns,
     reasoning: raw.reasoning || "",
     tips: raw.tips || "",
+    cached: Boolean(raw.cached),
+    planner: raw.planner || "",
+    covered_by_shop: raw.covered_by_shop || [],
+    covered_by_template: raw.covered_by_template || [],
+    ai_fills: raw.ai_fills || [],
   };
 }
 
@@ -846,9 +1679,9 @@ async function refreshSmartPlan() {
     return;
   }
   try {
-    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    ElMessage.success(`已更新：需填 ${smartPlan.value.column_count || 0} 列`);
-    await persistSession();
+    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName, refresh: true });
+    ElMessage.success(`已重新规划：需填 ${smartPlan.value.column_count || 0} 列`);
+    await persistSession({ server: true });
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -865,10 +1698,18 @@ function openDocCategory() {
   categoryBrowser.value = true;
 }
 
+function goToAuditStep() {
+  if (!docGrid.rows.length) return;
+  docReached.value = Math.max(docReached.value, 1);
+  docStep.value = 1;
+  void persistSession({ server: true });
+}
+
 function advanceDoc(index) {
   docReached.value = Math.max(docReached.value, index);
   docStep.value = index;
-  persistSession();
+  void persistSession({ server: true });
+  if (index === 1) void runReviewAssist(true);
 }
 
 function rowSlots(row) {
@@ -881,6 +1722,7 @@ function normalizeDocRows(rows) {
     ...row,
     line: row.line || index + 2,
     _selected: Boolean(row._selected),
+    _audit_status: row._audit_status || "pending",
     image_slots: row.image_slots?.length ? row.image_slots : DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot })),
   }));
 }
@@ -906,12 +1748,30 @@ async function pollGridImages() {
     if (!result.pending) {
       clearInterval(gridPollTimer);
       gridPollTimer = null;
+      patchReviewStep("images", {
+        status: "done",
+        detail: `六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
+      });
+      await recheckDocGrid({ silent: true });
+    } else {
+      patchReviewStep("images", {
+        status: "running",
+        detail: docImageGenSummary.value || "后台生成中…",
+      });
     }
     await persistSession();
   } catch {
     clearInterval(gridPollTimer);
     gridPollTimer = null;
   }
+}
+
+function auditColumnClass(col) {
+  if (col?.required) return "is-required-col";
+  if (col?.source === "schema_score" || String(col?.id || "").startsWith("attr.") || String(col?.id || "").startsWith("schema.")) {
+    return "is-score-col";
+  }
+  return "";
 }
 
 function rowHasIssues(row) {
@@ -928,6 +1788,181 @@ function rowImageCount(row) {
 
 function rowMissingCopy(row) {
   return !String(row.title || "").trim() || !String(row.keywords || "").trim();
+}
+
+function rowAuditStatus(row) {
+  return row._audit_status || "pending";
+}
+
+function rowStatusLabel(row) {
+  const status = rowAuditStatus(row);
+  if (status === "approved") return "审核通过";
+  if (status === "rejected") return "审核不通过";
+  return "待审核";
+}
+
+function formatAuditPrice(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+  const num = Number(raw.replace(/[^\d.]/g, ""));
+  if (Number.isFinite(num) && num > 0) return num.toFixed(2);
+  return raw;
+}
+
+function rowAuditReady(row) {
+  return !rowHasIssues(row) && rowReady(row) && !rowMissingCopy(row) && rowImageCount(row) >= 6;
+}
+
+function rowEmptyRequiredAttrs(row) {
+  return docRequiredAttrColumns.value.filter((col) => !String(row[col.id] || "").trim());
+}
+
+function rowEmptyScoreAttrs(row) {
+  return docScoreAttrColumns.value.filter((col) => !String(row[col.id] || "").trim());
+}
+
+function rowProductThumb(row) {
+  const slot = rowSlots(row).find((item) => item.url);
+  return slot?.url || "";
+}
+
+function approveRow(row) {
+  row._audit_status = "approved";
+  persistSession();
+}
+
+function rejectRow(row) {
+  row._audit_status = "rejected";
+  persistSession();
+}
+
+function batchApprove() {
+  const targets = docGrid.rows.filter((row) => row._selected);
+  if (!targets.length) {
+    ElMessage.warning("先勾选要通过的商品");
+    return;
+  }
+  targets.forEach((row) => {
+    row._audit_status = "approved";
+  });
+  persistSession();
+  ElMessage.success(`已通过 ${targets.length} 个商品`);
+}
+
+function batchReject() {
+  const targets = docGrid.rows.filter((row) => row._selected);
+  if (!targets.length) {
+    ElMessage.warning("先勾选要不通过的商品");
+    return;
+  }
+  targets.forEach((row) => {
+    row._audit_status = "rejected";
+  });
+  persistSession();
+  ElMessage.success(`已标记 ${targets.length} 个商品为未通过`);
+}
+
+function openRowDetail(view) {
+  rowDetailRow.value = view.row;
+  rowDetailOpen.value = true;
+}
+
+function pickReviewImages() {
+  reviewImageInput.value?.click();
+}
+
+function onReviewImagePick(event) {
+  const picked = Array.from(event.target.files || []).filter((file) => isImageFile(file.name));
+  event.target.value = "";
+  if (!picked.length) {
+    ElMessage.warning("请选择图片文件");
+    return;
+  }
+  const added = addDocFiles(picked);
+  docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+  if (added) {
+    ElMessage.success(`已配对 ${added} 张图片`);
+    void recheckDocGrid({ silent: true });
+    persistSession();
+  }
+}
+
+function onReviewImageDrop(event) {
+  const files = Array.from(event.dataTransfer?.files || []).filter((file) => isImageFile(file.name));
+  if (!files.length) return;
+  const added = addDocFiles(files);
+  docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+  if (added) {
+    ElMessage.success(`已配对 ${added} 张图片`);
+    void recheckDocGrid({ silent: true });
+    persistSession();
+  }
+}
+
+async function inferFieldsForRows(lines, options = {}) {
+  const { silent = false } = options;
+  if (!docGrid.rows.length) return { ok: true, skipped: true, reason: "no_rows" };
+  if (aiServiceReady.value === false) return { ok: true, skipped: true, reason: "no_ai" };
+  docInferring.value = true;
+  try {
+    const body = new FormData();
+    body.append("shop_id", store.shopId || "");
+    body.append("category_id", doc.categoryId);
+    if (docGrid.columns?.length) {
+      body.append("columns", JSON.stringify(docGrid.columns));
+    } else if (smartPlan.value.columns?.length) {
+      body.append("columns", JSON.stringify(smartPlan.value.columns));
+    }
+    body.append("rows", JSON.stringify(docGrid.rows));
+    body.append("lines", JSON.stringify(lines || []));
+    const result = await api.excelGridInferFields(body);
+    if (Array.isArray(result.rows) && result.rows.length) {
+      docGrid.rows = normalizeDocRows(result.rows);
+    }
+    if (Array.isArray(result.columns) && result.columns.length) {
+      docGrid.columns = result.columns;
+    }
+    await recheckDocGrid({ silent: true });
+    scheduleLocalDraft();
+    scheduleServerSync();
+    if (!silent) {
+      if (result.filled_count) {
+        ElMessage.success(`已补全 ${result.filled_count} 个属性`);
+      } else if (result.missing_required_cells) {
+        ElMessage.warning(`仍有 ${result.missing_required_cells} 个必填属性缺依据，请补备注或手填`);
+      } else {
+        ElMessage.info("属性已齐");
+      }
+    }
+    return {
+      ok: true,
+      filled_count: result.filled_count || 0,
+      fillable_columns: result.fillable_columns || 0,
+      missing_required_cells: result.missing_required_cells || 0,
+    };
+  } catch (error) {
+    if (!silent) ElMessage.error(error.message);
+    return { ok: false, error: error.message };
+  } finally {
+    docInferring.value = false;
+  }
+}
+
+function inferFieldsForSelection() {
+  const lines = docGrid.rows.filter((row) => row._selected).map((row) => row.line);
+  if (!lines.length) {
+    ElMessage.warning("先勾选要推断属性的商品");
+    return;
+  }
+  inferFieldsForRows(lines);
+}
+
+function inferFieldsForAll() {
+  inferFieldsForRows([]);
+}
+
+function inferFieldsForRow(row) {
+  inferFieldsForRows([row.line]);
 }
 
 function invertDocSelection() {
@@ -1063,7 +2098,7 @@ async function batchSetField(field) {
 
 async function generateImagesForRows(lines, options = {}) {
   const { silent = false } = options;
-  if (!docGrid.rows.length) return;
+  if (!docGrid.rows.length) return { ok: true, skipped: true };
   docGrid.generating = true;
   try {
     const body = new FormData();
@@ -1074,14 +2109,19 @@ async function generateImagesForRows(lines, options = {}) {
     body.append("lines", JSON.stringify(lines || []));
     const result = await api.excelGridGenerateImages(body);
     docGrid.rows = normalizeDocRows(result.rows || []);
-    if (result.errors?.length) ElMessage.warning(result.errors[0]);
+    if (result.errors?.length) {
+      if (!silent) ElMessage.warning(result.errors[0]);
+      return { ok: false, error: result.errors[0] };
+    }
     ensureGridPolling();
     await persistSession();
     if (!silent) {
       ElMessage.success(lines?.length ? "已开始为选中行出图" : "已开始为全部商品出图");
     }
+    return { ok: true };
   } catch (error) {
     if (!silent) ElMessage.error(error.message);
+    return { ok: false, error: error.message };
   } finally {
     docGrid.generating = false;
   }
@@ -1123,8 +2163,9 @@ function generateImagesForRow(row) {
   generateImagesForRows([row.line]);
 }
 
-async function regenCopyForRows(lines) {
-  if (!docGrid.rows.length) return;
+async function regenCopyForRows(lines, options = {}) {
+  const { silent = false } = options;
+  if (!docGrid.rows.length) return { ok: true, skipped: true };
   docGrid.regenerating = true;
   try {
     const body = new FormData();
@@ -1133,15 +2174,263 @@ async function regenCopyForRows(lines) {
     body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
     body.append("rows", JSON.stringify(docGrid.rows));
     body.append("lines", JSON.stringify(lines || []));
+    body.append("use_ecosystem", useEcosystemAssistant.value ? "true" : "false");
     const result = await api.excelGridRegenCopy(body);
-    docGrid.rows = normalizeDocRows(result.rows || []);
-    if (result.errors?.length) ElMessage.warning(result.errors[0]);
+    if (Array.isArray(result.rows) && result.rows.length) {
+      docGrid.rows = normalizeDocRows(result.rows);
+    }
+    const copyOk = docGrid.rows.filter((row) => !rowMissingCopy(row)).length;
+    if (result.errors?.length) {
+      if (!silent) ElMessage.warning(result.errors[0]);
+      return { ok: false, error: result.errors[0], copyOk };
+    }
     await persistSession();
-    ElMessage.success(lines?.length ? "已重写选中行文案" : "已重写全部文案");
+    if (!silent) {
+      ElMessage.success(lines?.length ? "已重写选中行文案" : "已重写全部文案");
+    }
+    return { ok: true, copyOk };
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!silent) ElMessage.error(error.message);
+    return { ok: false, error: error.message };
   } finally {
     docGrid.regenerating = false;
+  }
+}
+
+function rowsNeedingCopy() {
+  return docGrid.rows.filter((row) => rowMissingCopy(row));
+}
+
+async function autoStartReviewCopy() {
+  if (!docGrid.rows.length || !doc.categoryId) return { ok: true, skipped: true, reason: "no_rows" };
+  if (!rowsNeedingCopy().length) {
+    return { ok: true, skipped: true, reason: "has_copy", copyOk: docGrid.rows.length };
+  }
+  const need = rowsNeedingCopy().length;
+  patchReviewStep("copy", { status: "running", detail: `共 ${need} 行` });
+  return regenCopyForRows([], { silent: true });
+}
+
+async function loadCategoryTemplates() {
+  if (!store.shopId || !doc.categoryId) {
+    categoryTemplates.value = [];
+    return;
+  }
+  templateLoading.value = true;
+  try {
+    categoryTemplates.value = await api.templates({ shop_id: store.shopId, category_id: doc.categoryId });
+  } catch {
+    categoryTemplates.value = [];
+  } finally {
+    templateLoading.value = false;
+  }
+}
+
+function applyTemplateToRows(templateId, templateName, reason, rowsFromApi) {
+  const byLine = new Map((rowsFromApi || []).map((row) => [row.line, row]));
+  docGrid.rows = docGrid.rows.map((row) => {
+    const picked = byLine.get(row.line);
+    if (picked) {
+      return {
+        ...row,
+        _template_id: picked._template_id || templateId || "",
+        _template_name: picked._template_name || templateName || "",
+        _template_reason: picked._template_reason || reason || "",
+      };
+    }
+    if (templateId) {
+      return {
+        ...row,
+        _template_id: templateId,
+        _template_name: templateName || "",
+        _template_reason: reason || "",
+      };
+    }
+    return row;
+  });
+}
+
+async function suggestTemplates(force = false) {
+  if (!docGrid.rows.length || !doc.categoryId || !store.shopId) {
+    return { ok: true, skipped: true };
+  }
+  if (templateSuggesting.value && !force) {
+    return { ok: true, skipped: true };
+  }
+  templateSuggesting.value = true;
+  try {
+    await loadCategoryTemplates();
+    const body = new FormData();
+    body.append("shop_id", store.shopId);
+    body.append("category_id", doc.categoryId);
+    body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
+    body.append("rows", JSON.stringify(docGrid.rows));
+    const result = await api.excelGridSuggestTemplate(body);
+    if (result.templates?.length) {
+      categoryTemplates.value = result.templates;
+    }
+    const suggestion = result.suggestion || {};
+    doc.templateId = suggestion.template_id || "";
+    doc.templateName = suggestion.template_name || "";
+    doc.templateReason = suggestion.reasoning || "";
+    applyTemplateToRows(doc.templateId, doc.templateName, doc.templateReason, result.rows);
+    await persistSession();
+    return { ok: true, suggestion };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    templateSuggesting.value = false;
+  }
+}
+
+function onTemplateChange(templateId) {
+  const picked = categoryTemplates.value.find((item) => item.id === templateId);
+  doc.templateName = picked?.name || "";
+  doc.templateReason = templateId ? "你手动选择了刊登模板" : "";
+  applyTemplateToRows(templateId, doc.templateName, doc.templateReason);
+  persistSession();
+}
+
+function onRowTemplateChange(row) {
+  const picked = categoryTemplates.value.find((item) => item.id === row._template_id);
+  row._template_name = picked?.name || "";
+  row._template_reason = row._template_id ? "你手动改了这一行的模板" : "";
+  persistSession();
+}
+
+async function runReviewAssist(force = false) {
+  if (!docGrid.rows.length || !doc.categoryId) return;
+  if (reviewAssistPromise) {
+    if (!force) return reviewAssistPromise;
+    try {
+      await reviewAssistPromise;
+    } catch {
+      /* supersede failed run */
+    }
+  }
+  reviewAssistPromise = runReviewAssistImpl(force).finally(() => {
+    reviewAssistPromise = null;
+  });
+  return reviewAssistPromise;
+}
+
+async function runReviewAssistImpl(force = false) {
+  if (!docGrid.rows.length || !doc.categoryId) return;
+  reviewAssistRunning.value = true;
+  resetReviewAiSteps();
+  try {
+    patchReviewStep("service", { status: "running", detail: "检查文案与出图服务…" });
+    if (aiServiceReady.value === null) {
+      try {
+        const health = await api.health();
+        aiServiceReady.value = health.ai_enabled !== false;
+      } catch {
+        aiServiceReady.value = null;
+      }
+    }
+
+    patchReviewStep("template", { status: "running", detail: "匹配本店刊登习惯…" });
+    const templateResult = await suggestTemplates(force);
+    if (templateResult.skipped) {
+      patchReviewStep("template", { status: "skip", detail: "暂无商品行" });
+    } else if (templateResult.ok) {
+      const name = doc.templateName || "未配置";
+      patchReviewStep("template", {
+        status: "done",
+        detail: doc.templateId ? `已选「${name}」` : "本店无匹配模板，使用全局文案规则",
+      });
+    } else {
+      patchReviewStep("template", { status: "error", detail: templateResult.error || "模板匹配失败" });
+    }
+
+    if (aiServiceReady.value === false) {
+      patchReviewStep("service", { status: "error", detail: "未配置 OPENAI_API_KEY" });
+      patchReviewStep("copy", { status: "skip", detail: "需要 AI 服务" });
+      patchReviewStep("attrs", { status: "skip", detail: "需要 AI 服务" });
+      patchReviewStep("images", { status: "skip", detail: "需要 AI 服务" });
+    } else {
+      patchReviewStep("service", { status: "done", detail: "服务可用" });
+
+      const copyResult = await autoStartReviewCopy();
+      if (copyResult.skipped) {
+        if (copyResult.reason === "no_rows") {
+          patchReviewStep("copy", { status: "error", detail: "无商品行" });
+        } else {
+          patchReviewStep("copy", { status: "done", detail: "已有文案" });
+        }
+      } else if (copyResult.ok) {
+        patchReviewStep("copy", {
+          status: "done",
+          detail: `已完成 ${copyResult.copyOk || 0}/${docGrid.rows.length} 行`,
+        });
+      } else {
+        patchReviewStep("copy", { status: "error", detail: copyResult.error || "文案生成失败" });
+      }
+
+      patchReviewStep("attrs", { status: "running", detail: "补全官方属性…" });
+      docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+      const inferResult = await inferFieldsForRows([], { silent: true });
+      if (inferResult.skipped) {
+        if (inferResult.reason === "no_rows") {
+          patchReviewStep("attrs", { status: "error", detail: "无商品行" });
+        } else if (inferResult.reason === "no_ai") {
+          patchReviewStep("attrs", { status: "error", detail: "需要 AI 服务" });
+        } else {
+          patchReviewStep("attrs", { status: "done", detail: "无可补属性列" });
+        }
+      } else if (inferResult.ok) {
+        const filled = inferResult.filled_count || 0;
+        const missing = inferResult.missing_required_cells || 0;
+        if (missing) {
+          patchReviewStep("attrs", { status: "error", detail: `已补 ${filled} 项，仍缺 ${missing} 个必填` });
+        } else if (filled) {
+          patchReviewStep("attrs", { status: "done", detail: `已补 ${filled} 项属性` });
+        } else {
+          patchReviewStep("attrs", { status: "done", detail: "属性已齐" });
+        }
+      } else {
+        patchReviewStep("attrs", { status: "error", detail: inferResult.error || "推断失败" });
+      }
+
+      const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
+      const imageNeed = rowsNeedingImageJobs().length;
+      if (imageNeed) {
+        patchReviewStep("images", {
+          status: "running",
+          detail: matchedPhotos
+            ? `已配对 ${matchedPhotos} 行，提交 ${imageNeed} 行补图…`
+            : `提交 ${imageNeed} 行出图任务…`,
+        });
+        const imageResult = await generateImagesForRows([], { silent: true });
+        if (imageResult.ok) {
+          ensureGridPolling();
+          patchReviewStep("images", {
+            status: "running",
+            detail: docImageGenSummary.value || "后台生成中…",
+          });
+        } else {
+          patchReviewStep("images", { status: "error", detail: imageResult.error || "出图失败" });
+        }
+      } else if (matchedPhotos) {
+        patchReviewStep("images", { status: "done", detail: `已配对 ${matchedPhotos}/${docGrid.rows.length} 行图片` });
+      } else {
+        patchReviewStep("images", { status: "done", detail: "图片已齐或任务进行中" });
+      }
+    }
+
+    patchReviewStep("check", { status: "running", detail: "校验…" });
+    await recheckDocGrid({ silent: true });
+    if (!reviewStats.value.total) {
+      patchReviewStep("check", { status: "error", detail: "无商品行" });
+    } else {
+      patchReviewStep("check", {
+        status: "done",
+        detail: `文案 ${reviewStats.value.copyOk}/${reviewStats.value.total} · 六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
+      });
+    }
+  } finally {
+    reviewAssistRunning.value = false;
+    void persistSession({ server: true });
   }
 }
 
@@ -1163,8 +2452,13 @@ async function parseDocuments() {
     ElMessage.warning("先选叶子类目");
     return;
   }
-  if (!docFiles.value.some((item) => item.raw)) {
-    ElMessage.warning("先上传资料");
+  const uploadables = docFiles.value.filter((item) => item.raw);
+  if (!uploadables.length) {
+    ElMessage.warning("请先上传表格和图片（刷新页面后需重新选择文件）");
+    return;
+  }
+  if (!uploadables.some((item) => isSpreadsheetFile(item.name))) {
+    ElMessage.warning("至少上传一个 Excel/CSV 表格");
     return;
   }
   const body = new FormData();
@@ -1175,35 +2469,40 @@ async function parseDocuments() {
   if (smartPlan.value.columns?.length) {
     body.append("columns", JSON.stringify(smartPlan.value.columns));
   }
-  docFiles.value.forEach((item) => item.raw && body.append("files", item.raw));
+  uploadables.forEach((item) => body.append("files", item.raw));
   docGrid.loading = true;
-  parseStatus.value = "正在读取表格…";
+  parseStatus.value = "AI 正在读表…";
+  resetReviewAiSteps();
+  patchReviewStep("service", { status: "running", detail: "AI 正在读表…" });
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || smartPlan.value.columns || [];
     if (result.download_columns?.length) {
       smartPlan.value = normalizeSmartPlan({ ...smartPlan.value, columns: result.download_columns, column_count: result.download_columns.length });
     }
-    docGrid.rows = normalizeDocRows(result.rows || []);
+    docGrid.rows = normalizeDocRows(applyLocalImageMatches(result.rows || [], uploadables));
     docGrid.row_issues = result.row_issues || [];
     docGrid.warnings = result.warnings || [];
     docGrid.row_count = result.row_count || docGrid.rows.length;
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
-    parseStatus.value = "进入审核…";
-    await persistSession();
-    advanceDoc(1);
+    patchReviewStep("service", { status: "done", detail: "解析完成" });
+    goToAuditStep();
+    void persistSession({ server: true });
+    await runReviewAssist(true);
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核`);
-    void autoStartReviewImages();
   } catch (error) {
+    resetReviewAiSteps();
     ElMessage.error(error.message);
   } finally {
     docGrid.loading = false;
     parseStatus.value = "";
+    void persistSession({ server: true });
   }
 }
 
-async function recheckDocGrid() {
+async function recheckDocGrid(options = {}) {
+  const { silent = false } = options;
   if (!docGrid.rows.length) return;
   const body = new FormData();
   body.append("shop_id", store.shopId || "");
@@ -1220,9 +2519,11 @@ async function recheckDocGrid() {
     docGrid.ready_count = result.ready_count || 0;
     docGrid.row_issues = result.row_issues || [];
     await persistSession();
-    ElMessage.success(`校验完成：${docGrid.ready_count}/${docGrid.row_count} 个价量齐`);
+    if (!silent) {
+      ElMessage.success(`校验完成：${docGrid.ready_count}/${docGrid.row_count} 个价量齐`);
+    }
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!silent) ElMessage.error(error.message);
   } finally {
     docGrid.checking = false;
   }
@@ -1230,7 +2531,7 @@ async function recheckDocGrid() {
 
 function addDocRow() {
   const row = { line: docGrid.rows.length + 2, _selected: false, image_slots: DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot })) };
-  docGrid.columns.length ? docGrid.columns : smartPlan.value.columns || [].forEach((col) => {
+  (docGrid.columns.length ? docGrid.columns : smartPlan.value.columns || []).forEach((col) => {
     row[col.id] = "";
   });
   docGrid.rows.push(row);
@@ -1249,6 +2550,20 @@ async function importDocRows() {
     ElMessage.warning("表里还没有商品");
     return;
   }
+  const approved = docGrid.rows.filter((row) => rowAuditStatus(row) === "approved");
+  let targets = approved;
+  if (!approved.length) {
+    try {
+      await ElMessageBox.confirm("未标记通过，仍成稿全部商品？", "批量成稿", {
+        confirmButtonText: "成稿",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
+      targets = docGrid.rows;
+    } catch {
+      return;
+    }
+  }
   const body = new FormData();
   body.append("shop_id", store.shopId);
   body.append("category_id", doc.categoryId);
@@ -1257,8 +2572,11 @@ async function importDocRows() {
   if (smartPlan.value.columns?.length) {
     body.append("columns", JSON.stringify(smartPlan.value.columns));
   }
-  body.append("rows", JSON.stringify(docGrid.rows));
-  excelImages.value.forEach((item) => item.raw && body.append("images", item.raw));
+  if (doc.templateId) {
+    body.append("listing_template_id", doc.templateId);
+  }
+  body.append("rows", JSON.stringify(targets));
+  allUploadImageFiles().forEach((item) => body.append("images", item.raw, item.name));
   docGrid.loading = true;
   try {
     doc.batch = await api.excelImportRows(body);
@@ -1288,7 +2606,7 @@ function goDocBatchDrafts(filter = "pending") {
   router.push({ path: "/drafts", query: { batch_id: doc.batch.batch_id, filter } });
 }
 
-function downloadDocTemplate() {
+async function downloadDocTemplate() {
   if (!doc.categoryId) {
     ElMessage.warning("先选叶子类目");
     return;
@@ -1297,22 +2615,68 @@ function downloadDocTemplate() {
     ElMessage.warning("先登录一个店铺");
     return;
   }
-  window.location.href = api.excelSmartTemplateUrl({
-    categoryId: doc.categoryId,
-    shopId: store.shopId,
-    categoryName: doc.categoryName || smartPlan.value.category_name,
-  });
+  docTemplateDownloading.value = true;
+  try {
+    if (!smartPlan.value.columns?.length) {
+      await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
+    }
+    const categoryName = doc.categoryName || smartPlan.value.category_name || "";
+    let blob;
+    if (smartPlan.value.columns?.length) {
+      blob = await api.excelSmartTemplateFromPlan({
+        shop_id: store.shopId,
+        category_id: doc.categoryId,
+        category_name: categoryName,
+        columns: smartPlan.value.columns,
+        reasoning: smartPlan.value.reasoning,
+        tips: smartPlan.value.tips,
+        covered_by_shop: smartPlan.value.covered_by_shop,
+        covered_by_template: smartPlan.value.covered_by_template,
+        ai_fills: smartPlan.value.ai_fills,
+      });
+    } else {
+      const response = await fetch(api.excelSmartTemplateUrl({
+        categoryId: doc.categoryId,
+        shopId: store.shopId,
+        categoryName,
+      }), { credentials: "include" });
+      if (!response.ok) {
+        let detail = "下载失败";
+        try {
+          const payload = await response.json();
+          detail = payload.detail || detail;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(detail);
+      }
+      blob = await response.blob();
+    }
+    const safeName = (categoryName || doc.categoryId).replace(/[/\\?%*:|"<>]/g, "-");
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `智能批量上品-${safeName}.xlsx`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    ElMessage.success("填写表已开始下载");
+  } catch (error) {
+    ElMessage.error(error.message || "下载失败");
+  } finally {
+    docTemplateDownloading.value = false;
+  }
 }
 
 
 async function pickCategory(node) {
+  await ensureFeedSession({ quiet: true });
   doc.categoryId = node.category_id;
   doc.categoryName = node.path_label || node.label || node.name || node.cn_name || "";
   try {
     await store.ensureShops();
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」，可下载智能填写表`);
-    await persistSession();
+    ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」`);
+    await persistSession({ server: true });
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -1321,6 +2685,9 @@ async function pickCategory(node) {
 onUnmounted(() => {
   clearInterval(docTimer);
   clearInterval(gridPollTimer);
+  clearTimeout(localDraftTimer);
+  clearTimeout(serverSyncTimer);
+  clearSmartPlanStepAnimation();
 });
 
 
@@ -1505,6 +2872,209 @@ onUnmounted(() => {
 .plan-panel-loading {
   background: var(--gray3);
 }
+
+.ai-timeline {
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+  padding: 12px 16px 14px;
+}
+
+.ai-timeline-vertical {
+  max-width: 420px;
+}
+
+.audit-ai-timeline {
+  margin: 16px 0 14px;
+  max-width: 480px;
+}
+
+.audit-ai-timeline-inline {
+  margin: 0 0 12px;
+  max-width: none;
+}
+
+.eco-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--muted, #666);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.ai-timeline-head strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-timeline-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.ai-timeline-badge.is-live {
+  color: var(--accent-text);
+  background: var(--accent-wash);
+}
+
+.ai-timeline-badge.is-done {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.ai-timeline-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ai-timeline-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: stretch;
+}
+
+.ai-timeline-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 3px;
+}
+
+.ai-timeline-line {
+  flex: 1;
+  width: 2px;
+  min-height: 18px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.ai-timeline-item.is-done .ai-timeline-line {
+  background: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.ai-timeline-item.is-running .ai-timeline-line {
+  background: linear-gradient(to bottom, var(--accent) 0%, var(--line) 100%);
+}
+
+.ai-timeline-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  box-sizing: border-box;
+}
+
+.ai-timeline-item.is-running .ai-timeline-dot {
+  width: 12px;
+  height: 12px;
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ai-timeline-item.is-done .ai-timeline-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ai-timeline-item.is-error .ai-timeline-dot {
+  border-color: #dc2626;
+  background: #dc2626;
+}
+
+.ai-timeline-item.is-skip .ai-timeline-dot {
+  border-color: var(--muted);
+  background: var(--gray3);
+}
+
+.ai-timeline-content {
+  min-width: 0;
+  padding-bottom: 14px;
+}
+
+.ai-timeline-item:last-child .ai-timeline-content {
+  padding-bottom: 0;
+}
+
+.ai-timeline-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-timeline-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.ai-timeline-item.is-pending .ai-timeline-label {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.ai-timeline-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-timeline-item.is-running .ai-timeline-status {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.ai-timeline-item.is-done .ai-timeline-status {
+  color: #166534;
+}
+
+.ai-timeline-item.is-error .ai-timeline-status {
+  color: #dc2626;
+}
+
+.ai-timeline-detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.ai-timeline-item.is-running .ai-timeline-detail {
+  color: var(--ink-2, var(--ink));
+}
+
+.ai-timeline-item.is-done .ai-timeline-detail {
+  color: var(--muted);
+}
+
 .plan-head {
   display: flex;
   align-items: center;
@@ -1614,6 +3184,45 @@ onUnmounted(() => {
   background: var(--surface);
   padding: 1px 4px;
   border-radius: 4px;
+}
+.plan-cache-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.upload-flow-lead {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.upload-flow-simple code {
+  font-size: 12px;
+}
+.upload-summary {
+  margin: 8px 0 0;
+  color: var(--accent);
+  font-size: 13px;
+}
+.hidden-folder-input {
+  display: none;
+}
+.upload-drop-zone {
+  margin-top: 8px;
+}
+.upload-drop-inner {
+  padding: 22px 12px;
+}
+.upload-drop-hint {
+  margin: 8px 0 12px;
+  font-size: 12px;
+}
+.upload-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.upload-drop-zone :deep(.el-upload-dragger) {
+  width: 100%;
+  padding: 0;
+  border-style: dashed;
 }
 .slot-grid {
   display: grid;
@@ -1997,7 +3606,87 @@ onUnmounted(() => {
 }
 
 .review-alert {
+  margin: 12px 0 0;
+}
+
+.review-ai-progress {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+  padding: 14px 16px;
+}
+
+.review-ai-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.review-ai-progress-head h4 {
   margin: 0;
+  font-size: 14px;
+}
+
+.review-ai-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.review-ai-steps li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.review-ai-step-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 4px;
+  background: var(--muted);
+}
+
+.review-ai-step-body {
+  display: grid;
+  gap: 2px;
+}
+
+.review-ai-step-body b {
+  font-size: 13px;
+}
+
+.review-ai-step-body span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.review-ai-step-body small {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.review-ai-steps li.is-running .review-ai-step-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-wash);
+}
+
+.review-ai-steps li.is-done .review-ai-step-dot {
+  background: #16a34a;
+}
+
+.review-ai-steps li.is-error .review-ai-step-dot {
+  background: #dc2626;
+}
+
+.review-ai-steps li.is-skip .review-ai-step-dot {
+  background: #94a3b8;
 }
 
 .review-panel {
@@ -2334,5 +4023,812 @@ onUnmounted(() => {
 
 .slot-thumb.is-empty {
   opacity: 0.85;
+}
+
+.upload-flow-steps {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.65;
+  font-size: 13px;
+}
+
+.upload-flow-steps li + li {
+  margin-top: 6px;
+}
+
+.audit-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: calc(100vh - 120px);
+  padding-bottom: 72px;
+}
+
+.audit-header {
+  padding: 4px 0 20px;
+  background: transparent;
+  border: none;
+}
+
+.audit-back {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 0 0 12px;
+  cursor: pointer;
+}
+
+.audit-back:hover {
+  color: var(--ink);
+}
+
+.audit-header h3 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.audit-subtitle {
+  margin: 8px 0 0;
+  max-width: 720px;
+  color: #8c8c8c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.audit-toolbar-card {
+  margin-bottom: 0;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px 8px 0 0;
+  background: #fff;
+  overflow: hidden;
+}
+
+.audit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: none;
+}
+
+.audit-filter-tab {
+  appearance: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #595959;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.audit-filter-tab small {
+  margin-left: 6px;
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.audit-filter-tab.is-active {
+  color: #1677ff;
+  background: #e6f4ff;
+  border-bottom-color: #1677ff;
+}
+
+.audit-toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.audit-search {
+  width: min(240px, 100%);
+}
+
+.audit-table-card {
+  border: 1px solid #f0f0f0;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.audit-table-scroll {
+  overflow: auto;
+  max-height: min(62vh, 720px);
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.audit-table th,
+.audit-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.audit-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  color: #595959;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.audit-table tr.is-selected td {
+  background: #e6f4ff;
+}
+
+.audit-table tr.is-approved td {
+  background: #f6ffed;
+}
+
+.audit-table tr.is-rejected td {
+  background: #fff2f0;
+}
+
+.audit-cell-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.audit-price {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.audit-status {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.audit-status.is-pending {
+  color: #1677ff;
+}
+
+.audit-status.is-approved {
+  color: #389e0d;
+}
+
+.audit-status.is-rejected {
+  color: #cf1322;
+}
+
+.audit-category {
+  color: #595959;
+  font-size: 13px;
+}
+
+.audit-action.is-view {
+  color: #595959;
+}
+
+.audit-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.audit-footer-left {
+  font-size: 13px;
+  color: #595959;
+}
+
+.audit-footer-center {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-footer-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.audit-meta {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.audit-template-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: linear-gradient(180deg, rgba(255, 248, 235, 0.7), var(--surface));
+}
+
+.audit-template-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-template-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.audit-template-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 153, 0, 0.14);
+  color: #b45309;
+  font-size: 11px;
+}
+
+.audit-template-intro {
+  margin: 6px 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.audit-template-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-template-select {
+  min-width: 280px;
+}
+
+.audit-template-reason {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.audit-template-meta {
+  margin: 0;
+  font-size: 12px;
+}
+
+.audit-template-link {
+  font-size: 13px;
+  color: var(--brand);
+}
+
+.audit-template-chip {
+  display: block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 153, 0, 0.12);
+  color: #9a6700;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.audit-header-metrics,
+.audit-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-metric {
+  min-width: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--gray3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.audit-metric strong {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.audit-metric span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.audit-metric.is-done {
+  border-color: #b7ebc6;
+  background: #f3fbf5;
+}
+
+.audit-metric.is-warn {
+  border-color: #f0d58a;
+  background: #fffdf5;
+}
+
+.audit-quick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--gray2);
+}
+
+.audit-quick-images {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.audit-image-hint {
+  font-size: 12px;
+}
+
+.audit-ai-progress {
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+  padding: 0 16px 12px;
+}
+
+.audit-ai-progress summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 600;
+  list-style: none;
+}
+
+.audit-ai-progress summary::-webkit-details-marker {
+  display: none;
+}
+
+.audit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.audit-filter-tab {
+  appearance: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-2);
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.audit-filter-tab small {
+  margin-left: 4px;
+  color: var(--muted);
+}
+
+.audit-filter-tab.is-active {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent);
+}
+
+.audit-toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-search {
+  width: min(280px, 100%);
+}
+
+.audit-field-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin: 0 0 12px;
+}
+
+.audit-table .col-row-num {
+  width: 36px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.audit-table .col-field {
+  min-width: 120px;
+  max-width: 220px;
+}
+
+.audit-table .col-field.is-required-col {
+  background: #fff7f7;
+}
+
+.audit-table .col-field.is-score-col {
+  background: #fffdf5;
+}
+
+.audit-table th.col-field.is-required-col {
+  background: #fef2f2;
+}
+
+.audit-table th.col-field.is-score-col {
+  background: #fffbeb;
+}
+
+.audit-table .need {
+  margin-left: 4px;
+  color: #dc2626;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-right: 6px;
+}
+
+.legend-dot.is-required {
+  background: #dc2626;
+}
+
+.legend-dot.is-score {
+  background: #d97706;
+}
+
+.audit-table-card {
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.audit-table-scroll {
+  overflow: auto;
+  max-height: min(62vh, 720px);
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.audit-table th,
+.audit-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.audit-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  color: var(--ink-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.audit-table tr.is-selected td {
+  background: var(--accent-wash);
+}
+
+.audit-table tr.is-issue td {
+  background: #fffdf5;
+}
+
+.audit-table tr.is-approved td {
+  background: #f6ffed;
+}
+
+.audit-table tr.is-rejected td {
+  background: #fff5f5;
+}
+
+.audit-product {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.audit-product-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--gray3);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.audit-product-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.audit-product-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.audit-product-meta b {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.audit-product-meta span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.audit-category {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.audit-attr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 220px;
+}
+
+.audit-chip {
+  display: inline-flex;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.audit-chip.is-required {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.audit-chip.is-score {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.audit-image-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.audit-image-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--gray3);
+  border: 1px solid var(--line);
+}
+
+.audit-image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.audit-image-thumb.is-empty {
+  opacity: 0.45;
+}
+
+.audit-image-more {
+  font-size: 11px;
+  color: var(--muted);
+  padding-left: 2px;
+}
+
+.audit-image-more.is-warn {
+  color: #9a6700;
+}
+
+.audit-badge {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--gray3);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.audit-badge.is-approved {
+  background: #dafbe1;
+  color: #1a7f37;
+}
+
+.audit-badge.is-rejected {
+  background: #ffebe9;
+  color: #cf222e;
+}
+
+.audit-badge.is-warn {
+  background: #fff8c5;
+  color: #9a6700;
+}
+
+.audit-badge.is-ready {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.audit-row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.audit-action {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.audit-action.is-approve {
+  color: #1a7f37;
+}
+
+.audit-action.is-reject {
+  color: #cf222e;
+}
+
+.audit-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.audit-footer-left,
+.audit-footer-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-footer-center {
+  font-size: 12px;
+}
+
+.audit-drawer {
+  display: grid;
+  gap: 18px;
+}
+
+.audit-drawer-section h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.audit-drawer-section label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.audit-drawer-grid {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.audit-drawer-field + .audit-drawer-field {
+  margin-top: 10px;
+}
+
+.audit-drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.audit-infer-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+@media (max-width: 960px) {
+  .audit-header {
+    flex-direction: column;
+  }
+
+  .audit-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .audit-footer-right {
+    justify-content: space-between;
+  }
 }
 </style>

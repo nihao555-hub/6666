@@ -13,7 +13,7 @@ export function attachApiAuth({ router, store }) {
 http.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const status = error.response?.status;
+    const status = error.response?.status || 0;
     const detail = error.response?.data?.detail;
     const message = typeof detail === "string" ? detail : error.message || "请求失败";
     if (status === 401 && authStore) {
@@ -22,7 +22,9 @@ http.interceptors.response.use(
         authRouter.push("/login");
       }
     }
-    return Promise.reject(new Error(message));
+    const wrapped = new Error(message);
+    wrapped.status = status;
+    return Promise.reject(wrapped);
   },
 );
 
@@ -58,6 +60,13 @@ export const api = {
         ...(extra.sidebar ? { sidebar: true } : {}),
       },
     }),
+  categorySidebar: (shopId, extra = {}) =>
+    http.get(`/shops/${shopId}/categories/sidebar`, {
+      params: {
+        shop_id: shopId,
+        ...(extra.refresh ? { refresh: true } : {}),
+      },
+    }),
   recordCategoryPick: (shopId, body) => http.post(`/shops/${shopId}/categories/recent`, body),
   categorySchema: (shopId, categoryId) =>
     http.get(`/shops/${shopId}/categories/${categoryId}/schema`, { params: { shop_id: shopId } }),
@@ -85,8 +94,8 @@ export const api = {
   feedBatch: (form) => http.post("/listings/batch", form),
   batchProgress: (batchId, params) => http.get(`/batches/${batchId}`, { params }),
   feedSessions: (shopId) => http.get("/feed-sessions", { params: { shop_id: shopId || "" } }),
+  getFeedSession: (id) => http.get(`/feed-sessions/${id}`),
   createFeedSession: (body) => http.post("/feed-sessions", body),
-  feedSession: (id) => http.get(`/feed-sessions/${id}`),
   saveFeedSession: (id, body) => http.patch(`/feed-sessions/${id}`, body),
   uploadFeedSessionFiles: (id, form) => http.post(`/feed-sessions/${id}/files`, form),
   dropFeedSession: (id) => http.delete(`/feed-sessions/${id}`),
@@ -94,12 +103,17 @@ export const api = {
   excelStyles: () => http.get("/excel/styles"),
   excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),
   excelSmartPlan: (params) => http.get("/excel/smart-plan", { params }),
+  excelEcosystemBrief: (params) => http.get("/excel/ecosystem-brief", { params }),
+  excelSmartTemplateFromPlan: (body) =>
+    http.post("/excel/smart-template-from-plan", body, { responseType: "blob" }),
   officialExcelAttrs: (shopId, categoryId) =>
     http.get("/excel/official-attrs", { params: { shop_id: shopId, category_id: categoryId } }),
   excelDocParse: (form) => http.post("/excel/doc-parse", form),
   excelGridCheck: (form) => http.post("/excel/grid-check", form),
   excelGridGenerateImages: (form) => http.post("/excel/grid-generate-images", form),
   excelGridRegenCopy: (form) => http.post("/excel/grid-regen-copy", form),
+  excelGridInferFields: (form) => http.post("/excel/grid-infer-fields", form),
+  excelGridSuggestTemplate: (form) => http.post("/excel/grid-suggest-template", form),
   excelGridPollImages: (form) => http.post("/excel/grid-poll-images", form),
   excelImportRows: (form) => http.post("/excel/import-rows", form),
   excelTemplateUrl: (style, listingTemplateId, extra = {}) => {

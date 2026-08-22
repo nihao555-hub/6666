@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db
+from ..db import reload_db_from_blob
 from ..models import User
 from ..services import feed_sessions as sessions
 
@@ -31,19 +32,24 @@ class SaveIn(BaseModel):
 
 @router.get("")
 def list_sessions(shop_id: str = "", db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     rows = sessions.list_open(db, user.id, shop_id)
     return {"sessions": [sessions.public_view(row) for row in rows]}
 
 
 @router.post("")
 def create_session(payload: CreateIn, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     row = sessions.create(db, user.id, payload.path, payload.shop_id)
     return sessions.public_view(row)
 
 
 @router.get("/{session_id}")
 def get_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    row = sessions.get_owned(db, user.id, session_id)
+    db.expire_all()
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     return sessions.public_view(row)
@@ -56,9 +62,14 @@ def save_session(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    row = sessions.get_owned(db, user.id, session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
+    db.expire_all()
+    row = sessions.upsert_owned(
+        db,
+        user.id,
+        session_id,
+        path="doc",
+        shop_id=payload.shop_id or "",
+    )
     row = sessions.save(
         db,
         row,
@@ -80,9 +91,13 @@ async def upload_files(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    row = sessions.get_owned(db, user.id, session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
+    db.expire_all()
+    row = sessions.upsert_owned(
+        db,
+        user.id,
+        session_id,
+        path="doc",
+    )
     if kind not in {"photos", "batch", "excel", "excel_images", "doc"}:
         raise HTTPException(status_code=400, detail="这种文件不能存在半成品里")
     uploads = [(item.filename or "file", await item.read()) for item in files]
@@ -104,7 +119,8 @@ def download_file(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> FileResponse:
-    row = sessions.get_owned(db, user.id, session_id)
+    db.expire_all()
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     path = sessions.file_path(row, stored)
@@ -115,7 +131,8 @@ def download_file(
 
 @router.delete("/{session_id}")
 def drop_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    row = sessions.get_owned(db, user.id, session_id)
+    db.expire_all()
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     sessions.save(db, row, status="dropped")

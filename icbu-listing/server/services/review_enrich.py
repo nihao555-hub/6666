@@ -10,10 +10,12 @@ Title/keyword rules follow vendor/alibaba-icbu-publishing (aidi1723 skill, MIT).
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Mapping, Sequence
 
 from ai import AiClient, AiUnavailable, Understanding  # noqa: E402
 
+from .ecosystem_brief import build_brief, prompt_block as ecosystem_prompt_block, score_copy_row
 from .icbu_publishing_skill import KEYWORD_RULES, TITLE_RULES, skill_prompt_block
 
 TITLE_FORMULA = (
@@ -87,22 +89,33 @@ def suggest_copy_for_row(
     row: Mapping[str, Any],
     *,
     category_name: str = "",
+    ecosystem_brief: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     understanding = _understanding_from_row(row, category_name=category_name)
+    publishing_rules = skill_prompt_block()
+    if ecosystem_brief:
+        publishing_rules = ecosystem_prompt_block(ecosystem_brief)
     extra = {
         "brand": str(row.get("brand") or "").strip(),
         "price": str(row.get("price") or "").strip(),
         "moq": str(row.get("moq") or "").strip(),
         "category": category_name,
         "title_formula": TITLE_FORMULA,
-        "publishing_skill_rules": skill_prompt_block(),
+        "publishing_skill_rules": publishing_rules,
+        "alibaba_ecosystem_tips": str((ecosystem_brief or {}).get("tips") or ""),
+        "shop_golden_title_examples": (ecosystem_brief or {}).get("golden_titles") or [],
+        "shop_golden_listing_examples": (ecosystem_brief or {}).get("golden_listings") or [],
     }
     copy = ai.write_copy(understanding, extra_facts=extra)
-    return {
+    result = {
         "title": copy.title,
         "keywords": ", ".join(copy.keywords[:3]),
         "highlights": copy.highlights or "; ".join(copy.selling_points[:3]),
     }
+    limits = (ecosystem_brief or {}).get("schema_limits") or {}
+    title_limit = int((limits.get("productTitle") or {}).get("max_length") or 128)
+    result["_copy_score"] = score_copy_row(result, title_byte_limit=title_limit)
+    return result
 
 
 def enrich_rows(
@@ -111,6 +124,7 @@ def enrich_rows(
     *,
     category_name: str = "",
     ai: AiClient | None = None,
+    ecosystem_brief: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Return review columns (copy first), enriched rows, warnings."""
     warnings: list[str] = []
@@ -128,7 +142,12 @@ def enrich_rows(
             row.setdefault("highlights", str(row.get("highlights") or ""))
             continue
         try:
-            suggested = suggest_copy_for_row(ai, row, category_name=category_name)
+            suggested = suggest_copy_for_row(
+                ai,
+                row,
+                category_name=category_name,
+                ecosystem_brief=ecosystem_brief,
+            )
             row.setdefault("title", suggested["title"])
             row.setdefault("keywords", suggested["keywords"])
             row.setdefault("highlights", suggested["highlights"])
@@ -143,7 +162,7 @@ def enrich_rows(
 
 def order_review_columns(plan_columns: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Copy/keyword columns first, then fact columns from the download plan."""
-    by_id = {str(col["id"]): dict(col) for col in plan_columns}
+    by_id = {str(col.get("id") or ""): dict(col) for col in plan_columns if col.get("id")}
     ordered: list[dict[str, Any]] = [dict(col) for col in COPY_REVIEW_COLUMNS]
     seen = {col["id"] for col in ordered}
     for field_id in REVIEW_COLUMN_ORDER:
@@ -154,12 +173,348 @@ def order_review_columns(plan_columns: Sequence[Mapping[str, Any]]) -> list[dict
             ordered.append(col)
             seen.add(field_id)
     for col in plan_columns:
-        fid = str(col["id"])
-        if fid in seen or fid == "images":
+        fid = str(col.get("id") or "")
+        if not fid or fid in seen or fid == "images":
             continue
         ordered.append(dict(col))
         seen.add(fid)
     return ordered
+
+
+SKIP_INFER_IDS = frozenset(
+    {
+        "sku",
+        "price",
+        "moq",
+        "images",
+        "brand",
+        "name",
+        "note",
+        "title",
+        "keywords",
+        "highlights",
+    }
+)
+
+GENERIC_OPTIONS = frozenset({"other", "others", "custom", "customized", "其他", "其它"})
+
+
+def _norm_corpus(text: str) -> str:
+    return " ".join((text or "").lower().replace("_", " ").replace("-", " ").split())
+
+
+def _facts_from_user_columns(
+    row: Mapping[str, Any],
+    columns: Sequence[Mapping[str, Any]],
+    *,
+    user_column_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Serialize every filled download-sheet cell for AI attribute inference."""
+    understanding = _understanding_from_row(row)
+    by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
+    facts: dict[str, Any] = {
+        "product_name": understanding.product_name,
+        "note": str(row.get("note") or ""),
+        "brand": str(row.get("brand") or ""),
+        "price": str(row.get("price") or ""),
+        "moq": str(row.get("moq") or ""),
+        "sku": str(row.get("sku") or ""),
+        "name": str(row.get("name") or ""),
+    }
+    skip = SKIP_INFER_IDS | {"title", "keywords", "highlights"}
+    for key, value in row.items():
+        key_text = str(key)
+        if key_text in skip or not str(value or "").strip():
+            continue
+        if user_column_ids is not None and key_text not in user_column_ids:
+            continue
+        col = by_id.get(key_text)
+        label = str(col.get("label") or key_text) if col else key_text
+        facts[key_text] = str(value).strip()
+        facts[f"{label}"] = str(value).strip()
+    images = str(row.get("images") or "").strip()
+    if images:
+        facts["images"] = images
+    return facts
+
+
+def _row_corpus(row: Mapping[str, Any], user_column_ids: set[str] | None = None) -> str:
+    """Build searchable text from filled download-sheet cells (including name/note/sku)."""
+    bits: list[str] = []
+    skip_output_only = {"title", "keywords", "highlights"}
+    for key, value in row.items():
+        key_text = str(key)
+        if key_text.startswith("_") or key_text in skip_output_only:
+            continue
+        if user_column_ids is not None and key_text not in user_column_ids:
+            continue
+        text = str(value or "").strip()
+        if text:
+            bits.append(text)
+    return _norm_corpus(" ".join(bits))
+
+
+def _match_option_from_corpus(corpus: str, options: Sequence[Mapping[str, Any]]) -> str | None:
+    matches: list[str] = []
+    compact = corpus.replace(" ", "")
+    for opt in options[:80]:
+        label = str(opt.get("label") or opt.get("value") or "").strip()
+        if not label or len(label) < 2:
+            continue
+        norm = _norm_corpus(label)
+        if not norm or norm in GENERIC_OPTIONS:
+            continue
+        if norm in corpus or norm.replace(" ", "") in compact:
+            matches.append(label)
+            continue
+        for token in re.split(r"[\s,，/;；|]+", norm):
+            if len(token) >= 2 and token in corpus:
+                matches.append(label)
+                break
+    unique = list(dict.fromkeys(matches))
+    return unique[0] if len(unique) == 1 else None
+
+
+def ai_target_columns(
+    candidates: Sequence[Mapping[str, Any]],
+    user_column_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Schema fields AI should fill at review — not already on the download sheet."""
+    targets: list[dict[str, Any]] = []
+    for col in candidates:
+        col_id = str(col.get("id") or "")
+        if not col_id or col_id in user_column_ids:
+            continue
+        if col_id in SKIP_INFER_IDS or col_id in {"title", "keywords", "highlights", "images"}:
+            continue
+        if col.get("required") or col.get("source") in ("schema_required", "schema_score"):
+            item = dict(col)
+            item.setdefault("source", "ai_fill")
+            targets.append(item)
+    return targets
+
+
+def audit_columns(
+    plan_columns: Sequence[Mapping[str, Any]],
+    ai_targets: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Review grid = copy columns + download columns + AI-fill schema columns."""
+    ordered = order_review_columns(plan_columns)
+    seen = {str(col.get("id") or "") for col in ordered}
+    for col in ai_targets:
+        col_id = str(col.get("id") or "")
+        if col_id and col_id not in seen:
+            ordered.append(dict(col))
+            seen.add(col_id)
+    return ordered
+
+
+def fillable_infer_columns(columns: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for col in columns:
+        col_id = str(col.get("id") or "")
+        if not col_id or col_id in SKIP_INFER_IDS:
+            continue
+        if col.get("options") or col.get("required") or col.get("source") in (
+            "schema_required",
+            "schema_score",
+            "ai_fill",
+        ):
+            out.append(col)
+    return out
+
+
+def _apply_column_answer(col: Mapping[str, Any], answer: Any) -> str | None:
+    raw = str(answer or "").strip()
+    if not raw or raw.lower() in GENERIC_OPTIONS:
+        return None
+    options = col.get("options") or []
+    if not options:
+        return raw
+    labels = [str(item.get("label") or item.get("value") or "").strip() for item in options]
+    if raw in labels:
+        return raw
+    norm = _norm_corpus(raw)
+    for label in labels:
+        if label and _norm_corpus(label) == norm:
+            return label
+    return _match_option_from_corpus(norm, options)
+
+
+def _ai_fill_empty_columns(
+    ai: AiClient,
+    row: Mapping[str, Any],
+    columns: Sequence[Mapping[str, Any]],
+    already: Mapping[str, str],
+    *,
+    user_column_ids: set[str] | None = None,
+) -> tuple[dict[str, str], list[str]]:
+    facts = _facts_from_user_columns(row, columns, user_column_ids=user_column_ids)
+    by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
+    question: dict[str, Any] = {}
+    for col_id, col in by_id.items():
+        if col_id in SKIP_INFER_IDS or col_id in already:
+            continue
+        if str(row.get(col_id) or "").strip():
+            continue
+        if not (col.get("required") or col.get("source") in ("schema_required", "schema_score", "ai_fill")):
+            continue
+        options = col.get("options") or []
+        question[col_id] = {
+            "label": col.get("label") or col_id,
+            "required": bool(col.get("required")),
+            "options": [str(item.get("label") or item.get("value") or "") for item in options[:40] if item],
+        }
+    if not question:
+        return {}, []
+    prompt = (
+        "The seller filled ONLY the download spreadsheet columns listed under user_facts.\n"
+        "Infer official listing fields below from those values — do not invent beyond them.\n"
+        "For dropdown fields use an exact option label. Only fill when 100% sure.\n"
+        "Never guess price, MOQ, brand, origin, or certifications. If ambiguous, return empty string.\n"
+        "Never pick Other/其他.\n\n"
+        f"user_facts: {json.dumps(facts, ensure_ascii=False)}\n"
+        f"fields_to_fill: {json.dumps(question, ensure_ascii=False)}\n"
+        "Return JSON only: {\"column_id\": \"value or empty\"}"
+    )
+    try:
+        payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
+    except (AiUnavailable, ValueError, TypeError):
+        return {}, []
+    if not isinstance(payload, dict):
+        return {}, []
+    filled: dict[str, str] = {}
+    hints: list[str] = []
+    for col_id, answer in payload.items():
+        col = by_id.get(str(col_id))
+        if col is None:
+            continue
+        applied = _apply_column_answer(col, answer)
+        if applied:
+            filled[str(col_id)] = applied
+            hints.append(f"{col.get('label') or col_id} ← AI")
+    return filled, hints
+
+
+def _apply_shop_defaults(row: Mapping[str, Any], columns: Sequence[Mapping[str, Any]], shop_defaults: Mapping[str, Any]) -> tuple[dict[str, str], list[str]]:
+    filled: dict[str, str] = {}
+    hints: list[str] = []
+    for col in columns:
+        col_id = str(col.get("id") or "")
+        if not col_id.startswith("schema.") or str(row.get(col_id) or "").strip():
+            continue
+        field_id = col_id.split(".", 1)[-1]
+        raw = shop_defaults.get(field_id)
+        if raw is None or not str(raw).strip():
+            continue
+        filled[col_id] = str(raw).strip()
+        hints.append(f"{col.get('label') or col_id} ← 店铺默认")
+    return filled, hints
+
+
+def infer_fields_for_row(
+    row: Mapping[str, Any],
+    columns: Sequence[Mapping[str, Any]],
+    *,
+    ai: AiClient | None = None,
+    shop_defaults: Mapping[str, Any] | None = None,
+    user_column_ids: set[str] | None = None,
+) -> tuple[dict[str, str], list[str]]:
+    """Fill empty required/score columns from shop defaults, user row corpus, then AI."""
+    filled: dict[str, str] = {}
+    hints: list[str] = []
+
+    if shop_defaults:
+        shop_patch, shop_hints = _apply_shop_defaults(row, columns, shop_defaults)
+        filled.update(shop_patch)
+        hints.extend(shop_hints)
+
+    corpus = _row_corpus(row, user_column_ids)
+    for col in columns:
+        col_id = str(col.get("id") or "")
+        if not col_id or col_id in SKIP_INFER_IDS or col_id in filled:
+            continue
+        if str(row.get(col_id) or "").strip():
+            continue
+        options = col.get("options") or []
+        if not options or not corpus.strip():
+            continue
+        match = _match_option_from_corpus(corpus, options)
+        if match:
+            filled[col_id] = match
+            hints.append(f"{col.get('label') or col_id} ← {match}")
+
+    if ai is not None:
+        ai_patch, ai_hints = _ai_fill_empty_columns(
+            ai,
+            row,
+            columns,
+            filled,
+            user_column_ids=user_column_ids,
+        )
+        for key, value in ai_patch.items():
+            if key not in filled:
+                filled[key] = value
+        hints.extend(ai_hints)
+
+    return filled, hints
+
+
+def count_missing_required_cells(rows: Sequence[Mapping[str, Any]], columns: Sequence[Mapping[str, Any]]) -> int:
+    required_cols = [
+        col
+        for col in columns
+        if col.get("required")
+        and str(col.get("id") or "").startswith(("attr.", "schema."))
+    ]
+    if not required_cols:
+        return 0
+    missing = 0
+    for row in rows:
+        for col in required_cols:
+            if not str(row.get(str(col.get("id") or "")) or "").strip():
+                missing += 1
+    return missing
+
+
+def infer_fields_for_rows(
+    rows: Sequence[Mapping[str, Any]],
+    columns: Sequence[Mapping[str, Any]],
+    *,
+    lines: set[int] | None = None,
+    ai: AiClient | None = None,
+    shop_defaults: Mapping[str, Any] | None = None,
+    user_column_ids: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[str], int, dict[str, Any]]:
+    updated: list[dict[str, Any]] = []
+    errors: list[str] = []
+    filled_count = 0
+    fillable = len(fillable_infer_columns(columns))
+    for row in rows:
+        item = dict(row)
+        line = int(item.get("line") or 0)
+        if lines and line not in lines:
+            updated.append(item)
+            continue
+        patch, hints = infer_fields_for_row(
+            item,
+            columns,
+            ai=ai,
+            shop_defaults=shop_defaults,
+            user_column_ids=user_column_ids,
+        )
+        if patch:
+            item.update(patch)
+            item["_infer_fields"] = patch
+            filled_count += len(patch)
+        if hints:
+            item["_infer_hint"] = "; ".join(hints[:6])
+        updated.append(item)
+    meta = {
+        "fillable_columns": fillable,
+        "missing_required_cells": count_missing_required_cells(updated, columns),
+    }
+    return updated, errors, filled_count, meta
 
 
 def schema_inventory_summary(fields_flat: Sequence[Mapping[str, Any]]) -> dict[str, Any]:

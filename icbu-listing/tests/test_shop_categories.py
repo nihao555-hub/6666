@@ -3,7 +3,9 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,9 +20,9 @@ os.environ["ALIBABA_APP_KEY"] = "test-key"
 os.environ["ALIBABA_APP_SECRET"] = "test-secret"
 
 from server.db import SessionLocal, init_db  # noqa: E402
-from server.models import CategoryMemory, CategoryRecentPick, Draft, Shop, Template, User  # noqa: E402
+from server.models import CategoryMemory, CategoryNode, CategoryRecentPick, Draft, Shop, Template, User  # noqa: E402
 from server.services import shop_categories  # noqa: E402
-from server.services.shop_categories import _ONLINE_CACHE  # noqa: E402
+from server.services.shop_categories import _ONLINE_CACHE, _SIDEBAR_CACHE  # noqa: E402
 
 
 class FakeApi:
@@ -68,7 +70,7 @@ class UsedLeafTests(unittest.TestCase):
 
     def test_online_products_rank_the_shops_usual_leaves(self) -> None:
         api = FakeApi()
-        used = shop_categories.used_leaves(self.db, api, self.shop)
+        used = shop_categories.used_leaves(self.db, self.shop, api=api)
         ids = [item["category_id"] for item in used]
         self.assertEqual(ids[0], "21111112")
         self.assertEqual(used[0]["count"], 2)
@@ -81,16 +83,16 @@ class UsedLeafTests(unittest.TestCase):
         self.db.add(Template(user_id=self.user.id, shop_id=self.shop.id, name="笔", category_id="99"))
         self.db.commit()
         api = FakeApi(pages=[[]])
-        used = shop_categories.used_leaves(self.db, api, self.shop)
+        used = shop_categories.used_leaves(self.db, self.shop, api=api)
         by_id = {item["category_id"]: item for item in used}
         self.assertGreaterEqual(by_id["21111112"]["count"], 5)
         self.assertIn("99", by_id)
 
     def test_online_counts_are_cached_across_opens(self) -> None:
         api = FakeApi()
-        shop_categories.used_leaves(self.db, api, self.shop)
+        shop_categories.used_leaves(self.db, self.shop, api=api)
         first = api.calls
-        shop_categories.used_leaves(self.db, api, self.shop)
+        shop_categories.used_leaves(self.db, self.shop, api=api)
         self.assertEqual(api.calls, first)
 
     def test_recent_picks_track_explicit_selections(self) -> None:
@@ -98,10 +100,73 @@ class UsedLeafTests(unittest.TestCase):
         shop_categories.record_recent_pick(self.db, self.shop, self.user, "21111112", "Paint Brushes / 画笔")
         shop_categories.record_recent_pick(self.db, self.shop, self.user, "99", "Other / 其他")
         shop_categories.record_recent_pick(self.db, self.shop, self.user, "21111112", "Paint Brushes / 画笔")
-        recent = shop_categories.recent_picks(self.db, api, self.shop, self.user)
+        recent = shop_categories.recent_picks(self.db, self.shop, self.user)
         self.assertEqual([item["category_id"] for item in recent], ["21111112", "99"])
         self.assertEqual(recent[0]["source"], "recent")
         self.assertIn("画笔", recent[0]["path_label"])
+
+    def test_sidebar_fetches_online_when_cache_cold(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        _ONLINE_CACHE.clear()
+        api = FakeApi()
+        payload = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        self.assertTrue(payload["used"])
+        self.assertEqual(api.calls, 1)
+        self.assertEqual(payload["used"][0]["category_id"], "21111112")
+
+    def test_sidebar_does_not_cache_empty_payload(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        _ONLINE_CACHE.clear()
+        api = FakeApi(pages=[[]])
+        payload = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        self.assertEqual(payload["used"], [])
+        self.assertEqual(payload["recent"], [])
+        self.assertNotIn(f"{self.shop.id}:{self.user.id}", _SIDEBAR_CACHE)
+
+    def test_sidebar_caches_and_skips_extra_fetches(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        self.db.add(CategoryMemory(shop_id=self.shop.id, signature="brush", category_id="21111112", category_name="Paint Brushes / 画笔", hits=2))
+        self.db.commit()
+        api = FakeApi()
+        first = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        calls_after_first = api.calls
+        second = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        self.assertEqual(calls_after_first, api.calls)
+        self.assertEqual(first["used"][0]["category_id"], second["used"][0]["category_id"])
+        self.assertIn("画笔", first["used"][0]["path_label"])
+
+    def test_record_recent_pick_invalidates_sidebar_cache(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        api = FakeApi(pages=[[]])
+        shop_categories.sidebar(self.db, api, self.shop, self.user)
+        shop_categories.record_recent_pick(self.db, self.shop, self.user, "99", "Other / 其他")
+        recent = shop_categories.sidebar(self.db, api, self.shop, self.user)["recent"]
+        self.assertEqual(recent[0]["category_id"], "99")
+
+    def test_used_leaves_use_cached_node_labels_without_category_api(self) -> None:
+        _ONLINE_CACHE.clear()
+        self.db.add(
+            CategoryNode(
+                category_id="21110712",
+                name="Colored Pencils",
+                cn_name="彩色铅笔",
+                level=3,
+                is_leaf=True,
+                parent_id="211107",
+                child_ids_json="[]",
+                fetched_at=datetime.utcnow(),
+            )
+        )
+        self.db.commit()
+        _ONLINE_CACHE[self.shop.id] = (time.time(), __import__("collections").Counter({"21110712": 11}))
+
+        class NoCategoryApi(FakeApi):
+            def get_category(self, cat_id):
+                raise AssertionError("sidebar should not call category API for labels")
+
+        used = shop_categories.used_leaves(self.db, self.shop, api=NoCategoryApi(pages=[[]]), cache_only=True)
+        self.assertEqual(used[0]["category_id"], "21110712")
+        self.assertIn("彩色铅笔", used[0]["path_label"])
 
 
 if __name__ == "__main__":

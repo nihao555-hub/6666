@@ -94,6 +94,16 @@ class ParseTests(unittest.TestCase):
         files = resolve_row_files(ExcelRow(sku="SKU-1001"), {"sku-1001.jpg": b"only"})
         self.assertEqual(len(files), 1)
 
+    def test_uploads_match_folder_and_contains_sku(self) -> None:
+        uploads = {
+            "a001/1.png": b"one",
+            "a001/2.png": b"two",
+            "photos/产品-a001.jpg": b"three",
+            "other/x.jpg": b"nope",
+        }
+        matched = match_uploads("A001", [], uploads)
+        self.assertEqual({name for name, _ in matched}, {"a001/1.png", "a001/2.png", "photos/产品-a001.jpg"})
+
 
 class TemplateTests(unittest.TestCase):
     def test_sheet_preview_is_the_short_form_not_official_forty(self) -> None:
@@ -464,6 +474,25 @@ class FullSchemaTests(unittest.TestCase):
         self.assertEqual(parsed[0].title, "Brush Set")
         self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-type"], "1")
         self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-color"], "9")
+
+    def test_parse_rows_without_group_metadata(self) -> None:
+        extras = [
+            {
+                "id": "attr.icbuCatProp.p-type",
+                "header": "产品类型",
+                "label": "产品类型",
+                "required": True,
+                "options": [{"value": "1", "label": "油画笔"}],
+            }
+        ]
+        rows = [
+            ["货号", "单价 USD", "起订量", "产品类型"],
+            ["SKU-1", "1.8", "100", "油画笔"],
+        ]
+        mapping = mapping_from_headers(rows[0], "simple", extras)
+        parsed = parse_rows(rows, mapping, 0, extras)
+        self.assertEqual(parsed[0].sku, "SKU-1")
+        self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-type"], "1")
 
 
 if __name__ == "__main__":

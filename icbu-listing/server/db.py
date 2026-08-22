@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -27,6 +28,7 @@ if blob_enabled():
 
 engine = create_engine(settings.database_url, future=True, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+_last_blob_hydrate = 0.0
 
 
 def init_db() -> None:
@@ -60,6 +62,18 @@ def _ensure_columns() -> None:
         shop_names = {row[1] for row in shop_rows}
         if shop_rows and "online_count" not in shop_names:
             conn.exec_driver_sql("ALTER TABLE shops ADD COLUMN online_count INTEGER DEFAULT -1")
+        conn.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS category_smart_plans ("
+            "shop_id VARCHAR(32) NOT NULL, "
+            "category_id VARCHAR(40) NOT NULL, "
+            "input_hash VARCHAR(64) DEFAULT '', "
+            "planner VARCHAR(16) DEFAULT 'rules', "
+            "plan_json TEXT DEFAULT '{}', "
+            "updated_at DATETIME, "
+            "PRIMARY KEY (shop_id, category_id), "
+            "FOREIGN KEY(shop_id) REFERENCES shops (id) ON DELETE CASCADE"
+            ")"
+        )
 
 
 @event.listens_for(Session, "after_commit")
@@ -89,3 +103,15 @@ def reload_db_from_blob() -> bool:
     if path is None or not blob_enabled():
         return False
     return hydrate_sqlite(path)
+
+
+def reload_db_from_blob_throttled(min_interval_seconds: float = 2.0) -> bool:
+    """Avoid re-downloading the blob on every read during a burst of requests."""
+    global _last_blob_hydrate
+    now = time.monotonic()
+    if now - _last_blob_hydrate < min_interval_seconds:
+        return False
+    if reload_db_from_blob():
+        _last_blob_hydrate = now
+        return True
+    return False

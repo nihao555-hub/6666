@@ -16,10 +16,10 @@ from sqlalchemy.orm import Session
 from ai import AiClient, AiUnavailable, ImageInput  # noqa: E402
 from gop_client import GopError  # noqa: E402
 
-from ..db import SessionLocal
+from ..db import SessionLocal, reload_db_from_blob
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, templates
+from ..services import catalog, distribution, document_parse, ecosystem_brief, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -219,14 +219,52 @@ def sheet_plan(
     }
 
 
+@router.get("/ecosystem-brief")
+def ecosystem_brief_endpoint(
+    shop_id: str = "",
+    category_id: str = "",
+    category_name: str = "",
+    include_shop_examples: str = "false",
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop = shop_for(db, user, shop_id)
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    use_shop = str(include_shop_examples or "").strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        brief = ecosystem_brief.build_brief(
+            db,
+            shop,
+            category_id=category_id,
+            category_name=hint or category_name,
+            api=shop_api(shop) if use_shop else None,
+            include_shop_examples=use_shop,
+        )
+    except Exception as exc:
+        brief = ecosystem_brief.build_brief(
+            db,
+            shop,
+            category_id=category_id,
+            category_name=hint or category_name,
+            api=None,
+            include_shop_examples=False,
+        )
+        brief["warning"] = str(exc)
+    return brief
+
+
 @router.get("/smart-plan")
 def smart_plan_endpoint(
     shop_id: str = "",
     category_id: str = "",
     category_name: str = "",
+    refresh: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
+    reload_db_from_blob()
     if not shop_id:
         raise HTTPException(status_code=400, detail="先选一个店铺")
     if not category_id:
@@ -242,6 +280,7 @@ def smart_plan_endpoint(
             category_id=category_id,
             category_name=hint or category_name,
             ai=ai,
+            refresh=refresh,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -254,9 +293,11 @@ def download_smart_template(
     shop_id: str = "",
     category_id: str = "",
     category_name: str = "",
+    refresh: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Response:
+    reload_db_from_blob()
     if not shop_id or not category_id:
         raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
     shop = shop_for(db, user, shop_id)
@@ -269,10 +310,45 @@ def download_smart_template(
         category_id=category_id,
         category_name=hint or category_name,
         ai=ai,
+        refresh=refresh,
     )
+    return _smart_template_response(plan, hint or category_name)
+
+
+@router.post("/smart-template-from-plan")
+def download_smart_template_from_plan(
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Response:
+    """Build XLSX from an already-loaded smart plan (skips schema fetch + LLM)."""
+    reload_db_from_blob()
+    shop_id = str(body.get("shop_id") or "").strip()
+    category_id = str(body.get("category_id") or "").strip()
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop_for(db, user, shop_id)
+    columns = body.get("columns") or []
+    if not isinstance(columns, list) or not columns:
+        raise HTTPException(status_code=400, detail="缺少填写列，请先选类目并等待规划完成")
+    plan = {
+        "category_id": category_id,
+        "category_name": str(body.get("category_name") or ""),
+        "columns": columns,
+        "reasoning": body.get("reasoning") or "",
+        "tips": body.get("tips") or "",
+        "covered_by_shop": body.get("covered_by_shop") or [],
+        "covered_by_template": body.get("covered_by_template") or [],
+        "ai_fills": body.get("ai_fills") or [],
+    }
+    return _smart_template_response(plan, plan["category_name"] or category_id)
+
+
+def _smart_template_response(plan: Mapping[str, Any], name_hint: str) -> Response:
     payload = smart_plan.build_smart_template_bytes(plan)
+    category_id = str(plan.get("category_id") or "")
     ascii_name = f"auto-shoper-smart-{category_id}.xlsx"
-    utf_name = f"智能批量上品-{hint or category_id}.xlsx"
+    utf_name = f"智能批量上品-{name_hint or category_id}.xlsx"
     return Response(
         content=payload,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -409,6 +485,7 @@ def _rows_payload(rows: list[excel_import.ExcelRow]) -> list[dict[str, Any]]:
             "specs": row.specs,
             "line": row.line,
             "attributes": row.attributes,
+            "listing_template_id": row.listing_template_id,
         }
         for row in rows
     ]
@@ -514,7 +591,18 @@ async def parse_documents(
         )
         result["planner"] = "smart" if plan_columns else "simple"
         download_columns = plan_columns or result.get("columns") or []
-        review_columns = review_enrich.order_review_columns(download_columns)
+        review_columns = download_columns
+        if category_id and shop_id and download_columns:
+            shop = shop_for(db, user, shop_id)
+            review_columns = smart_plan.expand_audit_columns(
+                db,
+                shop_api(shop),
+                shop,
+                category_id,
+                download_columns,
+            )
+        else:
+            review_columns = review_enrich.order_review_columns(download_columns)
         enriched_rows = []
         for row in result.get("rows") or []:
             item = dict(row)
@@ -522,7 +610,7 @@ async def parse_documents(
             item.setdefault("keywords", str(item.get("keywords") or ""))
             item.setdefault("highlights", str(item.get("highlights") or ""))
             enriched_rows.append(item)
-        enrich_warnings = ["标题和关键词可在审核页用「AI 重写文案」生成。"]
+        enrich_warnings = ["进入审核后会自动生成英文标题和关键词；单价/起订量/官方属性列需你填写。"]
         result["download_columns"] = download_columns
         result["columns"] = review_columns
         result["rows"] = enriched_rows
@@ -532,6 +620,8 @@ async def parse_documents(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"解析失败：{exc}") from exc
 
 
 @router.post("/grid-check")
@@ -570,6 +660,7 @@ async def grid_regen_copy(
     category_name: str = Form(""),
     rows: str = Form("[]"),
     lines: str = Form("[]"),
+    use_ecosystem: str = Form("false"),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
@@ -587,6 +678,28 @@ async def grid_regen_copy(
     ai = AiClient.from_env_or_none()
     if ai is None:
         raise HTTPException(status_code=503, detail="重写文案需要配置 AI")
+    eco: dict[str, Any] | None = None
+    use_eco = str(use_ecosystem or "").strip().lower() in {"1", "true", "yes", "on"}
+    if use_eco and shop_id and category_id:
+        shop = shop_for(db, user, shop_id)
+        try:
+            eco = ecosystem_brief.build_brief(
+                db,
+                shop,
+                category_id=category_id,
+                category_name=hint or category_name,
+                api=shop_api(shop),
+                include_shop_examples=False,
+            )
+        except Exception:
+            eco = ecosystem_brief.build_brief(
+                db,
+                shop,
+                category_id=category_id,
+                category_name=hint or category_name,
+                api=None,
+                include_shop_examples=False,
+            )
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
     for row in payload:
@@ -598,13 +711,76 @@ async def grid_regen_copy(
             updated.append(item)
             continue
         try:
-            suggested = review_enrich.suggest_copy_for_row(ai, item, category_name=hint or category_name)
+            suggested = review_enrich.suggest_copy_for_row(
+                ai,
+                item,
+                category_name=hint or category_name,
+                ecosystem_brief=eco,
+            )
             item.update(suggested)
             item["_copy_source"] = "ai"
         except Exception as exc:
             errors.append(f"第 {line or '?'} 行：{exc}")
         updated.append(item)
     return {"rows": updated, "errors": errors}
+
+
+@router.post("/grid-infer-fields")
+async def grid_infer_fields(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    rows: str = Form("[]"),
+    lines: str = Form("[]"),
+    columns: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if shop_id:
+        shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+        selected = json.loads(lines or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    plan_columns = _parse_plan_columns(columns)
+    grid_columns, _profile, _extras = _resolve_grid_columns(
+        db,
+        user,
+        shop_id,
+        category_id,
+        plan_columns=plan_columns,
+    )
+    if category_id and shop_id and plan_columns:
+        shop = shop_for(db, user, shop_id)
+        grid_columns = smart_plan.expand_audit_columns(db, shop_api(shop), shop, category_id, plan_columns)
+    user_column_ids = {str(col.get("id") or "") for col in (plan_columns or []) if col.get("id")}
+    targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
+    ai = AiClient.from_env_or_none()
+    shop_defaults_payload: dict[str, Any] = {}
+    if shop_id:
+        try:
+            shop = shop_for(db, user, shop_id)
+            shop_defaults_payload = smart_plan._shop_defaults(shop)
+        except Exception:
+            shop_defaults_payload = {}
+    updated, errors, filled_count, meta = review_enrich.infer_fields_for_rows(
+        payload,
+        grid_columns,
+        lines=targets or None,
+        ai=ai,
+        shop_defaults=shop_defaults_payload,
+        user_column_ids=user_column_ids,
+    )
+    return {
+        "rows": updated,
+        "errors": errors,
+        "filled_count": filled_count,
+        "fillable_columns": meta.get("fillable_columns", 0),
+        "missing_required_cells": meta.get("missing_required_cells", 0),
+        "columns": grid_columns,
+    }
 
 
 @router.post("/grid-generate-images")
@@ -679,6 +855,42 @@ async def grid_poll_images(
     return {"rows": refreshed, "pending": pending}
 
 
+@router.post("/grid-suggest-template")
+async def grid_suggest_template(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    rows: str = Form("[]"),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop = shop_for(db, user, shop_id)
+    try:
+        payload = json.loads(rows or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="表格数据格式不对")
+    ai = AiClient.from_env_or_none()
+    result = template_suggest.suggest(
+        db,
+        shop,
+        category_id,
+        [item for item in payload if isinstance(item, dict)],
+        category_name=category_name,
+        ai=ai,
+    )
+    if payload:
+        result["rows"] = template_suggest.apply_row_suggestions(
+            [dict(item) for item in payload if isinstance(item, dict)],
+            result.get("suggestion") or {},
+            result.get("row_suggestions") or [],
+        )
+    return result
+
+
 @router.post("/import-rows")
 async def import_rows(
     request: Request,
@@ -686,6 +898,7 @@ async def import_rows(
     category_id: str = Form(""),
     session_id: str = Form(""),
     image_mode: str = Form("keep_draw"),
+    listing_template_id: str = Form(""),
     rows: str = Form("[]"),
     columns: str = Form(""),
     images: list[UploadFile] = File(default_factory=list),
@@ -701,6 +914,17 @@ async def import_rows(
         raise HTTPException(status_code=400, detail="表格数据不是合法 JSON") from exc
     if not isinstance(payload, list):
         raise HTTPException(status_code=400, detail="表格数据格式不对")
+    default_template_id = ""
+    if listing_template_id:
+        row = db.get(Template, listing_template_id)
+        if row is None or row.user_id != user.id or row.shop_id != shop.id:
+            raise HTTPException(status_code=404, detail="刊登模板不存在")
+        default_template_id = row.id
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        if not str(item.get("_template_id") or "").strip() and default_template_id:
+            item["_template_id"] = default_template_id
     plan_columns = _parse_plan_columns(columns)
     grid_columns, _profile, _extras = _resolve_grid_columns(
         db,
@@ -731,7 +955,7 @@ async def import_rows(
         rows=parsed,
         uploads=uploads,
         wants_drafts=True,
-        listing_id="",
+        listing_id=default_template_id,
         style="simple",
         image_mode=image_mode,
         public_base=public_refs.request_base(request),
@@ -870,10 +1094,17 @@ def _run_import(
                 specs=dict(raw.get("specs") or {}),
                 line=int(raw.get("line") or 0),
                 attributes=dict(raw.get("attributes") or {}),
+                listing_template_id=str(raw.get("listing_template_id") or raw.get("_template_id") or "").strip(),
             )
+            row_template_id = row.listing_template_id
+            row_listing = listing
+            if row_template_id:
+                picked = db.get(Template, row_template_id)
+                if picked is not None and picked.shop_id == shop.id:
+                    row_listing = picked
             try:
                 _import_one(
-                    db, user, shop, row, uploads, ai, create_drafts, listing, batch_id, image_mode, public_base
+                    db, user, shop, row, uploads, ai, create_drafts, row_listing, batch_id, image_mode, public_base
                 )
             except Exception as exc:
                 if shop is not None and create_drafts:
@@ -1000,6 +1231,7 @@ def _import_one(
             provided_sources=row.provided_sources(),
             extra_defaults=row.extra_defaults(),
             fact_bundle=from_excel_row(row),
+            template_id=row.listing_template_id or (listing.id if listing is not None else ""),
         )
     except ShopNotConnected as exc:
         distribution.failed_draft(db, user.id, shop.id, product, batch_id, str(exc))

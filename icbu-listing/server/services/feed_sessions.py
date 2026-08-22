@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..db import persist_database
 from ..models import FeedSession, utcnow
 
 PATHS = {
@@ -144,9 +146,38 @@ def list_open(db: Session, user_id: str, shop_id: str = "") -> list[FeedSession]
 
 def get_owned(db: Session, user_id: str, session_id: str) -> FeedSession | None:
     row = db.get(FeedSession, session_id)
-    if row is None or row.user_id != user_id:
-        return None
-    return row
+    if row is not None and row.user_id == user_id:
+        return row
+    from ..db import reload_db_from_blob
+
+    if reload_db_from_blob():
+        db.expire_all()
+        row = db.get(FeedSession, session_id)
+        if row is not None and row.user_id == user_id:
+            return row
+    return None
+
+
+def get_owned_with_retry(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    *,
+    attempts: int = 10,
+    delay_seconds: float = 0.18,
+) -> FeedSession | None:
+    """Resolve a session across serverless instances with blob propagation retries."""
+    from ..db import reload_db_from_blob
+
+    for attempt in range(max(1, attempts)):
+        reload_db_from_blob()
+        db.expire_all()
+        row = db.get(FeedSession, session_id)
+        if row is not None and row.user_id == user_id:
+            return row
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds * (attempt + 1))
+    return None
 
 
 def create(db: Session, user_id: str, path: str, shop_id: str = "") -> FeedSession:
@@ -163,6 +194,36 @@ def create(db: Session, user_id: str, path: str, shop_id: str = "") -> FeedSessi
     db.add(row)
     db.commit()
     db.refresh(row)
+    persist_database()
+    return row
+
+
+def upsert_owned(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    *,
+    path: str = "doc",
+    shop_id: str = "",
+) -> FeedSession:
+    """Recreate a missing open session so PATCH/file uploads do not 404 after blob lag."""
+    row = get_owned_with_retry(db, user_id, session_id, attempts=4, delay_seconds=0.12)
+    if row is not None:
+        return row
+    safe_path = path if path in PATHS else "doc"
+    row = FeedSession(
+        id=session_id,
+        user_id=user_id,
+        shop_id=shop_id or "",
+        path=safe_path,
+        status="open",
+        title=PATHS[safe_path]["label"],
+        payload_json="{}",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    persist_database()
     return row
 
 
@@ -192,6 +253,7 @@ def save(
     row.updated_at = utcnow()
     db.commit()
     db.refresh(row)
+    persist_database()
     return row
 
 

@@ -18,7 +18,7 @@ import io
 import re
 from dataclasses import dataclass, field
 from collections.abc import Callable
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from openpyxl import Workbook, load_workbook
@@ -274,6 +274,7 @@ class ExcelRow:
     raw: dict[str, str] = field(default_factory=dict)
     attributes: dict[str, dict[str, Any]] = field(default_factory=dict)
     schema_top: dict[str, str] = field(default_factory=dict)
+    listing_template_id: str = ""
     is_sample: bool = False
 
     def fact_text(self) -> str:
@@ -1077,6 +1078,18 @@ def mapping_from_headers(
     return mapping
 
 
+def _attr_group_field(spec: Mapping[str, Any] | None, field_id: str) -> tuple[str, str]:
+    """Resolve attr group/child from column spec or attr.{group}.{child} id."""
+    parts = str(field_id or "").split(".")
+    group = str((spec or {}).get("group") or "").strip()
+    child = str((spec or {}).get("field_id") or "").strip()
+    if not group and len(parts) >= 3 and parts[0] == "attr":
+        group = parts[1]
+    if not child and len(parts) >= 3 and parts[0] == "attr":
+        child = parts[2]
+    return group, child
+
+
 def parse_rows(
     rows: list[list[str]],
     mapping: dict[str, str],
@@ -1102,10 +1115,9 @@ def parse_rows(
                 specs[field_id.split(".", 1)[1]] = cell
             elif field_id.startswith("attr.") and cell:
                 spec = extra_by_id.get(field_id)
-                if spec:
-                    attributes.setdefault(spec["group"], {})[spec["field_id"]] = _match_option(
-                        cell, spec.get("options") or []
-                    )
+                group, child = _attr_group_field(spec, field_id)
+                if group and child:
+                    attributes.setdefault(group, {})[child] = _match_option(cell, (spec or {}).get("options") or [])
             elif field_id.startswith("schema.") and cell:
                 spec = extra_by_id.get(field_id)
                 parts = field_id.split(".")
@@ -1334,24 +1346,93 @@ def resolve_row_files(
     return files[:6]
 
 
+_IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"})
+
+
+def _image_suffix(name: str) -> str:
+    lower = (name or "").lower()
+    if "." not in lower:
+        return ""
+    return lower[lower.rfind(".") :]
+
+
+def normalize_sku(sku: str) -> str:
+    return (sku or "").strip().lower()
+
+
+def _stem_of(path_or_name: str) -> str:
+    base = path_or_name.replace("\\", "/").rsplit("/", 1)[-1]
+    if "." in base:
+        return base.rsplit(".", 1)[0]
+    return base
+
+
+def _file_matches_sku(path_or_name: str, sku_norm: str) -> bool:
+    if not sku_norm:
+        return False
+    path = path_or_name.replace("\\", "/").lower()
+    parts = [part for part in path.split("/") if part]
+    file_stem = _stem_of(path)
+
+    if file_stem == sku_norm or file_stem.startswith(f"{sku_norm}_") or file_stem.startswith(f"{sku_norm}-"):
+        return True
+
+    if len(parts) >= 2:
+        folder = parts[-2]
+        if folder == sku_norm or folder.startswith(f"{sku_norm}_") or folder.startswith(f"{sku_norm}-"):
+            return True
+        if len(sku_norm) >= 3 and sku_norm in folder:
+            return True
+
+    if len(sku_norm) >= 3 and sku_norm in path:
+        return True
+
+    tokens = [bit for bit in re.split(r"[^a-z0-9]+", file_stem) if bit]
+    return sku_norm in tokens
+
+
+def build_upload_index(files: Sequence[tuple[str, bytes]]) -> dict[str, bytes]:
+    """Index images by relative path and basename for flexible SKU matching."""
+    uploads: dict[str, bytes] = {}
+    for name, content in files:
+        if not content:
+            continue
+        suffix = _image_suffix(name)
+        if suffix not in _IMAGE_SUFFIXES:
+            continue
+        rel = name.replace("\\", "/").lower()
+        uploads[rel] = content
+        base = rel.rsplit("/", 1)[-1]
+        if base and base not in uploads:
+            uploads[base] = content
+    return uploads
+
+
 def match_uploads(sku: str, names: list[str], uploads: dict[str, bytes]) -> list[tuple[str, bytes]]:
-    """Match extra files by exact name, then by SKU prefix (factory habit)."""
+    """Match uploads by sheet names, folder names, or SKU appearing in the path."""
     matched: list[tuple[str, bytes]] = []
     used: set[str] = set()
+    sku_norm = normalize_sku(sku)
+
     for name in names:
-        key = name.lower()
+        key = name.replace("\\", "/").lower()
         if key in uploads and key not in used:
             matched.append((name, uploads[key]))
             used.add(key)
-    prefix = (sku or "").lower()
-    if prefix:
-        for filename, content in uploads.items():
+            continue
+        base = key.rsplit("/", 1)[-1]
+        if base in uploads and base not in used:
+            matched.append((name, uploads[base]))
+            used.add(base)
+
+    if sku_norm:
+        for filename in sorted(uploads.keys()):
             if filename in used:
                 continue
-            stem = filename.rsplit(".", 1)[0]
-            if stem == prefix or stem.startswith(f"{prefix}_") or stem.startswith(f"{prefix}-"):
-                matched.append((filename, content))
+            if _file_matches_sku(filename, sku_norm):
+                matched.append((filename, uploads[filename]))
                 used.add(filename)
+
     return matched
 
 
@@ -1617,116 +1698,23 @@ def build_smart_template(
             help_sheet.cell(row, 2, "类目模板")
             row += 1
     row += 1
-    help_sheet.cell(row, 1, "AI 上传后补").font = Font(bold=True)
+    help_sheet.cell(row, 1, "AI 上传后补（不在填写表）").font = Font(bold=True)
     row += 1
     for item in summary.get("ai_fills") or []:
         help_sheet.cell(row, 1, item.get("label") or item.get("id") or "")
-        help_sheet.cell(row, 2, "不进填写表，成稿后人工审")
-        row += 1
-    help_sheet.column_dimensions["A"].width = 28
-    help_sheet.column_dimensions["B"].width = 72
-
-    buffer = io.BytesIO()
-    book.save(buffer)
-    return buffer.getvalue()
-
-
-def build_smart_template(
-    columns: list[dict[str, Any]],
-    *,
-    category_id: str = "",
-    category_name: str = "",
-    plan_summary: dict[str, Any] | None = None,
-) -> bytes:
-    """Download sheet with LLM-planned columns only."""
-    from openpyxl.comments import Comment
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from openpyxl.utils import get_column_letter
-    from openpyxl.worksheet.datavalidation import DataValidation
-
-    summary = plan_summary or {}
-    book = Workbook()
-    sheet = book.active
-    short = (category_name or category_id or "智能批量").replace("/", " ")[:24]
-    sheet.title = f"填写·{short}"[:31]
-    fill = PatternFill("solid", fgColor="0F766E")
-    font = Font(color="FFFFFF", bold=True)
-    headers: list[tuple[str, str, str]] = []
-    for col in columns:
-        field_id = str(col.get("id") or "")
-        label = str(col.get("label") or col.get("header") or field_id)
-        hint = str(col.get("hint") or "")
-        headers.append((field_id, label, hint))
-    example = {
-        "sku": "SKU-1001",
-        "price": "1.25",
-        "moq": "500",
-        "images": "SKU-1001.jpg;SKU-1001_2.jpg",
-        "brand": "",
-        "name": "示例品名",
-        "note": "500@1.20;2000@1.05",
-    }
-    for index, (field_id, label, hint) in enumerate(headers, start=1):
-        cell = sheet.cell(1, index, label)
-        cell.fill = fill
-        cell.font = font
-        cell.alignment = Alignment(wrap_text=True)
-        cell.comment = Comment(hint or f"字段：{field_id}", "Auto Shoper")
-        sample = sheet.cell(2, index, example.get(field_id, ""))
-        sample.font = Font(color="9AA0A6", italic=True)
-        width = 28 if field_id.startswith("attr.") else 18
-        sheet.column_dimensions[get_column_letter(index)].width = width
-        options = [col for col in columns if str(col.get("id")) == field_id][0].get("options") or []
-        if options:
-            labels = [str(item.get("label") or item.get("value") or "") for item in options[:40] if item]
-            if labels:
-                joined = ",".join(label.replace(",", " ") for label in labels)
-                dv = DataValidation(type="list", formula1=f'"{joined}"', allow_blank=not bool(
-                    next((c for c in columns if str(c.get("id")) == field_id), {}).get("required")
-                ))
-                dv.error = "请从下拉选官方选项"
-                sheet.add_data_validation(dv)
-                dv.add(f"{get_column_letter(index)}3:{get_column_letter(index)}1048576")
-    sheet.row_dimensions[1].height = 22
-    sheet.cell(1, 1).comment = Comment(
-        "智能批量上品：一行 = 一个商品。第 2 行是示例，导入时自动跳过。",
-        "Auto Shoper",
-    )
-
-    help_sheet = book.create_sheet("说明")
-    help_sheet["A1"] = f"智能填写表 · {category_name or category_id or '叶子类目'}"
-    help_sheet["A1"].font = Font(bold=True, size=14)
-    help_sheet["A2"] = str(summary.get("reasoning") or "系统按官方必填和店铺默认，生成最短填写列。")
-    help_sheet["A3"] = str(summary.get("tips") or "填完保存后回到投料页上传。")
-    help_sheet["A4"] = "上传后 AI 解析行数和内容，进商品表审核、出图，再批量成稿。"
-    row = 6
-    help_sheet.cell(row, 1, "你要填（下载页列）").font = Font(bold=True)
-    row += 1
-    for _field_id, label, hint in headers:
-        help_sheet.cell(row, 1, label)
+        group = str(item.get("group") or "")
+        if group == "copy":
+            hint = "英文文案，审核时可改"
+        elif item.get("required"):
+            hint = "官方必填，AI 从备注/图片推断"
+        else:
+            hint = "影响信息分，AI 从备注/店铺默认补"
         help_sheet.cell(row, 2, hint)
         row += 1
-    covered_shop = summary.get("covered_by_shop") or []
-    covered_template = summary.get("covered_by_template") or []
-    if covered_shop or covered_template:
+    contract = str(summary.get("user_fill_contract") or "").strip()
+    if contract:
         row += 1
-        help_sheet.cell(row, 1, "已覆盖，不用填").font = Font(bold=True)
-        row += 1
-        for item in covered_shop:
-            help_sheet.cell(row, 1, item)
-            help_sheet.cell(row, 2, "店铺默认")
-            row += 1
-        for item in covered_template:
-            help_sheet.cell(row, 1, item)
-            help_sheet.cell(row, 2, "类目模板")
-            row += 1
-    row += 1
-    help_sheet.cell(row, 1, "AI 上传后补").font = Font(bold=True)
-    row += 1
-    for item in summary.get("ai_fills") or []:
-        help_sheet.cell(row, 1, item.get("label") or item.get("id") or "")
-        help_sheet.cell(row, 2, "不进填写表，成稿后人工审")
-        row += 1
+        help_sheet.cell(row, 1, contract).font = Font(bold=True)
     help_sheet.column_dimensions["A"].width = 28
     help_sheet.column_dimensions["B"].width = 72
 

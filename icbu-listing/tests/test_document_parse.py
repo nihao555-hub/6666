@@ -83,6 +83,105 @@ class DocumentParseTests(unittest.TestCase):
         self.assertEqual(result["row_count"], 1)
         self.assertEqual(result["rows"][0]["sku"], "XL-1")
 
+    def test_co_uploaded_images_match_by_sku_prefix(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        ws.append(["SKU-9", "2.50", "200", "", "", "测试品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        fake_jpg = b"\xff\xd8\xff\xe0" + b"0" * 32
+        result = document_parse.parse_documents(
+            [
+                ("batch.xlsx", payload.getvalue()),
+                ("SKU-9.jpg", fake_jpg),
+                ("SKU-9_2.jpg", fake_jpg),
+            ],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=None,
+        )
+        self.assertEqual(result["rows"][0]["sku"], "SKU-9")
+        self.assertIn("sku-9.jpg", result["rows"][0]["images"].lower())
+
+    def test_co_uploaded_images_match_by_folder_name(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        ws.append(["A001", "2.50", "200", "", "", "测试品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        fake_jpg = b"\xff\xd8\xff\xe0" + b"0" * 32
+        result = document_parse.parse_documents(
+            [
+                ("batch.xlsx", payload.getvalue()),
+                ("A001/1.png", fake_jpg),
+                ("A001/2.png", fake_jpg),
+            ],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=None,
+        )
+        self.assertEqual(result["rows"][0]["sku"], "A001")
+        self.assertIn("a001/1.png", result["rows"][0]["images"].lower())
+        self.assertIn("a001/2.png", result["rows"][0]["images"].lower())
+
+    def test_co_uploaded_images_skip_llm_without_ai(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        ws.append(["SKU-9", "2.50", "200", "", "", "测试品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        fake_jpg = b"\xff\xd8\xff\xe0" + b"0" * 32
+
+        class SpyAi:
+            def chat_json(self, *_args, **_kwargs):
+                raise AssertionError("LLM should not run when ai=None")
+
+        result = document_parse.parse_documents(
+            [
+                ("batch.xlsx", payload.getvalue()),
+                ("SKU-9.jpg", fake_jpg),
+            ],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=None,
+        )
+        self.assertEqual(result["rows"][0]["sku"], "SKU-9")
+
+    def test_standard_spreadsheet_prefers_excel_import_even_with_ai(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        ws.append(["XL-1", "3.00", "100", "", "", "Excel 品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        seen: dict[str, bool] = {"llm": False}
+
+        class SpyAi:
+            def chat_json(self, messages, temperature=0.1):
+                seen["llm"] = True
+                return {"rows": [], "warnings": []}
+
+        result = document_parse.parse_documents(
+            [("batch.xlsx", payload.getvalue())],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=SpyAi(),
+        )
+        self.assertFalse(seen["llm"])
+        self.assertEqual(result["rows"][0]["sku"], "XL-1")
+        self.assertIn("表格", result["source"])
+
     def test_check_grid_flags_missing_price(self) -> None:
         items = [{"line": 2, "sku": "A-1", "price": "", "moq": "100", "images": "", "brand": "", "name": "", "note": ""}]
         check = document_parse.check_grid(items, self.columns, category_id="123456")
@@ -93,6 +192,50 @@ class DocumentParseTests(unittest.TestCase):
     def test_empty_upload_raises(self) -> None:
         with self.assertRaises(ValueError):
             document_parse.parse_documents([], profile=self.profile, extra_columns=[])
+
+    def test_only_sample_row_gives_clear_error(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["货号", "单价 USD", "起订量", "图片", "品牌", "品名（中文）", "备注"])
+        ws.append(["示例", "9.99", "100", "", "", "示例品", ""])
+        payload = io.BytesIO()
+        wb.save(payload)
+        with self.assertRaises(ValueError) as ctx:
+            document_parse.parse_documents(
+                [("batch.xlsx", payload.getvalue())],
+                profile=self.profile,
+                extra_columns=[],
+                category_id="123456",
+                ai=None,
+            )
+        self.assertIn("示例行", str(ctx.exception))
+
+    def test_unmapped_header_falls_back_to_llm_with_table_text(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Product Code", "Unit Price", "Min Qty", "Name"])
+        ws.append(["P-1", "2.50", "200", "Brush"])
+        payload = io.BytesIO()
+        wb.save(payload)
+        seen: dict[str, str] = {"text": ""}
+
+        class SpyAi:
+            def chat_json(self, messages, temperature=0.1):
+                for block in messages[0]["content"]:
+                    if block.get("type") == "text" and "spreadsheet table" in block.get("text", ""):
+                        seen["text"] = block["text"]
+                return {"rows": [{"sku": "P-1", "price": "2.50", "moq": "200", "name": "Brush"}], "warnings": []}
+
+        result = document_parse.parse_documents(
+            [("quote.xlsx", payload.getvalue())],
+            profile=self.profile,
+            extra_columns=[],
+            category_id="123456",
+            ai=SpyAi(),
+        )
+        self.assertEqual(result["rows"][0]["sku"], "P-1")
+        self.assertIn("P-1", seen["text"])
+        self.assertNotIn("PK\\x03", seen["text"])
 
 
 if __name__ == "__main__":
