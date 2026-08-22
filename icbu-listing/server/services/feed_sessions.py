@@ -198,6 +198,35 @@ def create(db: Session, user_id: str, path: str, shop_id: str = "") -> FeedSessi
     return row
 
 
+def upsert_owned(
+    db: Session,
+    user_id: str,
+    session_id: str,
+    *,
+    path: str = "doc",
+    shop_id: str = "",
+) -> FeedSession:
+    """Recreate a missing open session so PATCH/file uploads do not 404 after blob lag."""
+    row = get_owned_with_retry(db, user_id, session_id, attempts=4, delay_seconds=0.12)
+    if row is not None:
+        return row
+    safe_path = path if path in PATHS else "doc"
+    row = FeedSession(
+        id=session_id,
+        user_id=user_id,
+        shop_id=shop_id or "",
+        path=safe_path,
+        status="open",
+        title=PATHS[safe_path]["label"],
+        payload_json="{}",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    persist_database()
+    return row
+
+
 def save(
     db: Session,
     row: FeedSession,

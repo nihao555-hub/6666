@@ -63,9 +63,13 @@ def save_session(
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     db.expire_all()
-    row = sessions.get_owned_with_retry(db, user.id, session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
+    row = sessions.upsert_owned(
+        db,
+        user.id,
+        session_id,
+        path="doc",
+        shop_id=payload.shop_id or "",
+    )
     row = sessions.save(
         db,
         row,
@@ -88,9 +92,12 @@ async def upload_files(
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     db.expire_all()
-    row = sessions.get_owned_with_retry(db, user.id, session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
+    row = sessions.upsert_owned(
+        db,
+        user.id,
+        session_id,
+        path="doc",
+    )
     if kind not in {"photos", "batch", "excel", "excel_images", "doc"}:
         raise HTTPException(status_code=400, detail="这种文件不能存在半成品里")
     uploads = [(item.filename or "file", await item.read()) for item in files]

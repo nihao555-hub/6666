@@ -1,10 +1,7 @@
 <template>
   <div class="page">
     <div v-if="docStep !== 1" class="page-head">
-      <div>
-        <h2>批量上品</h2>
-        <p class="muted">选类目 → 下载智能填写表 → 上传解析 → 审核出图成稿。做到一半会自动记下，关掉也能回来。</p>
-      </div>
+      <h2>批量上品</h2>
     </div>
 
     <el-alert
@@ -12,18 +9,16 @@
       type="warning"
       show-icon
       :closable="false"
-      title="先登录一个店铺"
-      description="登录之后才能按这家店的规则成稿、把图传到店铺图库。"
+      title="先登录店铺"
       style="margin-bottom: 14px"
     />
 
     <div v-if="sessionBooting" class="boot-panel">
-      <p class="muted">正在准备批量任务…</p>
+      <p class="muted">加载中…</p>
     </div>
 
     <template v-else-if="sessionId">
       <div v-if="otherSessions.length" class="resume-inline">
-        <span class="muted">其他进行中的任务：</span>
         <button
           v-for="item in otherSessions"
           :key="item.id"
@@ -37,15 +32,14 @@
 
       <div v-if="docStep !== 1" class="flow-bar">
         <el-button @click="backToChooser">新建任务</el-button>
-        <span class="muted">{{ currentTitle }} · 做到一半会自动记下，关掉也能回来</span>
-        <el-button text @click="dropCurrent">不要这条了</el-button>
+        <span class="muted">{{ currentTitle }}</span>
+        <el-button text @click="dropCurrent">删除</el-button>
       </div>
 
       <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0" class="step-panel">
-        <h3>选类目，生成填写表</h3>
-        <p class="muted">选好叶子类目后，AI 会分析需要填哪些列。</p>
+        <h3>选类目</h3>
         <div style="margin-top: 16px">
           <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
         </div>
@@ -72,7 +66,6 @@
                     <span class="ai-timeline-label">{{ step.label }}</span>
                     <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
                   </div>
-                  <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
                 </div>
               </li>
             </ol>
@@ -82,33 +75,20 @@
         <section v-else-if="doc.categoryId && smartPlan.column_count" class="plan-panel">
           <header class="plan-head">
             <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
-            <span class="plan-badge">需填 {{ smartPlan.column_count }} 列</span>
+            <span class="plan-badge">{{ smartPlan.column_count }} 列</span>
           </header>
-          <p v-if="smartPlan.reasoning" class="plan-reasoning">{{ smartPlan.reasoning }}</p>
           <div v-if="smartColumnLabels.length" class="plan-columns">
             <div class="plan-column-tags">
               <span v-for="label in smartColumnLabels" :key="label" class="plan-tag">{{ label }}</span>
             </div>
           </div>
-          <p v-if="smartPlan.tips" class="plan-tips">{{ smartPlan.tips }}</p>
-          <p v-if="smartPlan.cached" class="plan-cache-note muted">已使用上次规划结果，点「重新规划」才会再次调用 AI。</p>
         </section>
         <div class="toolbar" style="margin: 16px 0 12px">
           <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading || docTemplateDownloading" :loading="docTemplateDownloading" @click="downloadDocTemplate">
-            下载智能填写表
+            下载填写表
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
         </div>
-        <section v-if="doc.categoryId" class="image-help">
-          <h4>上传表格和图片</h4>
-          <p class="upload-flow-lead">不用改文件名。表格和图一起拖进来，系统按<strong>货号</strong>自动配对。</p>
-          <ul class="upload-flow-steps upload-flow-simple">
-            <li>文件名或文件夹名里<strong>包含货号</strong>即可，例如 <code>产品-A001.jpg</code>、<code>A001/1.png</code></li>
-            <li>也可点「选图片文件夹」一次导入整个目录（支持子文件夹按货号分）</li>
-            <li>填好表格后点「解析并进入审核」，AI 写文案并补图</li>
-          </ul>
-          <p v-if="uploadSummary" class="upload-summary">{{ uploadSummary }}</p>
-        </section>
         <div
           class="upload-drop-zone"
           @dragover.prevent
@@ -125,16 +105,14 @@
             @change="onDocFilesChange"
           >
             <div class="upload-drop-inner">
-              <p>拖入填好的表格 + 商品图片</p>
-              <p class="muted upload-drop-hint">文件名或文件夹名包含货号即可，不必改成 SKU-1001.jpg</p>
+              <p>拖入表格 + 图片</p>
               <el-button type="primary" plain @click.stop="pickImageFolder">选图片文件夹</el-button>
             </div>
           </el-upload>
-          <p v-if="!doc.categoryId" class="upload-note muted">可先上传文件；解析前仍需选择叶子类目。</p>
         </div>
         <div class="step-actions" style="margin-top: 16px">
           <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.some((item) => item.raw)" @click="parseDocuments">
-            {{ parseStatus || "解析并进入审核" }}
+            {{ parseStatus || "解析" }}
           </el-button>
         </div>
       </div>
@@ -171,86 +149,11 @@
         </ol>
       </section>
 
-      <section v-if="ecosystemBrief && doc.categoryId && docStep === 0" class="ecosystem-brief-panel ecosystem-brief-compact">
-        <header class="ecosystem-brief-head">
-          <strong>阿里生态助手</strong>
-          <span class="ecosystem-brief-badge">国际站 · 询盘最大化</span>
-        </header>
-        <p v-if="ecosystemBrief.tips" class="ecosystem-brief-tips">{{ ecosystemBrief.tips }}</p>
-        <ol v-if="ecosystemBrief.assistant_steps?.length" class="ecosystem-brief-steps">
-          <li v-for="(step, idx) in ecosystemBrief.assistant_steps" :key="idx">{{ step }}</li>
-        </ol>
-        <div v-if="ecosystemBrief.golden_titles?.length" class="ecosystem-golden">
-          <small>店里同品类在售标题（AI 参考结构与用词，不会照抄）</small>
-          <p v-for="(title, idx) in ecosystemBrief.golden_titles.slice(0, 3)" :key="idx" class="golden-title">{{ title }}</p>
-        </div>
-        <div v-if="ecosystemBrief.keyword_strategy?.length" class="ecosystem-kw-tiers">
-          <span
-            v-for="item in ecosystemBrief.keyword_strategy"
-            :key="item.tier"
-            class="kw-tier"
-            :class="`is-${String(item.tier || '').toLowerCase()}`"
-            :title="item.hint"
-          >
-            {{ item.tier }} · {{ item.label }}
-          </span>
-        </div>
-      </section>
-
       <div v-if="docStep === 1" class="step-panel audit-shell">
         <header class="audit-header">
           <button type="button" class="audit-back" @click="docStep = 0">← 返回</button>
-          <h3>内容审核</h3>
-          <p class="audit-subtitle">
-            表格里每一列都会展示：Excel 原值 + AI 补全。按阿里国际站规则（合规→匹配→询盘）核对后标记通过。
-          </p>
+          <h3>审核</h3>
         </header>
-
-        <section v-if="ecosystemBrief" class="ecosystem-brief-panel audit-ecosystem-panel">
-          <header class="ecosystem-brief-head">
-            <strong>阿里生态助手</strong>
-            <span class="ecosystem-brief-badge">国际站 · 询盘最大化</span>
-          </header>
-          <p v-if="ecosystemBrief.tips" class="ecosystem-brief-tips">{{ ecosystemBrief.tips }}</p>
-          <ol v-if="ecosystemBrief.assistant_steps?.length" class="ecosystem-brief-steps">
-            <li v-for="(step, idx) in ecosystemBrief.assistant_steps" :key="idx">{{ step }}</li>
-          </ol>
-          <div v-if="ecosystemBrief.golden_listings?.length" class="ecosystem-golden-listings">
-            <small>店里同品类顶级上品案例（AI 学标题结构、关键词分层、属性深度与六图完整度，不会照抄）</small>
-            <article
-              v-for="(item, idx) in ecosystemBrief.golden_listings.slice(0, 3)"
-              :key="`${item.product_id || idx}-${item.title}`"
-              class="golden-listing-card"
-            >
-              <header>
-                <span class="golden-listing-badge">案例 {{ idx + 1 }}</span>
-                <span v-if="item.quality_score" class="golden-listing-score">参考分 {{ item.quality_score }}</span>
-              </header>
-              <p class="golden-title">{{ item.title }}</p>
-              <p v-if="item.keywords?.length" class="golden-meta">关键词：{{ item.keywords.join(" · ") }}</p>
-              <p v-if="Object.keys(item.key_attrs || {}).length" class="golden-meta">
-                属性：{{ Object.entries(item.key_attrs).slice(0, 4).map(([k, v]) => `${k}=${v}`).join("；") }}
-              </p>
-              <p v-if="item.highlights" class="golden-meta">卖点：{{ item.highlights }}</p>
-              <p v-if="item.image_count" class="golden-meta">图片：{{ item.image_count }} 张已齐</p>
-            </article>
-          </div>
-          <div v-else-if="ecosystemBrief.golden_titles?.length" class="ecosystem-golden">
-            <small>店里同品类在售标题（AI 参考结构与用词，不会照抄）</small>
-            <p v-for="(title, idx) in ecosystemBrief.golden_titles.slice(0, 3)" :key="idx" class="golden-title">{{ title }}</p>
-          </div>
-          <div v-if="ecosystemBrief.keyword_strategy?.length" class="ecosystem-kw-tiers">
-            <span
-              v-for="item in ecosystemBrief.keyword_strategy"
-              :key="item.tier"
-              class="kw-tier"
-              :class="`is-${String(item.tier || '').toLowerCase()}`"
-              :title="item.hint"
-            >
-              {{ item.tier }} · {{ item.label }}
-            </span>
-          </div>
-        </section>
 
         <section class="audit-toolbar-card">
           <div class="audit-toolbar">
@@ -275,9 +178,8 @@
         </section>
 
         <section class="audit-field-legend">
-          <span><i class="legend-dot is-required" />官方必填（红标列，缺了发不出）</span>
-          <span><i class="legend-dot is-score" />选填加分（填齐更容易到 5.0 分）</span>
-          <span class="muted">表格原值保留；AI 只补有依据的字段，价/量/品牌不会自动编</span>
+          <span><i class="legend-dot is-required" />必填</span>
+          <span><i class="legend-dot is-score" />加分</span>
         </section>
 
         <section class="audit-table-card">
@@ -491,6 +393,7 @@ import { store } from "../store";
 const router = useRouter();
 const route = useRoute();
 const DEAD_SESSIONS_KEY = "icbu-dead-feed-sessions";
+const LOCAL_DRAFT_PREFIX = "icbu-feed-draft";
 const sessionId = ref("");
 const deadSessionIds = loadDeadSessionIds();
 const verifiedSessionIds = ref(new Set());
@@ -501,7 +404,9 @@ let sessionGeneration = 0;
 let persistBlockedUntil = 0;
 let sessionCreatedAt = 0;
 let sessionRecoveryInFlight = null;
-const sessionApiRetryDelaysFresh = [300, 700];
+let localDraftTimer = null;
+let serverSyncTimer = null;
+const sessionApiRetryDelaysFresh = [300, 700, 1200];
 const sessionApiRetryDelaysFetch = [200, 500, 900];
 const sessionBooting = ref(true);
 const openSessions = ref([]);
@@ -565,7 +470,6 @@ const excel = reactive({
   emptyPolicy: "draw",
 });
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" });
-const ecosystemBrief = ref(null);
 const smartPlanLoading = ref(false);
 const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
@@ -674,15 +578,6 @@ const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "
 const copyColumnIds = new Set(["title", "keywords", "highlights"]);
 const tableCoreIds = new Set(["sku", "name", "price", "moq", "brand", "note", "title", "keywords", "highlights"]);
 const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
-const uploadSummary = computed(() => {
-  const sheets = docFiles.value.filter((item) => isSpreadsheetFile(item.name)).length;
-  const images = docFiles.value.filter((item) => isImageFile(item.name)).length;
-  if (!sheets && !images) return "";
-  const bits = [];
-  if (sheets) bits.push(`${sheets} 个表格`);
-  if (images) bits.push(`${images} 张图片`);
-  return `已选 ${bits.join("，")}`;
-});
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
@@ -878,6 +773,105 @@ function currentStep() {
 
 function currentReached() {
   return docReached.value;
+}
+
+function localDraftStorageKey() {
+  const uid = store.user?.id || "guest";
+  const sid = store.shopId || "";
+  return `${LOCAL_DRAFT_PREFIX}:${uid}:${sid}`;
+}
+
+function loadLocalDraft() {
+  try {
+    const raw = localStorage.getItem(localDraftStorageKey());
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalDraft() {
+  if (sessionBooting.value || restoring.value) return;
+  try {
+    localStorage.setItem(
+      localDraftStorageKey(),
+      JSON.stringify({
+        sessionId: sessionId.value,
+        step: docStep.value,
+        reached: docReached.value,
+        payload: sessionPayload(),
+        updatedAt: Date.now(),
+      }),
+    );
+  } catch {
+    /* quota */
+  }
+}
+
+function clearLocalDraft() {
+  try {
+    localStorage.removeItem(localDraftStorageKey());
+  } catch {
+    /* ignore */
+  }
+}
+
+function scheduleLocalDraft() {
+  clearTimeout(localDraftTimer);
+  localDraftTimer = setTimeout(saveLocalDraft, 250);
+}
+
+function applyDraftPayload(draft) {
+  const payload = draft?.payload || {};
+  if (payload.doc) {
+    doc.categoryId = payload.doc.categoryId || doc.categoryId;
+    doc.categoryName = payload.doc.categoryName || doc.categoryName;
+    doc.batch = payload.doc.batch ?? doc.batch;
+    doc.templateId = payload.doc.templateId || doc.templateId;
+    doc.templateName = payload.doc.templateName || doc.templateName;
+    doc.templateReason = payload.doc.templateReason || doc.templateReason;
+    docGrid.columns = payload.doc.columns?.length ? payload.doc.columns : docGrid.columns;
+    docGrid.rows = payload.doc.rows?.length ? normalizeDocRows(payload.doc.rows) : docGrid.rows;
+    docGrid.row_issues = payload.doc.row_issues || docGrid.row_issues;
+    docGrid.warnings = payload.doc.warnings || docGrid.warnings;
+    docGrid.row_count = payload.doc.row_count || docGrid.rows.length;
+    docGrid.ready_count = payload.doc.ready_count || docGrid.ready_count;
+    docGrid.source = payload.doc.source || docGrid.source;
+    if (payload.doc.smartPlan?.columns?.length) {
+      smartPlan.value = normalizeSmartPlan(payload.doc.smartPlan);
+    }
+    applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
+  }
+  if (typeof draft?.step === "number") {
+    docStep.value = Math.min(draft.step, docSteps.length - 1);
+  }
+  if (typeof draft?.reached === "number") {
+    docReached.value = Math.min(draft.reached, docSteps.length - 1);
+  }
+}
+
+function mergeLocalDraftIfNewer() {
+  const draft = loadLocalDraft();
+  if (!draft?.payload) return;
+  if (draft.sessionId && sessionId.value && draft.sessionId !== sessionId.value) return;
+  applyDraftPayload(draft);
+}
+
+function shouldSyncToServer() {
+  if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return false;
+  if (Date.now() < persistBlockedUntil) return false;
+  if (sessionRecoveryInFlight) return false;
+  if (!sessionId.value || deadSessionIds.has(sessionId.value)) return false;
+  if (!isKnownOpenSession(sessionId.value) && !sessionFromOpenList(sessionId.value)) return false;
+  return true;
+}
+
+function scheduleServerSync() {
+  if (!shouldSyncToServer()) return;
+  clearTimeout(serverSyncTimer);
+  serverSyncTimer = setTimeout(() => {
+    void persistSessionToServer();
+  }, 4000);
 }
 
 async function loadOpenSessions() {
@@ -1104,34 +1098,23 @@ async function ensureFeedSessionImpl(options = {}) {
   return Boolean(sessionId.value);
 }
 
-async function persistSession() {
-  if (persistInFlight) return persistInFlight;
-  persistInFlight = persistSessionImpl().finally(() => {
-    persistInFlight = null;
-  });
-  return persistInFlight;
+async function persistSession(options = {}) {
+  const { server = false } = options;
+  saveLocalDraft();
+  if (server) {
+    if (persistInFlight) return persistInFlight;
+    persistInFlight = persistSessionToServer().finally(() => {
+      persistInFlight = null;
+    });
+    return persistInFlight;
+  }
+  scheduleServerSync();
 }
 
-async function persistSessionImpl() {
-  if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
-  if (Date.now() < persistBlockedUntil) return;
-  if (sessionRecoveryInFlight) return;
-  if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
+async function persistSessionToServer() {
+  if (!shouldSyncToServer()) return;
   const generation = sessionGeneration;
   const targetId = sessionId.value;
-  const ok = await ensureFeedSession({ quiet: true });
-  if (generation !== sessionGeneration || sessionId.value !== targetId) return;
-  if (!ok || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
-  if (!isKnownOpenSession(sessionId.value)) {
-    await loadOpenSessions();
-    if (!isKnownOpenSession(sessionId.value) && !sessionFromOpenList(sessionId.value)) {
-      const remote = await resolveSessionById(sessionId.value);
-      if (!remote) {
-        await migrateOrphanSession({ quiet: true });
-        return;
-      }
-    }
-  }
   try {
     const saved = await saveSessionWithRetry(sessionId.value, {
       shop_id: store.shopId || "",
@@ -1204,6 +1187,7 @@ function applySession(session) {
     docReached.value = Math.min(session.reached ?? 0, docSteps.length - 1);
   }
   restoring.value = false;
+  mergeLocalDraftIfNewer();
   if (doc.categoryId && store.shopId) {
     void loadCategoryTemplates();
   }
@@ -1240,21 +1224,8 @@ async function startPathImpl() {
     applySession(created);
     touchSessionCreatedAt();
     verifySession(created.id);
-    try {
-      await saveSessionWithRetry(created.id, {
-        shop_id: store.shopId || "",
-        step: 0,
-        reached: 0,
-        payload: sessionPayload(),
-      });
-      rememberOpenSession(created.id);
-    } catch (error) {
-      if (isSessionApiMissing(error)) {
-        await markSessionDeadAndRecover(created.id, { quiet: true });
-        return;
-      }
-      throw error;
-    }
+    clearLocalDraft();
+    saveLocalDraft();
     router.replace({ query: { session: created.id } });
     void loadOpenSessions();
   } catch (error) {
@@ -1271,7 +1242,6 @@ async function finishResumeSession() {
   if (!doc.categoryId || !store.shopId) return;
   try {
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    void loadEcosystemBrief({ categoryId: doc.categoryId, categoryName: doc.categoryName });
     ensureGridPolling();
     if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
       void runReviewAssist(true);
@@ -1353,7 +1323,7 @@ async function dropCurrent() {
 }
 
 async function backToChooser() {
-  await persistSession();
+  await persistSession({ server: true });
   await startPath();
 }
 
@@ -1406,11 +1376,11 @@ onMounted(async () => {
 
 let saveTimer = null;
 watch(
-  () => [excel.photoPolicy, excel.emptyPolicy],
+  () => [excel.photoPolicy, excel.emptyPolicy, docStep.value, doc.categoryId, docGrid.row_count],
   () => {
-    if (sessionBooting.value || restoring.value || !sessionId.value || deadSessionIds.has(sessionId.value)) return;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(persistSession, 400);
+    if (sessionBooting.value || restoring.value) return;
+    scheduleLocalDraft();
+    if (docStep.value >= 0) scheduleServerSync();
   },
 );
 watch(
@@ -1420,21 +1390,12 @@ watch(
   },
 );
 watch(
-  () => docStep.value,
-  (step) => {
-    if (step === 1 && doc.categoryId && store.shopId) {
-      void loadEcosystemBrief({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    }
-  },
-);
-watch(
-  () => [docStep.value, doc.categoryId, doc.categoryName, docGrid.row_count, docGrid.ready_count, doc.templateId],
+  () => docGrid.rows,
   () => {
     if (sessionBooting.value || restoring.value || docGrid.loading || reviewAssistRunning.value) return;
-    if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(persistSession, 1500);
+    scheduleLocalDraft();
   },
+  { deep: true },
 );
 
 
@@ -1510,7 +1471,7 @@ function addDocFiles(files) {
   });
   if (added) {
     docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
-    scheduleDocImageSync();
+    scheduleLocalDraft();
   }
   return added;
 }
@@ -1542,52 +1503,15 @@ function onFolderPick(event) {
 }
 
 function onDocFilesChange() {
-  scheduleDocImageSync();
+  scheduleLocalDraft();
 }
 
 function scheduleDocImageSync() {
-  clearTimeout(imageSyncTimer);
-  imageSyncTimer = setTimeout(() => {
-    void syncDocImagesToSession();
-  }, 800);
+  /* Images stay in browser until parse; server staging caused 404 noise on Vercel. */
 }
 
 async function syncDocImagesToSession() {
-  if (restoring.value || docGrid.loading || reviewAssistRunning.value) return;
-  if (Date.now() < persistBlockedUntil) return;
-  if (sessionRecoveryInFlight) return;
-  const ok = await ensureFeedSession({ quiet: true });
-  if (!ok || !sessionId.value || !isKnownOpenSession(sessionId.value)) return;
-  const images = allUploadImageFiles();
-  if (!images.length) return;
-  const targetId = sessionId.value;
-  const form = new FormData();
-  form.append("kind", "excel_images");
-  images.forEach((item) => form.append("files", item.raw, item.name));
-  try {
-    await uploadSessionFilesWithRetry(targetId, form);
-  } catch (error) {
-    if (!isSessionApiMissing(error)) return;
-    await markSessionDeadAndRecover(targetId, { quiet: true });
-  }
-}
-
-async function loadEcosystemBrief(override = null) {
-  const categoryId = override?.categoryId ?? doc.categoryId ?? "";
-  const categoryName = override?.categoryName ?? doc.categoryName ?? smartPlan.value.category_name ?? "";
-  if (!store.shopId || !categoryId) {
-    ecosystemBrief.value = null;
-    return;
-  }
-  try {
-    ecosystemBrief.value = await api.excelEcosystemBrief({
-      shop_id: store.shopId,
-      category_id: categoryId,
-      category_name: categoryName,
-    });
-  } catch {
-    ecosystemBrief.value = null;
-  }
+  /* no-op — see scheduleDocImageSync */
 }
 
 async function loadSmartPlan(override = null) {
@@ -1605,7 +1529,6 @@ async function loadSmartPlan(override = null) {
     }));
     docGrid.columns = smartPlan.value.columns || [];
     finishSmartPlanStepAnimation();
-    void loadEcosystemBrief({ categoryId, categoryName });
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
@@ -1664,7 +1587,7 @@ async function refreshSmartPlan() {
   try {
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName, refresh: true });
     ElMessage.success(`已重新规划：需填 ${smartPlan.value.column_count || 0} 列`);
-    await persistSession();
+    await persistSession({ server: true });
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -1684,7 +1607,7 @@ function openDocCategory() {
 function advanceDoc(index) {
   docReached.value = Math.max(docReached.value, index);
   docStep.value = index;
-  void persistSession();
+  void persistSession({ server: true });
   if (index === 1) void runReviewAssist(true);
 }
 
@@ -2369,7 +2292,7 @@ async function runReviewAssistImpl(force = false) {
     });
   } finally {
     reviewAssistRunning.value = false;
-    void persistSession();
+    void persistSession({ server: true });
   }
 }
 
@@ -2426,7 +2349,7 @@ async function parseDocuments() {
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
     patchReviewStep("service", { status: "running", detail: "解析完成，AI 开始填写…" });
-    void persistSession();
+    void persistSession({ server: true });
     await runReviewAssist(true);
     docReached.value = Math.max(docReached.value, 1);
     docStep.value = 1;
@@ -2437,7 +2360,7 @@ async function parseDocuments() {
   } finally {
     docGrid.loading = false;
     parseStatus.value = "";
-    void persistSession();
+    void persistSession({ server: true });
   }
 }
 
@@ -2494,11 +2417,11 @@ async function importDocRows() {
   let targets = approved;
   if (!approved.length) {
     try {
-      await ElMessageBox.confirm(
-        "还没有标记「通过」的商品。要对当前全部商品成稿吗？建议先在表格里逐条审核并点 ✓。",
-        "批量成稿",
-        { confirmButtonText: "全部成稿", cancelButtonText: "先去审核", type: "warning" },
-      );
+      await ElMessageBox.confirm("未标记通过，仍成稿全部商品？", "批量成稿", {
+        confirmButtonText: "成稿",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
       targets = docGrid.rows;
     } catch {
       return;
@@ -2616,7 +2539,7 @@ async function pickCategory(node) {
     await store.ensureShops();
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
     ElMessage.success(`已选「${smartPlan.value.category_name || doc.categoryName}」`);
-    await persistSession();
+    await persistSession({ server: true });
   } catch (error) {
     ElMessage.error(error.message);
   }
@@ -2625,7 +2548,8 @@ async function pickCategory(node) {
 onUnmounted(() => {
   clearInterval(docTimer);
   clearInterval(gridPollTimer);
-  clearTimeout(imageSyncTimer);
+  clearTimeout(localDraftTimer);
+  clearTimeout(serverSyncTimer);
   clearSmartPlanStepAnimation();
 });
 
