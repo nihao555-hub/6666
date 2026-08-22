@@ -130,7 +130,7 @@ async function loadSidebar() {
   if (!store.shopId) return;
   loadingSide.value = true;
   try {
-    const data = await api.categories(store.shopId, "0", { sidebar: true });
+    const data = await api.categorySidebar(store.shopId);
     recent.value = data.recent || [];
     used.value = data.used || [];
     sideLoaded.value = true;
@@ -172,8 +172,7 @@ async function onOpen() {
       /* shop binding happens on Feed mount */
     }
   }
-  await openNode("0");
-  loadSidebar();
+  await Promise.all([openNode("0"), loadSidebar()]);
 }
 
 function pathLabel(node) {

@@ -20,7 +20,7 @@ os.environ["ALIBABA_APP_SECRET"] = "test-secret"
 from server.db import SessionLocal, init_db  # noqa: E402
 from server.models import CategoryMemory, CategoryRecentPick, Draft, Shop, Template, User  # noqa: E402
 from server.services import shop_categories  # noqa: E402
-from server.services.shop_categories import _ONLINE_CACHE  # noqa: E402
+from server.services.shop_categories import _ONLINE_CACHE, _SIDEBAR_CACHE  # noqa: E402
 
 
 class FakeApi:
@@ -102,6 +102,26 @@ class UsedLeafTests(unittest.TestCase):
         self.assertEqual([item["category_id"] for item in recent], ["21111112", "99"])
         self.assertEqual(recent[0]["source"], "recent")
         self.assertIn("画笔", recent[0]["path_label"])
+
+    def test_sidebar_caches_and_skips_extra_fetches(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        self.db.add(CategoryMemory(shop_id=self.shop.id, signature="brush", category_id="21111112", category_name="Paint Brushes / 画笔", hits=2))
+        self.db.commit()
+        api = FakeApi()
+        first = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        calls_after_first = api.calls
+        second = shop_categories.sidebar(self.db, api, self.shop, self.user)
+        self.assertEqual(calls_after_first, api.calls)
+        self.assertEqual(first["used"][0]["category_id"], second["used"][0]["category_id"])
+        self.assertIn("画笔", first["used"][0]["path_label"])
+
+    def test_record_recent_pick_invalidates_sidebar_cache(self) -> None:
+        _SIDEBAR_CACHE.clear()
+        api = FakeApi(pages=[[]])
+        shop_categories.sidebar(self.db, api, self.shop, self.user)
+        shop_categories.record_recent_pick(self.db, self.shop, self.user, "99", "Other / 其他")
+        recent = shop_categories.sidebar(self.db, api, self.shop, self.user)["recent"]
+        self.assertEqual(recent[0]["category_id"], "99")
 
 
 if __name__ == "__main__":
