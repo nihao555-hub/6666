@@ -465,6 +465,9 @@ import { store } from "../store";
 const router = useRouter();
 const route = useRoute();
 const sessionId = ref("");
+const deadSessionIds = new Set();
+let sessionEnsurePromise = null;
+let startPathPromise = null;
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -767,9 +770,22 @@ async function loadOpenSessions() {
 }
 
 async function ensureFeedSession() {
+  if (sessionEnsurePromise) return sessionEnsurePromise;
+  sessionEnsurePromise = ensureFeedSessionImpl().finally(() => {
+    sessionEnsurePromise = null;
+  });
+  return sessionEnsurePromise;
+}
+
+async function ensureFeedSessionImpl() {
   if (!sessionId.value) {
     await startPath();
-    return true;
+    return Boolean(sessionId.value);
+  }
+  if (deadSessionIds.has(sessionId.value)) {
+    sessionId.value = "";
+    await startPath();
+    return Boolean(sessionId.value);
   }
   try {
     await api.feedSession(sessionId.value);
@@ -777,8 +793,10 @@ async function ensureFeedSession() {
   } catch (error) {
     const msg = String(error.message || "");
     if (!msg.includes("不在了")) throw error;
+    deadSessionIds.add(sessionId.value);
+    sessionId.value = "";
+    if (route.query.session) router.replace({ query: {} });
     ElMessage.warning("这条做到一半的记录已失效，已为你新建批量任务");
-    router.replace({ query: {} });
     await startPath();
     return Boolean(sessionId.value);
   }
@@ -864,6 +882,14 @@ function applySession(session) {
 }
 
 async function startPath() {
+  if (startPathPromise) return startPathPromise;
+  startPathPromise = startPathImpl().finally(() => {
+    startPathPromise = null;
+  });
+  return startPathPromise;
+}
+
+async function startPathImpl() {
   try {
     const created = await api.createFeedSession({ path: "doc", shop_id: store.shopId || "" });
     docStep.value = 0;
@@ -889,6 +915,10 @@ async function startPath() {
 }
 
 async function resumeSession(id) {
+  if (!id || deadSessionIds.has(id)) {
+    await startPath();
+    return;
+  }
   try {
     const session = await api.feedSession(id);
     applySession(session);
@@ -908,7 +938,16 @@ async function resumeSession(id) {
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("不在了")) {
-      await ensureFeedSession();
+      deadSessionIds.add(id);
+      if (sessionId.value === id) sessionId.value = "";
+      if (route.query.session === id) router.replace({ query: {} });
+      await loadOpenSessions();
+      const fallback = openSessions.value.find((item) => item.id !== id && !deadSessionIds.has(item.id));
+      if (fallback) {
+        await resumeSession(fallback.id);
+      } else {
+        await startPath();
+      }
       return;
     }
     ElMessage.error(error.message);
@@ -941,11 +980,25 @@ async function bootSession() {
   sessionBooting.value = true;
   try {
     await loadOpenSessions();
-    if (route.query.session) {
-      await resumeSession(String(route.query.session));
-    } else {
-      await startPath();
+    const wanted = route.query.session ? String(route.query.session) : "";
+    if (wanted) {
+      if (openSessions.value.some((item) => item.id === wanted)) {
+        await resumeSession(wanted);
+      } else {
+        deadSessionIds.add(wanted);
+        router.replace({ query: {} });
+        const fallback = openSessions.value.find((item) => !deadSessionIds.has(item.id));
+        if (fallback) await resumeSession(fallback.id);
+        else await startPath();
+      }
+      return;
     }
+    const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
+    if (latest) {
+      await resumeSession(latest.id);
+      return;
+    }
+    await startPath();
   } finally {
     sessionBooting.value = false;
   }
@@ -1143,7 +1196,18 @@ async function syncDocImagesToSession() {
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("不在了")) {
+      deadSessionIds.add(sessionId.value);
+      sessionId.value = "";
       await ensureFeedSession();
+      if (!sessionId.value) return;
+      try {
+        const form = new FormData();
+        form.append("kind", "excel_images");
+        images.forEach((item) => form.append("files", item.raw, item.name));
+        await api.uploadFeedSessionFiles(sessionId.value, form);
+      } catch {
+        /* best effort after session recovery */
+      }
     }
   }
 }

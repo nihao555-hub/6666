@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db
+from ..db import reload_db_from_blob
 from ..models import User
 from ..services import feed_sessions as sessions
 
@@ -31,6 +32,8 @@ class SaveIn(BaseModel):
 
 @router.get("")
 def list_sessions(shop_id: str = "", db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     rows = sessions.list_open(db, user.id, shop_id)
     return {"sessions": [sessions.public_view(row) for row in rows]}
 
@@ -43,6 +46,8 @@ def create_session(payload: CreateIn, db: Session = Depends(get_db), user: User 
 
 @router.get("/{session_id}")
 def get_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    reload_db_from_blob()
+    db.expire_all()
     row = sessions.get_owned(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
