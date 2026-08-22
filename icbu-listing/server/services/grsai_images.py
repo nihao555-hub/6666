@@ -14,7 +14,7 @@ from typing import Any
 
 import requests
 
-from ..config import ROOT, settings
+from ..config import settings
 
 
 class GrsaiError(Exception):
@@ -195,14 +195,7 @@ def download_image(url: str) -> bytes:
 
 
 def generated_dir() -> Path:
-    """Runtime lookup so tests can point at a temp folder after import."""
-    explicit = os.environ.get("GENERATED_DIR")
-    if explicit:
-        path = Path(explicit)
-    else:
-        upload = Path(os.environ.get("UPLOAD_DIR", "data/uploads"))
-        path = upload.parent / "generated-images"
-    if not path.is_absolute():
-        path = ROOT / path
+    """Writable generated-image root (Vercel/Lambda use /tmp via settings)."""
+    path = settings.generated_dir
     path.mkdir(parents=True, exist_ok=True)
     return path
