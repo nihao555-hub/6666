@@ -26,6 +26,7 @@ from . import catalog, defaults as defaults_service, excel_import, schema_labels
 from .icbu_publishing_skill import checklist_for_review, skill_prompt_block
 from .review_enrich import schema_inventory_summary, ai_target_columns
 from .excel_import import SKIP_ATTR_IDS, USER_FILLS
+from . import vision_plan
 
 CORE_IDS = ("sku", "price", "moq")
 CORE_OPTIONAL = ("images", "brand", "name", "note")
@@ -93,6 +94,9 @@ Template summary (reasoning only):
 
 Candidate columns (required attrs marked required=true; options truncated):
 {candidates}
+
+Product vision from seller's uploaded photos (use to OMIT derivable evidence columns from user_columns):
+{product_vision}
 
 Hard rules:
 - Prefer FEWER evidence columns — only anchors, not every required attr.
@@ -442,13 +446,19 @@ def _sanitize_user_column_ids(
     return ordered
 
 
-def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
+def _rule_based_user_columns(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    vision_samples: Sequence[Mapping[str, Any]] | None = None,
+) -> list[str]:
     """Minimal sheet: redlines + name/note/images + a few required evidence anchors."""
     chosen: list[str] = list(CORE_IDS)
     for field_id in CORE_OPTIONAL:
         if field_id not in chosen:
             chosen.append(field_id)
-    for field_id in _evidence_anchor_ids(candidates):
+    vision_covered = vision_plan.attr_ids_covered_by_vision(candidates, vision_samples or [])
+    anchors = [fid for fid in _evidence_anchor_ids(candidates) if fid not in vision_covered]
+    for field_id in anchors:
         if field_id not in chosen:
             chosen.append(field_id)
     for optional in ("name", "note"):
@@ -460,10 +470,12 @@ def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[st
 def _finalize_user_columns(
     candidates: Sequence[Mapping[str, Any]],
     user_ids: Sequence[str],
+    *,
+    vision_samples: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[str]:
     """Merge LLM picks with rule minimum; never allow score columns on the download sheet."""
     sanitized = _sanitize_user_column_ids(candidates, user_ids)
-    minimum = _rule_based_user_columns(candidates)
+    minimum = _rule_based_user_columns(candidates, vision_samples=vision_samples)
     allowed = {str(col["id"]) for col in candidates}
     ordered: list[str] = []
     for field_id in sanitized:
@@ -486,6 +498,8 @@ def _llm_user_columns(
     schema_inventory: Mapping[str, Any],
     template_summary: Mapping[str, str],
     ai_completes: str,
+    product_vision: str = "",
+    vision_samples: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[list[str], str, str]:
     compact = []
     for col in candidates:
@@ -510,6 +524,7 @@ def _llm_user_columns(
         template_summary=json.dumps(template_summary, ensure_ascii=False),
         ai_completes=ai_completes,
         candidates=json.dumps(compact, ensure_ascii=False),
+        product_vision=product_vision or "（卖家尚未上传商品图）",
         skill_rules=skill_prompt_block(),
     )
     payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.1)
@@ -525,7 +540,8 @@ def _llm_user_columns(
             chosen.insert(0, required)
     reasoning = str(payload.get("reasoning") or "").strip()
     tips = str(payload.get("tips") or "").strip()
-    return _finalize_user_columns(candidates, chosen), reasoning, tips
+    return _finalize_user_columns(candidates, chosen, vision_samples=vision_samples), reasoning, tips
+
 
 def columns_for_ids(candidates: Sequence[Mapping[str, Any]], user_ids: Sequence[str]) -> list[dict[str, Any]]:
     by_id = {str(col["id"]): dict(col) for col in candidates}
@@ -541,6 +557,7 @@ def _plan_input_hash(
     schema_xml: str,
     shop_defaults: Mapping[str, Any],
     template_values: Mapping[str, Any],
+    vision_samples: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     blob = json.dumps(
         {
@@ -548,6 +565,7 @@ def _plan_input_hash(
             "schema": hashlib.sha256(schema_xml.encode("utf-8", errors="replace")).hexdigest(),
             "defaults": shop_defaults,
             "template": template_values,
+            "vision": vision_plan.vision_summary_text(vision_samples or []),
         },
         sort_keys=True,
         ensure_ascii=False,
@@ -604,13 +622,14 @@ def build_plan(
     category_name: str = "",
     ai: AiClient | None = None,
     refresh: bool = False,
+    vision_samples: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not category_id:
         raise ValueError("先选叶子类目")
     shop_defaults = _shop_defaults(shop)
     template_values = _template_values(db, shop.id, category_id)
     habits_fp = _habits_fingerprint(shop_defaults, template_values)
-    if not refresh:
+    if not refresh and not vision_samples:
         fast = _try_fast_cached_plan(
             db,
             shop.id,
@@ -634,8 +653,9 @@ def build_plan(
     fields = parse_schema(xml)
     fields_flat = excel_import.flatten_schema_fields(fields)
     schema_inventory = schema_inventory_summary(fields_flat)
-    input_hash = _plan_input_hash(xml, shop_defaults, template_values)
-    if not refresh:
+    product_vision = vision_plan.vision_summary_text(vision_samples or [])
+    input_hash = _plan_input_hash(xml, shop_defaults, template_values, vision_samples)
+    if not refresh and not vision_samples:
         cached = _load_cached_plan(db, shop.id, category_id, input_hash)
         if cached is not None:
             if category_name and not cached.get("category_name"):
@@ -648,17 +668,18 @@ def build_plan(
     )
     planner = "rules"
     reasoning = (
-        "填写表只含最少必填依据列（价/量/货号 + 2～4 个核心属性如材质/类型/色数）。"
-        "上传后 AI 读取表中每一列，推断其余官方必填与影响信息分的选填。"
+        "先上传商品图识别依据，再选类目。"
+        "填写表只含最少必填列（价/量/货号 + 2～4 个核心属性）；"
+        "已从图片识别的属性不再重复填写；其余官方必填与加分项由 AI 推断。"
     )
-    tips = "每行一个 SKU。把材质、类型、规格等你确实知道的填进属性列；其余必填和加分项交给 AI 推断。"
+    tips = "图片已识别的产品信息会用来缩减填写列。价/量/货号必填；其余交给 AI。"
     template_summary = _template_summary(template_values)
     ai_completes = _ai_completes_block(
         covered_shop=covered_shop,
         covered_template=covered_template,
         schema_inventory=schema_inventory,
     )
-    user_ids = _rule_based_user_columns(candidates)
+    user_ids = _rule_based_user_columns(candidates, vision_samples=vision_samples)
     if ai is not None:
         try:
             user_ids, llm_reasoning, llm_tips = _llm_user_columns(
@@ -671,6 +692,8 @@ def build_plan(
                 schema_inventory=schema_inventory,
                 template_summary=template_summary,
                 ai_completes=ai_completes,
+                product_vision=product_vision,
+                vision_samples=vision_samples,
             )
             planner = "llm+rules"
             if llm_reasoning:
@@ -678,9 +701,9 @@ def build_plan(
             if llm_tips:
                 tips = llm_tips
         except AiUnavailable:
-            user_ids = _finalize_user_columns(candidates, user_ids)
+            user_ids = _finalize_user_columns(candidates, user_ids, vision_samples=vision_samples)
     else:
-        user_ids = _finalize_user_columns(candidates, user_ids)
+        user_ids = _finalize_user_columns(candidates, user_ids, vision_samples=vision_samples)
     columns = columns_for_ids(candidates, user_ids)
     user_id_set = set(user_ids)
     ai_fill_attrs = ai_target_columns(candidates, user_id_set)
@@ -726,6 +749,8 @@ def build_plan(
         "review_note": "审核表会展示 AI 推断出的全部官方字段，可改后再成稿。",
         "evidence_column_ids": [col["id"] for col in columns if str(col.get("id", "")).startswith("attr.")],
         "ai_infer_attr_count": len(ai_fill_attrs),
+        "vision_samples": list(vision_samples or []),
+        "vision_summary": product_vision,
         "review_checklist": checklist_for_review(),
         "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
         "planner_input": {

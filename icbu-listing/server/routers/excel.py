@@ -288,6 +288,72 @@ def smart_plan_endpoint(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+def _parse_photobank_json(raw: str) -> list[dict[str, Any]]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="图片银行选择不是合法 JSON") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="图片银行选择必须是数组")
+    return [dict(item) for item in payload if isinstance(item, dict)]
+
+
+@router.post("/smart-plan-from-images")
+async def smart_plan_from_images(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    refresh: bool = Form(False),
+    photobank_images: str = Form("[]"),
+    files: list[UploadFile] = File(default_factory=list),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Analyze uploaded / photobank images, then build a category smart plan."""
+    reload_db_from_blob_throttled(min_interval_seconds=3.0)
+    if not shop_id:
+        raise HTTPException(status_code=400, detail="先选一个店铺")
+    if not category_id:
+        raise HTTPException(status_code=400, detail="先选叶子类目")
+    shop = shop_for(db, user, shop_id)
+    hint = _category_hint(db, user, shop_id, category_id, category_name)
+    ai = AiClient.from_env_or_none()
+    uploads: list[tuple[str, bytes]] = []
+    for item in files:
+        content = await item.read()
+        if content:
+            uploads.append((item.filename or "photo.jpg", content))
+    bank = _parse_photobank_json(photobank_images)
+    if not uploads and not bank:
+        raise HTTPException(status_code=400, detail="先上传商品图或从图片银行选图")
+    from ..services import vision_plan
+
+    vision_samples = vision_plan.analyze_images_for_plan(ai, uploads, bank)
+    if not vision_samples and ai is None:
+        raise HTTPException(status_code=400, detail="未配置 AI，无法从图片生成填写表")
+    try:
+        plan = smart_plan.build_plan(
+            db,
+            shop_api(shop),
+            shop,
+            category_id=category_id,
+            category_name=hint or category_name,
+            ai=ai,
+            refresh=True if vision_samples else refresh,
+            vision_samples=vision_samples,
+        )
+        if vision_samples:
+            plan["planner"] = f"{plan.get('planner') or 'rules'}+vision"
+        return plan
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.get("/smart-template")
 def download_smart_template(
     shop_id: str = "",

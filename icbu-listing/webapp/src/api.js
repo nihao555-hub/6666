@@ -103,6 +103,7 @@ export const api = {
   excelStyles: () => http.get("/excel/styles"),
   excelSheetPlan: (params) => http.get("/excel/sheet-plan", { params }),
   excelSmartPlan: (params) => http.get("/excel/smart-plan", { params }),
+  excelSmartPlanFromImages: (form) => http.post("/excel/smart-plan-from-images", form),
   excelEcosystemBrief: (params) => http.get("/excel/ecosystem-brief", { params }),
   excelSmartTemplateFromPlan: (body) =>
     http.post("/excel/smart-template-from-plan", body, { responseType: "blob" }),

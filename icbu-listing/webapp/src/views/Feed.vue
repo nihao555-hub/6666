@@ -39,9 +39,68 @@
       <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0 && !awaitingReviewAssist && !docGrid.loading && !reviewAssistRunning" class="step-panel">
-        <h3>选类目</h3>
-        <div style="margin-top: 16px">
+        <h3>1. 上传商品图</h3>
+        <p class="muted step-hint">先上传全部商品图（本地文件夹或图片银行），AI 会读图后再生成填写表。</p>
+        <div class="toolbar" style="margin: 12px 0">
+          <el-button :disabled="!store.shopId" :loading="photobankLoading" @click="togglePhotobank">
+            {{ photobankOpen ? "收起图片银行" : "从图片银行选图" }}
+          </el-button>
+          <el-button plain @click="pickImageFolder">选本地图片文件夹</el-button>
+          <span v-if="planImageCount" class="muted">{{ planImageCount }} 张已选</span>
+        </div>
+        <section v-if="photobankOpen" class="photobank-panel">
+          <div v-if="photobankLoading" class="muted">加载图片银行…</div>
+          <div v-else-if="!photobankImages.length" class="muted">图片银行为空或未连接店铺</div>
+          <div v-else class="photobank-grid">
+            <button
+              v-for="item in photobankImages"
+              :key="item.id || item.url"
+              type="button"
+              class="photobank-item"
+              :class="{ 'is-selected': selectedPhotobankIds.has(item.id || item.url) }"
+              @click="togglePhotobankImage(item)"
+            >
+              <img :src="item.url" :alt="item.file_name || 'bank'" loading="lazy" />
+              <span>{{ item.file_name || item.id }}</span>
+            </button>
+          </div>
+        </section>
+        <div
+          class="upload-drop-zone"
+          @dragover.prevent
+          @dragenter.prevent
+          @drop.prevent="onDropImageFiles"
+        >
+          <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
+          <el-upload
+            v-model:file-list="docImageFiles"
+            :auto-upload="false"
+            multiple
+            accept=".jpg,.jpeg,.png,.webp,.gif"
+            drag
+            @change="onDocImageFilesChange"
+          >
+            <div class="upload-drop-inner">
+              <p>拖入商品图片（按 SKU 分文件夹更好）</p>
+            </div>
+          </el-upload>
+        </div>
+        <div v-if="visionPreview.length" class="vision-preview">
+          <h4>AI 已读图摘要</h4>
+          <ul>
+            <li v-for="(item, index) in visionPreview" :key="index">
+              <strong>{{ item.group || "商品" }}</strong>：
+              {{ item.product_name || "—" }}
+              <span v-if="item.material"> · {{ item.material }}</span>
+              <span v-if="item.colors?.length"> · {{ item.colors.join("、") }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <h3 style="margin-top: 24px">2. 选叶子类目</h3>
+        <div style="margin-top: 12px">
           <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
+          <span v-if="!hasPlanImages()" class="muted" style="margin-left: 8px">建议先上传图片</span>
         </div>
 
         <section v-if="smartPlanShowAi" class="plan-panel plan-panel-loading">
@@ -85,35 +144,35 @@
             </div>
           </div>
         </section>
-        <div class="toolbar" style="margin: 16px 0 12px">
+        <h3 style="margin-top: 24px">3. 下载填写表</h3>
+        <div class="toolbar" style="margin: 12px 0">
           <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading || docTemplateDownloading" :loading="docTemplateDownloading" @click="downloadDocTemplate">
             下载填写表
           </el-button>
-          <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新规划</el-button>
+          <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新生成</el-button>
         </div>
+        <h3 style="margin-top: 24px">4. 上传表格并解析</h3>
         <div
           class="upload-drop-zone"
           @dragover.prevent
           @dragenter.prevent
-          @drop.prevent="onDropFiles"
+          @drop.prevent="onDropDocFiles"
         >
-          <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
           <el-upload
-            v-model:file-list="docFiles"
+            v-model:file-list="docSpreadsheetFiles"
             :auto-upload="false"
             multiple
-            accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.pdf"
+            accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.pdf"
             drag
-            @change="onDocFilesChange"
+            @change="onDocSpreadsheetChange"
           >
             <div class="upload-drop-inner">
-              <p>拖入表格 + 图片</p>
-              <el-button type="primary" plain @click.stop="pickImageFolder">选图片文件夹</el-button>
+              <p>拖入已填好的表格（可选，也可在解析前只传图）</p>
             </div>
           </el-upload>
         </div>
         <div class="step-actions" style="margin-top: 16px">
-          <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !docFiles.some((item) => item.raw)" @click="parseDocuments">
+          <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !canParseDocuments()" @click="parseDocuments">
             {{ parseStatus || "解析" }}
           </el-button>
         </div>
@@ -413,7 +472,7 @@ const restoring = ref(false);
 const docStep = ref(0);
 const docReached = ref(0);
 const docSteps = [
-  { key: "setup", label: "填写表下载上传" },
+  { key: "setup", label: "上传图片并生成填写表" },
   { key: "grid", label: "审核出图成稿" },
 ];
 const reviewFilter = ref("all");
@@ -435,7 +494,14 @@ const DEFAULT_IMAGE_SLOTS = [
 ];
 const excelImages = ref([]);
 const docFiles = ref([]);
+const docImageFiles = ref([]);
+const docSpreadsheetFiles = ref([]);
 const folderInput = ref(null);
+const photobankOpen = ref(false);
+const photobankLoading = ref(false);
+const photobankImages = ref([]);
+const selectedPhotobankIds = ref(new Set());
+const visionPreview = ref([]);
 let imageSyncTimer = null;
 const IMAGE_SUFFIXES = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]);
 const doc = reactive({
@@ -487,9 +553,10 @@ let smartPlanStepStartedAt = 0;
 
 function createSmartPlanAiSteps() {
   return [
+    { id: "vision", label: "识别商品图", status: "pending", detail: "" },
     { id: "schema", label: "读取官方字段", status: "pending", detail: "" },
     { id: "habits", label: "对照店铺模板", status: "pending", detail: "" },
-    { id: "plan", label: "规划最短填写列", status: "pending", detail: "" },
+    { id: "plan", label: "生成填写表列", status: "pending", detail: "" },
   ];
 }
 
@@ -501,21 +568,30 @@ function patchSmartPlanStep(id, patch) {
   smartPlanAiSteps.value = smartPlanAiSteps.value.map((step) => (step.id === id ? { ...step, ...patch } : step));
 }
 
-function startSmartPlanStepAnimation() {
+function startSmartPlanStepAnimation(hasVision = false) {
   clearSmartPlanStepAnimation();
   resetSmartPlanAiSteps();
   smartPlanStepStartedAt = Date.now();
-  patchSmartPlanStep("schema", { status: "running", detail: "拉取类目 schema…" });
+  if (hasVision) {
+    patchSmartPlanStep("vision", { status: "running", detail: "分析已上传的商品图…" });
+  } else {
+    patchSmartPlanStep("vision", { status: "done", detail: "未上传图片，按类目规则规划" });
+    patchSmartPlanStep("schema", { status: "running", detail: "拉取类目 schema…" });
+  }
   smartPlanStepTimer = window.setInterval(() => {
     if (!smartPlanLoading.value) return;
     const elapsed = Date.now() - smartPlanStepStartedAt;
-    if (elapsed >= 900) {
+    if (hasVision && elapsed >= 800) {
+      patchSmartPlanStep("vision", { status: "done", detail: "" });
+      patchSmartPlanStep("schema", { status: "running", detail: "拉取类目 schema…" });
+    }
+    if (elapsed >= (hasVision ? 1600 : 900)) {
       patchSmartPlanStep("schema", { status: "done", detail: "" });
       patchSmartPlanStep("habits", { status: "running", detail: "店铺默认与刊登模板…" });
     }
-    if (elapsed >= 1800) {
+    if (elapsed >= (hasVision ? 2400 : 1800)) {
       patchSmartPlanStep("habits", { status: "done", detail: "" });
-      patchSmartPlanStep("plan", { status: "running", detail: "LLM 规划填写列…" });
+      patchSmartPlanStep("plan", { status: "running", detail: "结合图片生成填写列…" });
     }
   }, 400);
 }
@@ -597,7 +673,138 @@ function maybeEnterAuditStep() {
 const coreFillIds = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
 const copyColumnIds = new Set(["title", "keywords", "highlights"]);
 const tableCoreIds = new Set(["sku", "name", "price", "moq", "brand", "note", "title", "keywords", "highlights"]);
-const smartColumnLabels = computed(() => (smartPlan.value.columns || []).map((col) => col.label).filter(Boolean));
+function selectedPhotobankList() {
+  return photobankImages.value.filter((item) => selectedPhotobankIds.value.has(item.id || item.url));
+}
+
+function hasPlanImages() {
+  return allUploadImageFiles().length > 0 || selectedPhotobankList().length > 0;
+}
+
+function canParseDocuments() {
+  const sheets = docSpreadsheetFiles.value.filter((item) => item.raw && isSpreadsheetFile(item.name));
+  return sheets.length > 0 || docSpreadsheetFiles.value.some((item) => item.raw);
+}
+
+function syncDocFilesFromParts() {
+  docFiles.value = [...docImageFiles.value, ...docSpreadsheetFiles.value];
+}
+
+function onDocImageFilesChange() {
+  syncDocFilesFromParts();
+  scheduleLocalDraft();
+}
+
+function onDocSpreadsheetChange() {
+  syncDocFilesFromParts();
+  scheduleLocalDraft();
+}
+
+async function togglePhotobank() {
+  photobankOpen.value = !photobankOpen.value;
+  if (photobankOpen.value && !photobankImages.value.length && store.shopId) {
+    await loadPhotobank();
+  }
+}
+
+async function loadPhotobank() {
+  if (!store.shopId) return;
+  photobankLoading.value = true;
+  try {
+    const data = await api.photobank(store.shopId, { page: 1, page_size: 48 });
+    photobankImages.value = data.images || [];
+  } catch (error) {
+    ElMessage.error(error.message || "图片银行加载失败");
+  } finally {
+    photobankLoading.value = false;
+  }
+}
+
+function togglePhotobankImage(item) {
+  const key = item.id || item.url;
+  if (!key) return;
+  const next = new Set(selectedPhotobankIds.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  selectedPhotobankIds.value = next;
+  scheduleLocalDraft();
+}
+
+function onDropImageFiles(event) {
+  const files = Array.from(event.dataTransfer?.files || []).filter((file) => isImageFile(file.name));
+  if (!files.length) {
+    ElMessage.warning("请拖入图片文件");
+    return;
+  }
+  const added = addDocImageFiles(files);
+  if (added) ElMessage.success(`已添加 ${added} 张图片`);
+}
+
+function onDropDocFiles(event) {
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  const added = addDocSpreadsheetFiles(files);
+  if (added) ElMessage.success(`已添加 ${added} 个文件`);
+}
+
+function addDocImageFiles(files) {
+  const existing = new Set(docImageFiles.value.map((item) => fileStorageKey(item.raw || { name: item.name })));
+  let added = 0;
+  files.forEach((file) => {
+    if (!file || !isImageFile(file.name)) return;
+    const key = fileStorageKey(file);
+    if (!key || existing.has(key)) return;
+    docImageFiles.value.push({ name: file.webkitRelativePath || file.name, raw: file, status: "success" });
+    existing.add(key);
+    added += 1;
+  });
+  if (added) {
+    syncDocFilesFromParts();
+    scheduleLocalDraft();
+  }
+  return added;
+}
+
+function addDocSpreadsheetFiles(files) {
+  const existing = new Set(docSpreadsheetFiles.value.map((item) => fileStorageKey(item.raw || { name: item.name })));
+  let added = 0;
+  files.forEach((file) => {
+    if (!file) return;
+    const key = fileStorageKey(file);
+    if (!key || existing.has(key)) return;
+    docSpreadsheetFiles.value.push({ name: file.name, raw: file, status: "success" });
+    existing.add(key);
+    added += 1;
+  });
+  if (added) {
+    syncDocFilesFromParts();
+    scheduleLocalDraft();
+  }
+  return added;
+}
+
+async function buildSmartPlanForm(categoryId, categoryName, refresh) {
+  const body = new FormData();
+  body.append("shop_id", store.shopId || "");
+  body.append("category_id", categoryId);
+  body.append("category_name", categoryName || "");
+  if (refresh) body.append("refresh", "true");
+  if (hasPlanImages()) {
+    allUploadImageFiles().forEach((item) => {
+      if (item.raw) body.append("files", item.raw, item.name);
+    });
+    const bank = selectedPhotobankList();
+    if (bank.length) body.append("photobank_images", JSON.stringify(bank));
+    return api.excelSmartPlanFromImages(body);
+  }
+  return api.excelSmartPlan({
+    shop_id: store.shopId,
+    category_id: categoryId,
+    category_name: categoryName,
+    ...(refresh ? { refresh: true } : {}),
+  });
+}
+const planImageCount = computed(() => allUploadImageFiles().length + selectedPhotobankList().length);
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
@@ -781,6 +988,10 @@ function sessionPayload() {
       photoPolicy: excel.photoPolicy,
       emptyPolicy: excel.emptyPolicy,
       uploadNames: docFiles.value.map((item) => item.name).filter(Boolean),
+      uploadImageNames: docImageFiles.value.map((item) => item.name).filter(Boolean),
+      uploadSpreadsheetNames: docSpreadsheetFiles.value.map((item) => item.name).filter(Boolean),
+      photobankIds: [...selectedPhotobankIds.value],
+      visionPreview: visionPreview.value,
       useEcosystemAssistant: useEcosystemAssistant.value,
     },
     rowCount: docGrid.row_count || docGrid.rows.length || doc.batch?.count || 0,
@@ -869,6 +1080,9 @@ function applySmartPlan(raw, categoryId = "") {
   const plan = normalizeSmartPlan({ ...raw, category_id: raw?.category_id || categoryId });
   smartPlan.value = plan;
   docGrid.columns = plan.columns || [];
+  if (raw?.vision_samples?.length) {
+    visionPreview.value = raw.vision_samples;
+  }
   if (categoryId) saveLocalSmartPlan(categoryId, plan);
   return plan;
 }
@@ -936,6 +1150,7 @@ function applyDraftPayload(draft) {
     if (typeof payload.doc.useEcosystemAssistant === "boolean") {
       useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
     }
+    restoreUploadNameLists(payload.doc);
   }
   if (typeof draft?.step === "number") {
     let step = Math.min(draft.step, docSteps.length - 1);
@@ -1265,8 +1480,7 @@ function applySession(session) {
     if (typeof payload.doc.useEcosystemAssistant === "boolean") {
       useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
     }
-    const names = payload.doc.uploadNames || [];
-    docFiles.value = names.map((name) => ({ name, status: "success" }));
+    restoreUploadNameLists(payload.doc);
   } else {
     doc.categoryId = "";
     doc.categoryName = "";
@@ -1282,6 +1496,10 @@ function applySession(session) {
     docGrid.ready_count = 0;
     docGrid.source = "";
     docFiles.value = [];
+    docImageFiles.value = [];
+    docSpreadsheetFiles.value = [];
+    selectedPhotobankIds.value = new Set();
+    visionPreview.value = [];
   }
   if (session.path === "excel" || session.path === "full") {
     migrateLegacyExcelSession(session, payload);
@@ -1619,7 +1837,7 @@ function applyLocalImageMatches(rows, files) {
 function allUploadImageFiles() {
   const seen = new Set();
   const items = [];
-  [...docFiles.value, ...excelImages.value].forEach((item) => {
+  [...docImageFiles.value, ...excelImages.value].forEach((item) => {
     if (!item?.raw || !isImageFile(item.name)) return;
     const key = fileStorageKey(item.raw);
     if (seen.has(key)) return;
@@ -1629,21 +1847,30 @@ function allUploadImageFiles() {
   return items;
 }
 
+function restoreUploadNameLists(payload = {}) {
+  const imageNames = payload.uploadImageNames?.length
+    ? payload.uploadImageNames
+    : (payload.uploadNames || []).filter((name) => isImageFile(name));
+  const sheetNames = payload.uploadSpreadsheetNames?.length
+    ? payload.uploadSpreadsheetNames
+    : (payload.uploadNames || []).filter((name) => isSpreadsheetFile(name));
+  docImageFiles.value = imageNames.map((name) => ({ name, status: "success" }));
+  docSpreadsheetFiles.value = sheetNames.map((name) => ({ name, status: "success" }));
+  syncDocFilesFromParts();
+  if (payload.photobankIds?.length) {
+    selectedPhotobankIds.value = new Set(payload.photobankIds);
+  }
+  if (payload.visionPreview?.length) {
+    visionPreview.value = payload.visionPreview;
+  }
+}
+
 function addDocFiles(files) {
-  const existing = new Set(docFiles.value.map((item) => fileStorageKey(item.raw || { name: item.name })));
-  let added = 0;
-  files.forEach((file) => {
-    if (!file) return;
-    const key = fileStorageKey(file);
-    if (!key || existing.has(key)) return;
-    const label = file.webkitRelativePath || file.name;
-    docFiles.value.push({ name: label, raw: file, status: "success" });
-    existing.add(key);
-    added += 1;
-  });
+  const images = files.filter((file) => file && isImageFile(file.name));
+  const sheets = files.filter((file) => file && !isImageFile(file.name));
+  const added = addDocImageFiles(images) + addDocSpreadsheetFiles(sheets);
   if (added) {
     docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
-    scheduleLocalDraft();
   }
   return added;
 }
@@ -1669,7 +1896,7 @@ function onFolderPick(event) {
     ElMessage.warning("文件夹里没找到图片");
     return;
   }
-  const added = addDocFiles(picked);
+  const added = addDocImageFiles(picked);
   event.target.value = "";
   if (added) ElMessage.success(`已添加 ${added} 张图片`);
 }
@@ -1691,63 +1918,48 @@ async function loadSmartPlan(override = null) {
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
   const refresh = Boolean(override?.refresh);
   const background = Boolean(override?.background);
+  const hasVision = hasPlanImages();
   if (!store.shopId || !categoryId) return;
 
   if (!background) {
     smartPlanLoading.value = true;
     clearSmartPlanStepAnimation();
-    if (refresh) {
+    if (refresh || hasVision) {
       smartPlanShowAi.value = true;
-      startSmartPlanStepAnimation();
+      startSmartPlanStepAnimation(hasVision);
     } else {
       smartPlanAiDelayTimer = window.setTimeout(() => {
         if (!smartPlanLoading.value) return;
         smartPlanShowAi.value = true;
-        startSmartPlanStepAnimation();
+        startSmartPlanStepAnimation(hasVision);
       }, 400);
     }
   }
 
-  try {
-    const raw = await api.excelSmartPlan({
-      shop_id: store.shopId,
-      category_id: categoryId,
-      category_name: categoryName,
-      ...(refresh ? { refresh: true } : {}),
-    });
-    applySmartPlan(raw, categoryId);
-    if (!background) {
-      clearSmartPlanAiDelay();
-      if (raw.cached) {
-        smartPlanShowAi.value = false;
-        clearSmartPlanStepAnimation();
-      } else {
-        smartPlanShowAi.value = true;
-        finishSmartPlanStepAnimation();
-      }
+  const finishPlanUi = (raw) => {
+    if (background) return;
+    clearSmartPlanAiDelay();
+    if (raw.cached && !hasVision) {
+      smartPlanShowAi.value = false;
+      clearSmartPlanStepAnimation();
+    } else {
+      smartPlanShowAi.value = true;
+      finishSmartPlanStepAnimation();
     }
+  };
+
+  try {
+    const raw = await buildSmartPlanForm(categoryId, categoryName, refresh || hasVision);
+    applySmartPlan(raw, categoryId);
+    finishPlanUi(raw);
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
       await store.ensureShops();
       if (store.shopId) {
-        const raw = await api.excelSmartPlan({
-          shop_id: store.shopId,
-          category_id: categoryId,
-          category_name: categoryName,
-          ...(refresh ? { refresh: true } : {}),
-        });
+        const raw = await buildSmartPlanForm(categoryId, categoryName, refresh || hasVision);
         applySmartPlan(raw, categoryId);
-        if (!background) {
-          clearSmartPlanAiDelay();
-          if (raw.cached) {
-            smartPlanShowAi.value = false;
-            clearSmartPlanStepAnimation();
-          } else {
-            smartPlanShowAi.value = true;
-            finishSmartPlanStepAnimation();
-          }
-        }
+        finishPlanUi(raw);
         return;
       }
     }
@@ -2019,7 +2231,7 @@ function onReviewImagePick(event) {
     ElMessage.warning("请选择图片文件");
     return;
   }
-  const added = addDocFiles(picked);
+  const added = addDocImageFiles(picked);
   docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
   if (added) {
     ElMessage.success(`已配对 ${added} 张图片`);
@@ -2031,7 +2243,7 @@ function onReviewImagePick(event) {
 function onReviewImageDrop(event) {
   const files = Array.from(event.dataTransfer?.files || []).filter((file) => isImageFile(file.name));
   if (!files.length) return;
-  const added = addDocFiles(files);
+  const added = addDocImageFiles(files);
   docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
   if (added) {
     ElMessage.success(`已配对 ${added} 张图片`);
@@ -2601,15 +2813,13 @@ async function parseDocuments() {
     ElMessage.warning("先选叶子类目");
     return;
   }
-  const uploadables = docFiles.value.filter((item) => item.raw);
-  if (!uploadables.length) {
-    ElMessage.warning("请先上传表格和图片（刷新页面后需重新选择文件）");
+  const spreadsheets = docSpreadsheetFiles.value.filter((item) => item.raw);
+  const images = allUploadImageFiles();
+  if (!spreadsheets.length) {
+    ElMessage.warning("至少上传一个 Excel/CSV 表格（刷新页面后需重新选择文件）");
     return;
   }
-  if (!uploadables.some((item) => isSpreadsheetFile(item.name))) {
-    ElMessage.warning("至少上传一个 Excel/CSV 表格");
-    return;
-  }
+  const uploadables = [...spreadsheets, ...images];
   const body = new FormData();
   body.append("shop_id", store.shopId || "");
   body.append("category_id", doc.categoryId);
@@ -2833,7 +3043,7 @@ async function pickCategory(node) {
   doc.categoryId = categoryId;
   doc.categoryName = categoryName;
 
-  const localCached = loadLocalSmartPlan(categoryId);
+  const localCached = hasPlanImages() ? null : loadLocalSmartPlan(categoryId);
   if (localCached?.columns?.length) {
     applySmartPlan({ ...localCached, cached: true }, categoryId);
     ElMessage.success(`已选「${categoryName}」`);
@@ -3597,6 +3807,30 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.vision-preview {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--gray3);
+}
+
+.vision-preview h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.vision-preview ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.vision-preview li + li {
+  margin-top: 6px;
 }
 
 .category-next-box {
