@@ -12,12 +12,25 @@ import base64
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 import requests
 
 JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
+
+# Transient model failures should not abort a whole batch — retry a few times first.
+MAX_AI_ATTEMPTS = max(1, int(os.environ.get("AI_MAX_ATTEMPTS", "5")))
+AI_RETRY_BASE_DELAY = max(0.0, float(os.environ.get("AI_RETRY_BASE_DELAY", "1.0")))
+
+
+def _retry_delay(attempt: int) -> float:
+    return AI_RETRY_BASE_DELAY * (2**attempt)
+
+
+def _retryable_status(status_code: int) -> bool:
+    return status_code == 429 or status_code >= 500
 
 
 class AiUnavailable(RuntimeError):
@@ -337,29 +350,49 @@ class AiClient:
         *,
         timeout: float | None = None,
     ) -> str:
-        response = requests.post(
-            f"{self.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={"model": self.text_model, "messages": messages, "temperature": temperature},
-            timeout=self.timeout if timeout is None else timeout,
-        )
-        if response.status_code >= 400:
-            raise AiUnavailable(f"模型返回 {response.status_code}: {response.text[:200]}")
-        payload = response.json()
-        choices = payload.get("choices") or []
-        if not choices:
-            raise AiUnavailable("模型没有返回内容")
-        return choices[0].get("message", {}).get("content") or ""
+        last_error: Exception | None = None
+        for attempt in range(MAX_AI_ATTEMPTS):
+            try:
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"model": self.text_model, "messages": messages, "temperature": temperature},
+                    timeout=self.timeout if timeout is None else timeout,
+                )
+                if response.status_code >= 400:
+                    detail = f"模型返回 {response.status_code}: {response.text[:200]}"
+                    if _retryable_status(response.status_code) and attempt < MAX_AI_ATTEMPTS - 1:
+                        time.sleep(_retry_delay(attempt))
+                        continue
+                    raise AiUnavailable(detail)
+                payload = response.json()
+                choices = payload.get("choices") or []
+                if not choices:
+                    if attempt < MAX_AI_ATTEMPTS - 1:
+                        time.sleep(_retry_delay(attempt))
+                        continue
+                    raise AiUnavailable("模型没有返回内容")
+                return choices[0].get("message", {}).get("content") or ""
+            except AiUnavailable as exc:
+                last_error = exc
+                raise
+            except requests.exceptions.RequestException as exc:
+                last_error = exc
+                if attempt < MAX_AI_ATTEMPTS - 1:
+                    time.sleep(_retry_delay(attempt))
+                    continue
+                raise AiUnavailable(f"模型请求失败: {exc}") from exc
+        raise AiUnavailable(f"模型请求失败（已重试 {MAX_AI_ATTEMPTS} 次）: {last_error}")
 
-    def chat_json(
+    def _chat_json_once(
         self,
         messages: list[dict[str, Any]],
-        temperature: float = 0.2,
+        temperature: float,
         *,
-        timeout: float | None = None,
+        timeout: float | None,
     ) -> dict[str, Any]:
         text = self.chat(messages, temperature, timeout=timeout)
         try:
@@ -369,7 +402,26 @@ class AiClient:
                 {"role": "assistant", "content": text[:2000]},
                 {"role": "user", "content": "Return the same answer as valid JSON only, no markdown fence."},
             ]
-            return extract_json(self.chat(repair, 0.0, timeout=timeout))
+            repaired = self.chat(repair, 0.0, timeout=timeout)
+            return extract_json(repaired)
+
+    def chat_json(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(MAX_AI_ATTEMPTS):
+            try:
+                return self._chat_json_once(messages, temperature, timeout=timeout)
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = exc
+                if attempt < MAX_AI_ATTEMPTS - 1:
+                    time.sleep(_retry_delay(attempt))
+                    continue
+        raise AiUnavailable(f"模型返回的不是合法 JSON（已重试 {MAX_AI_ATTEMPTS} 次）: {last_error}")
 
     def understand(
         self,
