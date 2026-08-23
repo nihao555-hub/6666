@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 
 from ai import AiClient, AiUnavailable, ImageInput  # noqa: E402
 
-from . import excel_import
+from . import excel_import, issue_filter
 from .excel_import import ExcelRow, fill_headers, preview, read_sheet
 from .grid_images import attach_row_images
 
@@ -231,8 +231,9 @@ def check_grid(
 ) -> dict[str, Any]:
     rows = grid_to_excel_rows(items, columns, category_id=category_id)
     mode = excel_import.normalize_image_mode(image_mode)
-    issues = excel_import.row_checks(rows, mode)
-    blocked = {item["line"] for item in issues if item["level"] == "red"}
+    raw_issues = excel_import.row_checks(rows, mode)
+    issues = issue_filter.row_issues_for_user(raw_issues)
+    blocked = {item["line"] for item in issues}
     return {
         "row_count": len(rows),
         "ready_count": len(rows) - len(blocked),

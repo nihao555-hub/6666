@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from server.services.issue_filter import for_user, is_actionable  # noqa: E402
+from server.services.issue_filter import for_user, is_actionable, row_issues_for_user  # noqa: E402
 
 
 class IssueFilterTests(unittest.TestCase):
@@ -39,6 +39,23 @@ class IssueFilterTests(unittest.TestCase):
             {"field_id": "shippingTemplate", "level": "red", "message": "缺运费", "path": "logistics.shippingTemplate"},
         ]
         self.assertEqual(for_user(issues), [])
+
+    def test_yellow_issues_hidden(self) -> None:
+        issues = [
+            {"field_id": "images", "level": "yellow", "message": "没有图片", "path": "scImages"},
+            {"field_id": "p-1-1", "level": "yellow", "message": "置信度偏低", "path": "icbuCatProp.p-1-1"},
+        ]
+        self.assertEqual(for_user(issues), [])
+
+    def test_row_issues_only_price_moq(self) -> None:
+        issues = [
+            {"line": 2, "level": "red", "message": "缺单价。价格是红线，AI 不代填。"},
+            {"line": 3, "level": "yellow", "message": "没有图片"},
+            {"line": 4, "level": "red", "message": "必填项还没有值", "path": "icbuCatProp.p-color"},
+        ]
+        filtered = row_issues_for_user(issues)
+        self.assertEqual(len(filtered), 1)
+        self.assertIn("单价", filtered[0]["message"])
 
 
 if __name__ == "__main__":

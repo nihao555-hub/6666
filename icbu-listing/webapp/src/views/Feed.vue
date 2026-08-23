@@ -242,25 +242,45 @@
           <div class="audit-page-head-main">
             <div>
               <h2 class="audit-page-title">内容审核</h2>
-              <p class="audit-subtitle">表格填的是依据。扫标题、图、价/量即可；物流和店政策成稿时自动套，不用在这里逐条填。</p>
+              <p class="audit-subtitle">看标题、图、价/量就行。物流和店政策成稿时自动套。</p>
             </div>
           </div>
         </header>
 
-        <section class="audit-toolbar-card">
-          <div v-if="habitsSummaryLine" class="audit-habits-strip muted">
-            发品习惯：{{ habitsSummaryLine }}
+        <section class="audit-guide">
+          <div class="audit-guide-step">
+            <span class="audit-guide-num">1</span>
+            <div>
+              <b>一键通过可成稿</b>
+              <span>价、量、标题、关键词、有图 → 直接过</span>
+            </div>
           </div>
+          <div class="audit-guide-step">
+            <span class="audit-guide-num">2</span>
+            <div>
+              <b>少数改一下</b>
+              <span>点 ✎ 改标题/价/图，不用管物流属性</span>
+            </div>
+          </div>
+          <div class="audit-guide-step">
+            <span class="audit-guide-num">3</span>
+            <div>
+              <b>批量成稿</b>
+              <span>已通过 {{ auditStats.approved }} 条，成稿后进草稿箱发布</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="audit-toolbar-card">
           <div v-if="reviewStats.total" class="audit-summary-strip">
-            <span>共 <b>{{ reviewStats.total }}</b> 条</span>
-            <span>可成稿 <b>{{ reviewReadyStats.ready }}</b></span>
-            <span>已通过 <b>{{ auditStats.approved }}</b></span>
-            <span v-if="reviewReadyStats.noCopy">缺文案 {{ reviewReadyStats.noCopy }}</span>
-            <span v-if="reviewReadyStats.noImages">缺图 {{ reviewReadyStats.noImages }}</span>
-            <span v-if="reviewReadyStats.noPrice">缺价量 {{ reviewReadyStats.noPrice }}</span>
+            <span>共 <b>{{ reviewStats.total }}</b></span>
+            <span class="is-good">可成稿 <b>{{ reviewReadyStats.ready }}</b></span>
+            <span class="is-good">已通过 <b>{{ auditStats.approved }}</b></span>
+            <span v-if="reviewReadyStats.noPrice" class="is-warn">缺价量 {{ reviewReadyStats.noPrice }}</span>
+            <span v-if="reviewReadyStats.noCopy" class="is-warn">缺文案 {{ reviewReadyStats.noCopy }}</span>
+            <span v-if="reviewReadyStats.noImages" class="is-warn">缺图 {{ reviewReadyStats.noImages }}</span>
             <div class="audit-summary-actions">
-              <el-button size="small" type="primary" plain @click="batchApproveReady">通过全部可成稿</el-button>
-              <el-button size="small" plain @click="batchApprove">通过已选</el-button>
+              <el-button size="small" type="primary" @click="batchApproveReady">通过全部可成稿 ({{ reviewReadyStats.ready }})</el-button>
             </div>
           </div>
           <div class="audit-toolbar">
@@ -277,8 +297,7 @@
               </button>
             </div>
             <div class="audit-toolbar-right">
-              <el-input v-model="reviewSearch" clearable placeholder="搜索名称或关键词" class="audit-search" />
-              <el-button plain :loading="docGrid.checking" @click="recheckDocGrid">刷新</el-button>
+              <el-input v-model="reviewSearch" clearable placeholder="搜名称 / SKU / 标题" class="audit-search" />
             </div>
           </div>
         </section>
@@ -289,12 +308,10 @@
               <thead>
                 <tr>
                   <th class="col-check"><el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll" /></th>
-                  <th class="col-product">产品信息</th>
+                  <th class="col-product">商品</th>
                   <th class="col-title">标题</th>
-                  <th class="col-category">类目</th>
-                  <th class="col-keywords">关键词</th>
-                  <th class="col-price">价格 (USD)</th>
-                  <th class="col-images">图片</th>
+                  <th class="col-price">价 / 起订</th>
+                  <th class="col-images">图</th>
                   <th class="col-status">状态</th>
                   <th class="col-actions">操作</th>
                 </tr>
@@ -306,7 +323,7 @@
                   :class="{
                     'is-selected': view.row._selected,
                     'is-approved': rowAuditStatus(view.row) === 'approved',
-                    'is-rejected': rowAuditStatus(view.row) === 'rejected',
+                    'is-needs-fix': rowNeedsFix(view.row),
                   }"
                 >
                   <td class="col-check">
@@ -319,22 +336,18 @@
                         <span v-else>{{ (view.row.name || view.row.sku || "?").slice(0, 1) }}</span>
                       </div>
                       <div class="audit-product-meta">
-                        <b>{{ view.row.name || view.row.sku || "未命名商品" }}</b>
-                        <span>ID: {{ view.row.sku || view.row.line }}</span>
+                        <b>{{ view.row.name || view.row.sku || "未命名" }}</b>
+                        <span>{{ view.row.sku || `行 ${view.row.line}` }}</span>
                       </div>
                     </div>
                   </td>
                   <td class="col-title">
                     <span class="audit-cell-text" :title="view.row.title">{{ view.row.title || "—" }}</span>
                   </td>
-                  <td class="col-category">
-                    <span class="audit-category">{{ doc.categoryName || smartPlan.category_name || "—" }}</span>
-                  </td>
-                  <td class="col-keywords">
-                    <span class="audit-cell-text" :title="view.row.keywords">{{ view.row.keywords || "—" }}</span>
-                  </td>
                   <td class="col-price">
                     <span class="audit-price">{{ formatAuditPrice(view.row.price) }}</span>
+                    <span v-if="view.row.moq" class="audit-moq"> / {{ view.row.moq }}</span>
+                    <span v-else class="audit-moq is-warn">缺 MOQ</span>
                   </td>
                   <td class="col-images">
                     <div class="audit-image-strip">
@@ -346,22 +359,27 @@
                         <img :src="url" alt="" />
                       </div>
                       <span v-if="rowImageCount(view.row) > 3" class="audit-image-more">+{{ rowImageCount(view.row) - 3 }}</span>
-                      <span v-else-if="!rowImageCount(view.row)" class="audit-image-more is-warn">无图</span>
+                      <span v-else-if="!rowImageCount(view.row)" class="audit-image-more is-warn">无</span>
                     </div>
                   </td>
                   <td class="col-status">
-                    <span class="audit-status" :class="`is-${rowAuditStatus(view.row)}`">{{ rowStatusLabel(view.row) }}</span>
+                    <span class="audit-status" :class="`is-${rowStatusTone(view.row)}`">{{ rowStatusLabel(view.row) }}</span>
                   </td>
                   <td class="col-actions">
                     <div class="audit-row-actions">
-                      <button type="button" class="audit-action is-approve" title="通过" @click="approveRow(view.row)">✓</button>
-                      <button type="button" class="audit-action is-reject" title="不通过" @click="rejectRow(view.row)">✕</button>
-                      <button type="button" class="audit-action is-view" title="查看详情" @click="openRowDetail(view)">👁</button>
+                      <button
+                        v-if="rowAuditStatus(view.row) !== 'approved'"
+                        type="button"
+                        class="audit-action is-approve"
+                        title="通过"
+                        @click="approveRow(view.row)"
+                      >✓</button>
+                      <button type="button" class="audit-action is-view" title="编辑" @click="openRowDetail(view)">✎</button>
                     </div>
                   </td>
                 </tr>
                 <tr v-if="!paginatedDocRowViews.length">
-                  <td colspan="9" class="review-empty">
+                  <td colspan="7" class="review-empty">
                     暂无商品<el-button text @click="reviewFilter = 'all'; reviewSearch = ''">显示全部</el-button>
                   </td>
                 </tr>
@@ -370,24 +388,9 @@
           </div>
         </section>
 
-        <details v-if="docGrid.row_issues?.length && false" class="review-issues">
-          <summary>
-            <span>成稿前先看这几行（{{ docGrid.row_issues.length }}）</span>
-          </summary>
-          <ul>
-            <li v-for="(issue, idx) in docGrid.row_issues.slice(0, 20)" :key="idx">
-              第 {{ issue.line }} 行 {{ issue.sku }}：{{ issue.message }}
-            </li>
-          </ul>
-        </details>
-
         <footer class="audit-footer">
           <div class="audit-footer-left">
-            已选择 <b>{{ docSelectedCount }}</b> 项
-          </div>
-          <div class="audit-footer-center">
-            <el-button type="primary" plain @click="batchApprove">批量通过</el-button>
-            <el-button plain @click="batchReject">批量不通过</el-button>
+            已选 <b>{{ docSelectedCount }}</b> · 已通过 <b>{{ auditStats.approved }}</b> / {{ reviewStats.total }}
           </div>
           <div class="audit-footer-right">
             <el-pagination
@@ -398,13 +401,15 @@
               layout="total, prev, pager, next, sizes"
               size="small"
             />
+            <el-button v-if="docSelectedCount" plain @click="batchApprove">通过已选</el-button>
             <el-button
               type="primary"
+              size="large"
               :loading="docGrid.loading"
-              :disabled="!docGrid.rows.length || !store.shopId || !doc.categoryId"
+              :disabled="!auditStats.approved || !store.shopId || !doc.categoryId"
               @click="importDocRows"
             >
-              批量成稿
+              批量成稿 ({{ auditStats.approved }})
             </el-button>
           </div>
         </footer>
@@ -415,16 +420,14 @@
           <el-button v-if="docProgress.complete" type="primary" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
         </div>
 
-        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="520px" destroy-on-close>
+        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="480px" destroy-on-close>
           <div v-if="rowDetailRow" class="audit-drawer">
-            <p v-if="rowDetailIssues.length" class="audit-drawer-hint">
-              只列出还需留意的项；其它列已在表格或会自动套用。
-            </p>
             <ul v-if="rowDetailIssues.length" class="audit-drawer-issues">
               <li v-for="(issue, idx) in rowDetailIssues" :key="idx">{{ issue }}</li>
             </ul>
+            <p v-else class="audit-drawer-ok">这条可以成稿，点下方保存或直接 ✓ 通过。</p>
             <div class="audit-drawer-section">
-              <h4>核对项</h4>
+              <h4>改这里</h4>
               <div v-for="col in rowDetailColumns" :key="col.id" class="audit-drawer-field">
                 <label>
                   {{ col.label }}
@@ -554,6 +557,7 @@ const doc = reactive({
   templateId: "",
   templateName: "",
   templateReason: "",
+  reviewAiDone: false,
 });
 const docGrid = reactive({
   columns: [],
@@ -1077,13 +1081,19 @@ const auditStats = computed(() => {
   });
   return { pending, approved, rejected, total: rows.length };
 });
-const auditFilterOptions = computed(() => [
-  { id: "all", label: "全部", count: auditStats.value.total },
-  { id: "ready", label: "可成稿", count: reviewReadyStats.value.ready },
-  { id: "pending", label: "待审", count: auditStats.value.pending },
-  { id: "approved", label: "通过", count: auditStats.value.approved },
-  { id: "rejected", label: "不通过", count: auditStats.value.rejected },
-]);
+const auditFilterOptions = computed(() => {
+  const rows = docGrid.rows || [];
+  let needsFix = 0;
+  rows.forEach((row) => {
+    if (rowNeedsFix(row)) needsFix += 1;
+  });
+  return [
+    { id: "all", label: "全部", count: auditStats.value.total },
+    { id: "ready", label: "可成稿", count: reviewReadyStats.value.ready },
+    { id: "needs_fix", label: "需改", count: needsFix },
+    { id: "approved", label: "已通过", count: auditStats.value.approved },
+  ];
+});
 const rowDetailTitle = computed(() => {
   if (!rowDetailRow.value) return "商品详情";
   return rowDetailRow.value.name || rowDetailRow.value.sku || "商品详情";
@@ -1091,18 +1101,12 @@ const rowDetailTitle = computed(() => {
 const rowDetailColumns = computed(() => {
   const row = rowDetailRow.value;
   if (!row) return [];
-  const prefer = ["title", "keywords", "price", "moq", "sku", "name"];
+  const prefer = ["title", "keywords", "price", "moq", "sku", "name", "note"];
   const seen = new Set();
   const cols = [];
   prefer.forEach((id) => {
     const col = docDataColumns.value.find((item) => item.id === id);
     if (col && !seen.has(col.id)) {
-      cols.push(col);
-      seen.add(col.id);
-    }
-  });
-  docRequiredAttrColumns.value.forEach((col) => {
-    if (!String(row[col.id] || "").trim() && !seen.has(col.id)) {
       cols.push(col);
       seen.add(col.id);
     }
@@ -1113,11 +1117,10 @@ const rowDetailIssues = computed(() => {
   const row = rowDetailRow.value;
   if (!row) return [];
   const items = [];
-  if (!rowReady(row)) items.push("缺价格或起订量");
-  if (rowMissingCopy(row)) items.push("缺标题或关键词");
+  if (!rowReady(row)) items.push("填价格和起订量（AI 不会代填）");
+  if (rowMissingCopy(row)) items.push("补标题或关键词");
   if (rowImageCount(row) < 1) items.push("至少配一张图");
-  rowEmptyRequiredAttrs(row).forEach((col) => items.push(`必填属性「${col.label}」还空着`));
-  if (issueLineSet.value.has(row.line)) items.push("价/量校验未过，点刷新");
+  if (issueLineSet.value.has(row.line)) items.push("价/量格式有问题");
   return items;
 });
 const filteredDocRowViews = computed(() => {
@@ -1134,6 +1137,8 @@ const filteredDocRowViews = computed(() => {
           return rowAuditStatus(row) === "rejected";
         case "ready":
           return rowAuditReady(row);
+        case "needs_fix":
+          return rowNeedsFix(row);
         case "issues":
           return rowHasIssues(row);
         case "no_images":
@@ -1240,6 +1245,7 @@ function sessionPayload() {
       imageSetupMode: imageSetupMode.value,
       visionPreview: visionPreview.value,
       useEcosystemAssistant: useEcosystemAssistant.value,
+      reviewAiDone: doc.reviewAiDone || reviewAiAllDone.value,
     },
     rowCount: docGrid.row_count || docGrid.rows.length || doc.batch?.count || 0,
     batchId: doc.batch?.batch_id || "",
@@ -1397,6 +1403,10 @@ function applyDraftPayload(draft) {
     applyExcelImageMode(payload.doc.imageMode, payload.doc.photoPolicy, payload.doc.emptyPolicy);
     if (typeof payload.doc.useEcosystemAssistant === "boolean") {
       useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
+    }
+    if (payload.doc.reviewAiDone) {
+      doc.reviewAiDone = true;
+      markReviewAiDone();
     }
     restoreUploadNameLists(payload.doc);
   }
@@ -1773,6 +1783,10 @@ function applySession(session) {
     if (typeof payload.doc.useEcosystemAssistant === "boolean") {
       useEcosystemAssistant.value = payload.doc.useEcosystemAssistant;
     }
+    if (payload.doc.reviewAiDone) {
+      doc.reviewAiDone = true;
+      markReviewAiDone();
+    }
     restoreUploadNameLists(payload.doc);
   } else {
     doc.categoryId = "";
@@ -1781,6 +1795,7 @@ function applySession(session) {
     doc.templateId = "";
     doc.templateName = "";
     doc.templateReason = "";
+    doc.reviewAiDone = false;
     docGrid.columns = [];
     docGrid.rows = [];
     docGrid.row_issues = [];
@@ -1802,6 +1817,10 @@ function applySession(session) {
     docStep.value = Math.min(session.step || 0, docSteps.length - 1);
     if (docStep.value > 1) docStep.value = 1;
     docReached.value = Math.min(session.reached ?? 0, docSteps.length - 1);
+    if (docStep.value === 1 && docGrid.rows.length && !doc.reviewAiDone) {
+      doc.reviewAiDone = true;
+      markReviewAiDone();
+    }
   }
   restoring.value = false;
   mergeLocalDraftIfNewer();
@@ -1875,7 +1894,7 @@ async function finishResumeSession() {
   if (!doc.categoryId || !store.shopId) return;
   if (hasSmartPlanForCategory(doc.categoryId)) {
     ensureGridPolling();
-    if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+    if (!doc.reviewAiDone && docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
       void runReviewAssist(true);
     }
     return;
@@ -1883,7 +1902,7 @@ async function finishResumeSession() {
   try {
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
     ensureGridPolling();
-    if (docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+    if (!doc.reviewAiDone && docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
       void runReviewAssist(true);
     }
   } catch (error) {
@@ -2431,12 +2450,22 @@ function openDocCategory() {
   categoryBrowser.value = true;
 }
 
+function markReviewAiDone() {
+  reviewAiSteps.value = reviewAiSteps.value.map((step) => ({
+    ...step,
+    status: step.status === "error" ? step.status : "done",
+    detail: step.detail || "已完成",
+  }));
+}
+
 function goToAuditStep() {
   if (!docGrid.rows.length) return;
   docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
   docReached.value = Math.max(docReached.value, 1);
   docStep.value = 1;
   reviewPage.value = 1;
+  doc.reviewAiDone = true;
+  markReviewAiDone();
   void persistSession({ server: true });
 }
 
@@ -2553,9 +2582,26 @@ function rowAuditStatus(row) {
 
 function rowStatusLabel(row) {
   const status = rowAuditStatus(row);
-  if (status === "approved") return "审核通过";
-  if (status === "rejected") return "审核不通过";
-  return "待审核";
+  if (status === "approved") return "已通过";
+  if (status === "rejected") return "已跳过";
+  if (rowAuditReady(row)) return "可成稿";
+  if (!rowReady(row)) return "缺价量";
+  if (rowMissingCopy(row)) return "缺文案";
+  if (rowImageCount(row) < 1) return "缺图";
+  return "待确认";
+}
+
+function rowStatusTone(row) {
+  const status = rowAuditStatus(row);
+  if (status === "approved") return "approved";
+  if (status === "rejected") return "rejected";
+  if (rowAuditReady(row)) return "ready";
+  return "warn";
+}
+
+function rowNeedsFix(row) {
+  if (rowAuditStatus(row) === "approved") return false;
+  return !rowAuditReady(row);
 }
 
 function formatAuditPrice(value) {
@@ -5020,6 +5066,93 @@ onUnmounted(() => {
   gap: 0;
   min-height: calc(100vh - 120px);
   padding-bottom: 72px;
+}
+
+.audit-guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.audit-guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
+}
+
+.audit-guide-num {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+}
+
+.audit-guide-step b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+}
+
+.audit-guide-step span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.audit-summary-strip .is-good b {
+  color: #15803d;
+}
+
+.audit-summary-strip .is-warn {
+  color: #b45309;
+}
+
+.audit-moq {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audit-moq.is-warn {
+  color: #b45309;
+}
+
+.audit-drawer-ok {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #166534;
+  font-size: 13px;
+}
+
+.audit-status.is-ready {
+  color: #15803d;
+  background: #ecfdf5;
+}
+
+.audit-status.is-warn {
+  color: #b45309;
+  background: #fffbeb;
+}
+
+.audit-table tr.is-needs-fix td {
+  background: #fffbeb;
+}
+
+.audit-table tr.is-approved td {
+  background: #f0fdf4;
 }
 
 .audit-page-head {
