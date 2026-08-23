@@ -8,8 +8,8 @@ reviewed before anything can enter the publish queue.
 Review is orthogonal to red/yellow/green:
 
     red      still blocks publish, even if reviewed
-    yellow   publishable only after review and local quality 5.0
-    green    publishable only after review and local quality 5.0
+    yellow   publishable only after review and local quality >= 4.8
+    green    publishable only after review and local quality >= 4.8
 
 Regenerate and category change wipe the review, because AI rewrote fields.
 A hand edit after review keeps the stamp: the person just corrected it.

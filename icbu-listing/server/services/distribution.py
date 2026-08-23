@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ai import AiClient  # noqa: E402
 
 from ..models import Draft, Product, Shop, User
-from . import dedup, pipeline, products as catalogue, sources, templates
+from . import catalog, dedup, pipeline, products as catalogue, sources, templates
 from .fact_bundle import FactBundle
 from .shop_client import shop_api, shop_defaults
 
@@ -111,6 +111,10 @@ def build_draft_for_shop(
     draft = Draft(user_id=user.id, shop_id=shop.id, product_id=product.id, batch_id=batch_id)
     db.add(draft)
     _apply(draft, result, sku=product.sku, price=final_price, moq=final_moq, bank=bank, field_sources=field_sources)
+    if result.category_id:
+        language = str(defaults.get("language") or "en_US")
+        xml = catalog.get_schema_xml(db, api, result.category_id, language)
+        pipeline.rescore_draft(draft, xml, db=db, shop=shop)
     db.commit()
 
     # Needs to be committed before it can be compared against its siblings.

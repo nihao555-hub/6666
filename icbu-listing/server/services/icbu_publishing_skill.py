@@ -60,5 +60,5 @@ def checklist_for_review() -> list[dict[str, str]]:
         {"id": "trade", "label": "价量红线", "hint": "单价、起订量由你定，AI 不会改"},
         {"id": "attrs", "label": "必填属性", "hint": "下拉必须来自官方选项，不能手打 Other"},
         {"id": "images", "label": "六张图", "hint": "实拍可上传；缺图可并发出图，生成图成稿后标黄"},
-        {"id": "quality", "label": "信息分 5.0", "hint": "成稿后本地预估六桶，人审过才能发"},
+        {"id": "quality", "label": "信息分 ≥4.8", "hint": "成稿后本地预估，人审过才能发"},
     ]

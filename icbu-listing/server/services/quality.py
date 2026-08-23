@@ -4,16 +4,20 @@ Alibaba computes `productQuality` after publish (0–5). We cannot write that
 field. We can fill every inferable schema field from seller evidence and score
 the same six buckets the platform shows: 类目 / 基本信息 / 交易 / 物流 / 服务 / 详情.
 
-5.0 here means those buckets are complete enough that a typical listing lands
-at official 5.0. Video is not inferred (no fake clips) and is not required
-for this gate. Certs, brand, price, photos stay on the red line.
+4.8+ here means the listing is complete enough to publish; official
+productQuality may still differ slightly after go-live. Video is not inferred
+(no fake clips) and is not required for this gate. Certs, brand, price, photos
+stay on the red line.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, Mapping, Sequence
 
 from schema import SchemaField, index_fields  # noqa: E402
+
+MIN_QUALITY_SCORE = float(os.environ.get("MIN_QUALITY_SCORE", "4.8"))
 
 BUCKETS: tuple[tuple[str, str], ...] = (
     ("category", "商品类目"),
@@ -127,15 +131,16 @@ def score_listing(
         missing.extend(gaps)
         buckets.append({"id": key, "name": name, "ok": ok, "missing": gaps})
 
-    scored = [key for key, _ in BUCKETS if by_bucket.get(key)]
-    total = len(scored) or 1
-    score = round(5.0 * passed / total, 1)
+    total_checks = len(checks) or 1
+    passed_checks = sum(1 for _, _, ok in checks if ok)
+    score = round(5.0 * passed_checks / total_checks, 1)
     return {
         "score": score,
-        "ready": score >= 5.0 and not missing,
+        "ready": score >= MIN_QUALITY_SCORE,
+        "min_score": MIN_QUALITY_SCORE,
         "buckets": buckets,
         "missing": missing,
-        "note": "按官方六桶预估。上架后以阿里 productQuality 为准。视频不能从实拍推断，不计入。",
+        "note": f"按官方字段预估，{MIN_QUALITY_SCORE} 分可发。上架后以阿里 productQuality 为准。",
     }
 
 
@@ -147,7 +152,7 @@ def quality_issue(report: Mapping[str, Any]) -> dict[str, Any] | None:
         "field_id": "productQuality",
         "field_name": "信息质量分",
         "level": "red",
-        "message": f"预估 {report.get('score')} / 5.0，还差：{gaps}。补齐后重成稿或改店铺默认，到 5.0 才能发。",
+        "message": f"预估 {report.get('score')} / 5.0（至少 {MIN_QUALITY_SCORE} 可发），还差：{gaps}。",
         "path": "productQuality",
     }
 
@@ -176,5 +181,5 @@ def quality_ready(draft: Any) -> tuple[bool, str]:
     score = report.get("score")
     gaps = "、".join(report.get("missing") or []) or "信息还不完整"
     if score is not None:
-        return False, f"信息质量分 {score} / 5.0，还差：{gaps}"
-    return False, f"信息质量分未到 5.0，还差：{gaps}"
+        return False, f"信息质量分 {score} / 5.0（至少 {MIN_QUALITY_SCORE} 可发），还差：{gaps}"
+    return False, f"信息质量分未到 {MIN_QUALITY_SCORE}，还差：{gaps}"

@@ -5,7 +5,7 @@
         <h2>核对 · {{ draft.sku || draft.title || "未命名" }}</h2>
         <p class="muted">
           不能保证 AI 零出错。改完点「审过了」，没审过不能发。预估质量
-          <b>{{ draft.quality?.score ?? "—" }}</b> / 5.0
+          <b>{{ draft.quality?.score ?? "—" }}</b> / 5.0（至少 {{ minQuality }} 可发）
         </p>
       </div>
       <div>
@@ -18,9 +18,9 @@
 
     <el-row :gutter="14">
       <el-col :span="16">
-        <div class="card" v-if="issues.length">
-          <h3>需要你确认（{{ issues.length }}）</h3>
-          <div v-for="issue in issues" :key="issue.path || issue.field_id" class="issue">
+        <div class="card" v-if="visibleIssues.length">
+          <h3>需要你确认（{{ visibleIssues.length }}）</h3>
+          <div v-for="issue in visibleIssues" :key="issue.path || issue.field_id" class="issue">
             <div class="issue-head">
               <i class="dot" :class="issue.level"></i>
               <b>{{ issue.field_name }}</b>
@@ -143,6 +143,59 @@
       </el-col>
 
       <el-col :span="8">
+        <div class="card" v-if="(logistics.items || []).length">
+          <h3>物流信息</h3>
+          <div v-if="logisticsReady" class="logistics-ok">
+            <span class="status-pill green">已齐</span>
+            <p class="logistics-summary">{{ logisticsSummary }}</p>
+            <p v-if="logisticsSource" class="muted">来源：{{ logisticsSource }}</p>
+          </div>
+          <div v-else class="logistics-gap">
+            <p class="muted" style="margin: 0 0 10px">官方要求每条货自己选运费、填包装。缺了质量分上不去，也发不出去。</p>
+            <div v-for="item in logisticsGaps" :key="item.id" class="logistics-item">
+              <div class="logistics-item-head">
+                <span class="status-pill yellow">缺</span>
+                <b>{{ item.label }}</b>
+                <span class="muted">{{ item.missing_hint }}</span>
+              </div>
+              <div v-if="item.id === 'shippingTemplate'" class="logistics-actions">
+                <el-select v-model="logisticsEdit.shippingTemplateId" filterable clearable placeholder="本条选一个运费模板" style="width: 100%">
+                  <el-option v-for="option in shippingOptions" :key="option.value" :label="option.label" :value="option.value" />
+                </el-select>
+                <div class="logistics-buttons">
+                  <el-button size="small" @click="goHabits">去发品习惯（推荐）</el-button>
+                  <el-button size="small" type="primary" :loading="saving" @click="saveLogistics">保存运费</el-button>
+                </div>
+              </div>
+              <div v-else-if="item.id === 'packaging'" class="logistics-actions">
+                <el-button
+                  v-if="hasTemplatePackaging"
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="saving"
+                  @click="applyTemplatePackaging"
+                >
+                  套用{{ logistics.template_name ? `「${logistics.template_name}」` : "类目模板" }}
+                </el-button>
+                <div class="pack-row">
+                  <el-input v-model="logisticsEdit.pkgWeight" placeholder="重 kg" />
+                  <el-input v-model="logisticsEdit.pkgLength" placeholder="长 cm" />
+                  <el-input v-model="logisticsEdit.pkgWidth" placeholder="宽 cm" />
+                  <el-input v-model="logisticsEdit.pkgHeight" placeholder="高 cm" />
+                </div>
+                <div class="logistics-buttons">
+                  <el-button size="small" @click="goHabits">去发品习惯设兜底</el-button>
+                  <el-button size="small" type="primary" :loading="saving" @click="saveLogistics">保存包装</el-button>
+                </div>
+              </div>
+              <div v-else class="logistics-actions">
+                <el-button size="small" @click="goHabits">去发品习惯</el-button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <h3>核对状态</h3>
           <p style="margin: 8px 0 4px">
@@ -203,8 +256,33 @@ const highlights = ref("");
 const price = ref("");
 const moq = ref("");
 const auditNote = ref("");
+const logisticsEdit = reactive({
+  shippingTemplateId: "",
+  pkgWeight: "",
+  pkgLength: "",
+  pkgWidth: "",
+  pkgHeight: "",
+});
 
+const minQuality = computed(() => draft.value.quality?.min_score ?? 4.8);
 const issues = computed(() => draft.value.issues || []);
+const logistics = computed(() => draft.value.logistics || { ready: true, items: [], shipping_options: [], template_hint: {} });
+const logisticsReady = computed(() => Boolean(logistics.value.ready));
+const logisticsGaps = computed(() => (logistics.value.items || []).filter((item) => !item.ok));
+const logisticsSummary = computed(() => logistics.value.summary || "—");
+const logisticsSource = computed(() => logistics.value.source || "");
+const shippingOptions = computed(() => logistics.value.shipping_options || []);
+const hasTemplatePackaging = computed(() => {
+  const hint = logistics.value.template_hint || {};
+  return Boolean(hint.pkgWeight || hint.pkgLength || hint.pkgWidth || hint.pkgHeight);
+});
+const visibleIssues = computed(() =>
+  issues.value.filter((issue) => {
+    if (issue.field_id === "productQuality") return false;
+    if (String(issue.path || "").startsWith("logistics.")) return false;
+    return true;
+  }),
+);
 const hasRed = computed(() => issues.value.some((item) => item.level === "red"));
 const qualityReady = computed(() => Boolean(draft.value.quality?.ready));
 const canPublish = computed(() => !hasRed.value && Boolean(draft.value.reviewed) && qualityReady.value);
@@ -213,7 +291,7 @@ const titleTooLong = computed(() => new TextEncoder().encode(title.value || "").
 const publishLabel = computed(() => {
   if (hasRed.value) return "先改红项";
   if (!draft.value.reviewed) return "先审过再发";
-  if (!qualityReady.value) return "质量分未到 5.0";
+  if (!qualityReady.value) return `质量分未到 ${minQuality.value}`;
   return draft.value.status === "published" ? "再发到店里" : "发到店里";
 });
 
@@ -255,6 +333,12 @@ function hydrate(next) {
     if (!field.group && field.id !== "brand") continue;
     attrValues[fieldKey(field)] = field.value ?? "";
   }
+  const lv = next.logistics?.values || {};
+  logisticsEdit.shippingTemplateId = lv.shippingTemplateId || "";
+  logisticsEdit.pkgWeight = lv.pkgWeight || "";
+  logisticsEdit.pkgLength = lv.pkgLength || "";
+  logisticsEdit.pkgWidth = lv.pkgWidth || "";
+  logisticsEdit.pkgHeight = lv.pkgHeight || "";
 }
 
 async function load() {
@@ -288,6 +372,59 @@ function collectValues() {
     }
   }
   return values;
+}
+
+function logisticsValuesPatch() {
+  const values = { ...(draft.value.values || {}) };
+  const shippingId = String(logisticsEdit.shippingTemplateId || "").trim();
+  if (shippingId) {
+    values.shippingTemplate = {
+      templateType: "MERCHANT_OWN_TEMPLATE",
+      shippingTemplateId: shippingId,
+    };
+    values.shippingTemplateId = shippingId;
+  }
+  const weight = String(logisticsEdit.pkgWeight || "").trim();
+  if (weight) values.pkgWeight = weight;
+  const length = String(logisticsEdit.pkgLength || "").trim();
+  const width = String(logisticsEdit.pkgWidth || "").trim();
+  const height = String(logisticsEdit.pkgHeight || "").trim();
+  if (length && width && height) {
+    values.pkgMeasure = { length, width, height };
+  }
+  return values;
+}
+
+function goHabits() {
+  router.push({ path: "/habits" });
+}
+
+async function saveLogistics() {
+  saving.value = true;
+  try {
+    hydrate(
+      await api.patchDraft(draft.value.id, {
+        values: logisticsValuesPatch(),
+      }),
+    );
+    ElMessage.success("物流信息已保存");
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function applyTemplatePackaging() {
+  const hint = logistics.value.template_hint || {};
+  if (hint.pkgWeight) logisticsEdit.pkgWeight = hint.pkgWeight;
+  if (hint.pkgLength) logisticsEdit.pkgLength = hint.pkgLength;
+  if (hint.pkgWidth) logisticsEdit.pkgWidth = hint.pkgWidth;
+  if (hint.pkgHeight) logisticsEdit.pkgHeight = hint.pkgHeight;
+  if (hint.shippingTemplateId && !logisticsEdit.shippingTemplateId) {
+    logisticsEdit.shippingTemplateId = hint.shippingTemplateId;
+  }
+  await saveLogistics();
 }
 
 async function save(reviewed) {
@@ -418,5 +555,42 @@ async function publish() {
 .required::after {
   content: " *";
   color: var(--red);
+}
+
+.logistics-ok .logistics-summary {
+  margin: 8px 0 4px;
+  font-size: 14px;
+}
+
+.logistics-item + .logistics-item {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+
+.logistics-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.logistics-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.logistics-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pack-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 </style>

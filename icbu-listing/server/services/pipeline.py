@@ -30,7 +30,7 @@ from schema import (  # noqa: E402
 )
 
 from ..models import CategoryMemory, Shop
-from . import catalog, defaults as defaults_service, quality, templates as template_service
+from . import audit_logistics, catalog, defaults as defaults_service, quality, templates as template_service
 from .fact_bundle import FactBundle
 from .images import BankImage
 from .schema_fill import ATTR_GROUPS, FillResult, align_attributes, apply_trade_from_facts
@@ -590,7 +590,7 @@ def copy_facts_for_write(
     return facts
 
 
-def rescore_draft(draft: Any, xml: str) -> None:
+def rescore_draft(draft: Any, xml: str, *, db: Session | None = None, shop: Shop | None = None) -> None:
     """Refresh local quality estimate and issues after a manual edit."""
     values = json.loads(getattr(draft, "values_json", None) or "{}")
     fields = parse_schema(xml)
@@ -610,9 +610,30 @@ def rescore_draft(draft: Any, xml: str) -> None:
     draft.ai_json = json.dumps(ai_payload, ensure_ascii=False)
 
     issues = [issue.as_dict() for issue in validate_values(fields, values)]
+    logistics_panel = audit_logistics.panel_for_draft(db, shop, draft, xml=xml, values=values) if shop is not None and db is not None else {"items": []}
+    for item in logistics_panel.get("items") or []:
+        if item.get("ok"):
+            continue
+        issues.append(
+            {
+                "field_id": str(item.get("id") or "logistics"),
+                "field_name": str(item.get("label") or "物流"),
+                "level": "red",
+                "message": str(item.get("missing_hint") or "物流信息不完整"),
+                "path": f"logistics.{item.get('id')}",
+            }
+        )
     gap = quality.quality_issue(report)
     if gap:
-        issues.append(gap)
+        logistics_labels = {"运费模板", "物流属性", "包装重量", "包装尺寸"}
+        other_missing = [label for label in (report.get("missing") or []) if label not in logistics_labels]
+        if other_missing:
+            gap = dict(gap)
+            gap["message"] = (
+                f"预估 {report.get('score')} / 5.0（至少 {quality.MIN_QUALITY_SCORE} 可发），"
+                f"还差：{'、'.join(other_missing)}。"
+            )
+            issues.append(gap)
     if not getattr(draft, "price", None):
         issues.append({"field_id": "price", "field_name": "价格", "level": "red", "message": "价格要你来定"})
     if not getattr(draft, "moq", None):

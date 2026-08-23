@@ -18,6 +18,7 @@ from ..deps import current_user, get_db, owned_draft, shop_for
 from ..models import CategoryNode, Draft, Job, Product, Shop, User, new_id
 from ..services import (
     audit,
+    audit_logistics,
     catalog,
     dedup,
     distribution,
@@ -97,6 +98,12 @@ def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dic
 def _detailed_draft(db: Session, user: User, draft: Draft) -> dict[str, Any]:
     view = draft_view(draft, detailed=True)
     view["audit_fields"] = _audit_fields_for(db, user, draft)
+    try:
+        shop = shop_for(db, user, draft.shop_id)
+        xml = catalog.get_schema_xml(db, shop_api(shop), draft.category_id) if draft.category_id else ""
+        view["logistics"] = audit_logistics.panel_for_draft(db, shop, draft, xml=xml)
+    except (ShopNotConnected, GopError, HTTPException, RuntimeError):
+        view["logistics"] = {"ready": True, "items": [], "shipping_options": [], "template_hint": {}}
     return view
 
 
@@ -632,7 +639,7 @@ def patch_draft(
 
     if draft.category_id:
         xml = catalog.get_schema_xml(db, shop_api(shop), draft.category_id)
-        pipeline.rescore_draft(draft, xml)
+        pipeline.rescore_draft(draft, xml, db=db, shop=shop)
 
     draft.updated_at = datetime.utcnow()
     if payload.reviewed:
