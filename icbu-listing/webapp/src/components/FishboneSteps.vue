@@ -8,7 +8,6 @@
       :disabled="index > reached"
       @click="go(index)"
     >
-      <small>第 {{ index + 1 }} 步</small>
       <b>{{ step.label }}</b>
     </button>
   </div>

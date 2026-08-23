@@ -38,228 +38,168 @@
 
       <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
-      <div v-if="docStep === 0 && !awaitingReviewAssist && !docGrid.loading && !reviewAssistRunning" class="step-panel">
-        <h3>1. 上传商品图</h3>
-        <p class="muted step-hint">
-          先选完全部商品图，点<strong>确定选图</strong>后，再选类目。AI 只会分析你确认过的图片。
-        </p>
-        <div v-if="imageSetupMode === 'confirmed'" class="image-setup-badge is-confirmed">
-          已确认 {{ confirmedPlanImageCount }} 张商品图
-          <button type="button" class="link-btn" @click="resetImageSetup">重新选图</button>
-        </div>
-        <div v-else-if="imageSetupMode === 'skipped'" class="image-setup-badge is-skipped">
-          已跳过图片，将仅按类目生成填写表
-          <button type="button" class="link-btn" @click="resetImageSetup">改为上传图片</button>
-        </div>
-        <template v-else>
-          <div class="toolbar" style="margin: 12px 0">
-            <el-button :disabled="!store.shopId" :loading="photobankLoading" @click="openPhotobank">
-              从图片银行选图
-            </el-button>
-            <el-button plain @click="pickImageFolder">选本地图片文件夹</el-button>
-            <span v-if="pendingPlanImageCount" class="muted">待确认 {{ pendingPlanImageCount }} 张</span>
-          </div>
-          <section v-if="photobankOpen" class="photobank-panel">
-            <header class="photobank-head">
-              <strong>图片银行</strong>
-              <span class="muted">点选图片，选完后点确定</span>
-            </header>
-            <div v-if="photobankLoading" class="muted">加载图片银行…</div>
-            <div v-else-if="!photobankImages.length" class="muted">图片银行为空或未连接店铺</div>
-            <div v-else class="photobank-grid">
-              <button
-                v-for="item in photobankImages"
-                :key="item.id || item.url"
-                type="button"
-                class="photobank-item"
-                :class="{ 'is-selected': photobankDraftIds.has(item.id || item.url) }"
-                @click="togglePhotobankDraft(item)"
-              >
-                <img :src="item.url" :alt="item.file_name || 'bank'" loading="lazy" />
-                <span>{{ item.file_name || item.id }}</span>
-              </button>
+      <div v-if="docStep === 0 && !awaitingReviewAssist && !docGrid.loading && !reviewAssistRunning" class="step-panel flow-shell">
+        <!-- 1 商品图 -->
+        <section class="flow-step" :class="{ 'is-done': imageSetupMode !== 'pending' }">
+          <header class="flow-step-head">
+            <span class="flow-step-badge">1</span>
+            <div class="flow-step-titles">
+              <h3>商品图</h3>
+              <p v-if="imageSetupMode === 'confirmed'">已选 {{ confirmedPlanImageCount }} 张</p>
+              <p v-else-if="imageSetupMode === 'skipped'">已跳过，按类目生成表头</p>
+              <p v-else>拖入图片或从图片银行选，然后点确定</p>
             </div>
-            <div class="photobank-actions">
-              <el-button @click="cancelPhotobankPicker">取消</el-button>
-              <el-button type="primary" @click="confirmPhotobankPicker">
-                确定（{{ photobankDraftIds.size }} 张）
-              </el-button>
+            <button v-if="imageSetupMode !== 'pending'" type="button" class="link-btn" @click="resetImageSetup">更改</button>
+          </header>
+          <div v-if="imageSetupMode === 'pending'" class="flow-step-body">
+            <div class="flow-compact-actions">
+              <el-button :disabled="!store.shopId" :loading="photobankLoading" @click="openPhotobank">图片银行</el-button>
+              <el-button plain @click="pickImageFolder">本地文件夹</el-button>
             </div>
-          </section>
-          <div
-            class="upload-drop-zone"
-            @dragover.prevent
-            @dragenter.prevent
-            @drop.prevent="onDropImageFiles"
-          >
-            <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
-            <el-upload
-              v-model:file-list="docImageFiles"
-              :auto-upload="false"
-              multiple
-              accept=".jpg,.jpeg,.png,.webp,.gif"
-              drag
-              @change="onDocImageFilesChange"
-            >
-              <div class="upload-drop-inner">
-                <p>拖入商品图片（按 SKU 分文件夹更好）</p>
+            <section v-if="photobankOpen" class="photobank-panel">
+              <div v-if="photobankLoading" class="muted">加载中…</div>
+              <div v-else-if="!photobankImages.length" class="muted">图片银行为空</div>
+              <div v-else class="photobank-grid">
+                <button
+                  v-for="item in photobankImages"
+                  :key="item.id || item.url"
+                  type="button"
+                  class="photobank-item"
+                  :class="{ 'is-selected': photobankDraftIds.has(item.id || item.url) }"
+                  @click="togglePhotobankDraft(item)"
+                >
+                  <img :src="item.url" :alt="item.file_name || 'bank'" loading="lazy" />
+                </button>
               </div>
-            </el-upload>
-          </div>
-          <div class="image-setup-actions">
-            <el-button type="primary" :disabled="!pendingPlanImageCount" @click="confirmPlanImages">
-              确定选图{{ pendingPlanImageCount ? `（${pendingPlanImageCount} 张）` : "" }}
-            </el-button>
-            <el-button text @click="skipPlanImages">暂不上传图片</el-button>
-          </div>
-        </template>
-        <div v-if="visionPreview.length && imageSetupMode === 'confirmed'" class="vision-preview">
-          <h4>AI 已读图摘要</h4>
-          <ul>
-            <li v-for="(item, index) in visionPreview" :key="index">
-              <strong>{{ item.group || "商品" }}</strong>：
-              {{ item.product_name || "—" }}
-              <span v-if="item.material"> · {{ item.material }}</span>
-              <span v-if="item.colors?.length"> · {{ item.colors.join("、") }}</span>
-            </li>
-          </ul>
-        </div>
-
-        <h3 style="margin-top: 24px">2. 选叶子类目</h3>
-        <div style="margin-top: 12px">
-          <el-button type="primary" :disabled="!canPickCategory" @click="openDocCategory">
-            {{ doc.categoryName || smartPlan.category_name || "选择类目" }}
-          </el-button>
-          <span v-if="!canPickCategory" class="muted" style="margin-left: 8px">请先完成第 1 步（确定选图或跳过）</span>
-        </div>
-
-        <template v-if="canPickCategory">
-        <section v-if="showSmartPlanTimeline" class="plan-panel plan-panel-loading plan-bridge-panel">
-          <p class="plan-bridge-label">第 2 步 → 第 3 步：生成填写表</p>
-          <section class="ai-timeline ai-timeline-vertical" aria-live="polite">
-            <header class="ai-timeline-head">
-              <strong>AI 正在规划填写列{{ smartPlanLoading ? "…" : "" }}</strong>
-              <span class="ai-timeline-badge is-live">{{ smartPlanLoading ? "进行中" : "完成" }}</span>
-              <span v-if="smartPlanLoading && smartPlanElapsedSec" class="ai-timeline-elapsed">已用时 {{ smartPlanElapsedSec }} 秒</span>
-            </header>
-            <ol class="ai-timeline-track">
-              <li
-                v-for="(step, index) in smartPlanAiSteps"
-                :key="step.id"
-                class="ai-timeline-item"
-                :class="`is-${step.status}`"
+              <div v-if="photobankOpen && photobankImages.length" class="photobank-actions">
+                <el-button @click="cancelPhotobankPicker">取消</el-button>
+                <el-button type="primary" @click="confirmPhotobankPicker">确定（{{ photobankDraftIds.size }}）</el-button>
+              </div>
+            </section>
+            <div class="upload-drop-zone" @dragover.prevent @dragenter.prevent @drop.prevent="onDropImageFiles">
+              <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
+              <el-upload
+                v-model:file-list="docImageFiles"
+                :auto-upload="false"
+                multiple
+                accept=".jpg,.jpeg,.png,.webp,.gif"
+                drag
+                @change="onDocImageFilesChange"
               >
-                <div class="ai-timeline-rail" aria-hidden="true">
-                  <span class="ai-timeline-dot" />
-                  <span v-if="index < smartPlanAiSteps.length - 1" class="ai-timeline-line" />
+                <div class="upload-drop-inner">
+                  <p>拖入商品图片</p>
                 </div>
-                <div class="ai-timeline-content">
-                  <div class="ai-timeline-row">
-                    <span class="ai-timeline-label">{{ step.label }}</span>
-                    <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
-                  </div>
-                  <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
-                </div>
-              </li>
-            </ol>
-          </section>
-        </section>
-
-        <section v-else-if="smartPlanError" class="plan-panel plan-panel-error">
-          <p>{{ smartPlanError }}</p>
-          <el-button type="primary" :loading="smartPlanLoading" @click="refreshSmartPlan">重试生成</el-button>
-        </section>
-
-        <section v-else-if="!smartPlanLoading && doc.categoryId && smartPlan.column_count" class="plan-panel">
-          <header class="plan-head">
-            <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
-            <span class="plan-badge">{{ smartPlan.column_count }} 列</span>
-            <span v-if="planSourceLabel" class="plan-badge plan-badge-muted">{{ planSourceLabel }}</span>
-          </header>
-          <p class="plan-source-hint muted">
-            表头来源：读取<strong>阿里官方类目 schema</strong> → 去掉店铺默认/模板已覆盖项 →
-            商品图已识别的属性不再重复 → 保留 sku/价/量/货号 + 2～4 个你最该填的<strong>证据属性</strong>（如材质、类型、色数）。
-            其余必填与加分项上传后由 AI 推断。
-          </p>
-          <div v-if="smartPlan.tips" class="plan-reasoning">{{ smartPlan.tips }}</div>
-          <div v-if="smartPlan.guarantee" class="plan-reasoning plan-guarantee">{{ smartPlan.guarantee }}</div>
-          <div v-if="smartColumnLabels?.length" class="plan-columns">
-            <div class="plan-column-tags">
-              <span v-for="label in smartColumnLabels" :key="label" class="plan-tag">{{ label }}</span>
+              </el-upload>
+            </div>
+            <div class="flow-compact-actions">
+              <el-button type="primary" :disabled="!pendingPlanImageCount" @click="confirmPlanImages">
+                确定选图{{ pendingPlanImageCount ? ` · ${pendingPlanImageCount} 张` : "" }}
+              </el-button>
+              <el-button text @click="skipPlanImages">跳过</el-button>
             </div>
           </div>
         </section>
 
-        <section v-if="habitsPanel && doc.categoryId && !smartPlanLoading" class="plan-panel habits-panel">
-          <header class="plan-head">
-            <h4>发品习惯</h4>
-            <span class="plan-badge" :class="habitsReady ? 'is-ok' : 'is-warn'">{{ habitsReady ? "已就绪" : "待确认" }}</span>
+        <!-- 2 类目 + 表头 -->
+        <section class="flow-step" :class="{ 'is-done': Boolean(doc.categoryId && smartPlan.column_count), 'is-locked': !canPickCategory }">
+          <header class="flow-step-head">
+            <span class="flow-step-badge">2</span>
+            <div class="flow-step-titles">
+              <h3>选类目，生成填写表</h3>
+              <p v-if="doc.categoryName">{{ doc.categoryName }} · {{ smartPlan.column_count || "—" }} 列</p>
+              <p v-else-if="!canPickCategory">先完成上一步</p>
+              <p v-else>选叶子类目，系统自动生成要填的列</p>
+            </div>
+            <el-button v-if="canPickCategory && !doc.categoryId" type="primary" size="small" @click="openDocCategory">选类目</el-button>
+            <el-button v-else-if="doc.categoryId" text size="small" @click="openDocCategory">更换</el-button>
           </header>
-          <p v-if="habitsPanel.shipping_recommendation?.reasoning" class="plan-reasoning muted">
-            {{ habitsPanel.shipping_recommendation.reasoning }}
-          </p>
-          <ul class="habits-checks">
-            <li v-for="item in habitsPanel.checks || []" :key="item.id" :class="item.ok && !item.needs_pick ? 'is-ok' : 'is-warn'">
-              <span>{{ item.label }}</span>
-              <span class="habits-value">{{ item.value || "—" }}</span>
-            </li>
-          </ul>
-          <div v-if="habitsNeedsPick" class="habits-pick">
-            <label class="muted">运费模板（来自阿里官方选项）</label>
-            <el-select v-model="habitsShippingPick" filterable style="width: 100%; margin-top: 8px">
-              <el-option
-                v-for="opt in habitsPanel.shipping_options || []"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-            <div class="habits-actions">
-              <el-button type="primary" :loading="habitsApplying" @click="adoptHabitsRecommendation">
-                采用推荐并发货习惯
+          <div v-if="canPickCategory" class="flow-step-body">
+            <div v-if="showSmartPlanTimeline" class="flow-loading">
+              {{ smartPlanLoadingText }}
+              <div class="flow-loading-bar"><span /></div>
+            </div>
+            <section v-else-if="smartPlanError" class="plan-panel plan-panel-error" style="margin: 0">
+              <p>{{ smartPlanError }}</p>
+              <el-button type="primary" :loading="smartPlanLoading" @click="refreshSmartPlan">重试</el-button>
+            </section>
+            <section v-else-if="doc.categoryId && smartPlan.column_count" class="ready-card">
+              <div class="ready-card-head">
+                <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
+                <span class="plan-badge">{{ smartPlan.column_count }} 列</span>
+              </div>
+              <div v-if="smartColumnLabels?.length" class="ready-tags">
+                <span v-for="label in smartColumnLabels" :key="label" class="ready-tag">{{ label }}</span>
+              </div>
+              <p v-if="habitsNeedsPick" class="ready-meta">
+                推荐运费：{{ habitsPanel.shipping_recommendation?.label || "—" }}
+              </p>
+              <p v-else-if="habitsSummaryLine" class="ready-meta">{{ habitsSummaryLine }}</p>
+              <div v-if="habitsNeedsPick" class="flow-compact-actions">
+                <el-select v-model="habitsShippingPick" filterable style="flex: 1; min-width: 180px">
+                  <el-option v-for="opt in habitsPanel.shipping_options || []" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </el-select>
+                <el-button type="primary" :loading="habitsApplying" @click="adoptHabitsRecommendation">确认运费</el-button>
+              </div>
+              <details v-if="smartPlan.tips || smartPlan.guarantee" class="flow-details">
+                <summary>表头说明</summary>
+                <p v-if="smartPlan.tips">{{ smartPlan.tips }}</p>
+                <p v-if="smartPlan.guarantee">{{ smartPlan.guarantee }}</p>
+              </details>
+            </section>
+          </div>
+        </section>
+
+        <!-- 3 下载 -->
+        <section class="flow-step" :class="{ 'is-locked': !canDownloadTemplate }">
+          <header class="flow-step-head">
+            <span class="flow-step-badge">3</span>
+            <div class="flow-step-titles">
+              <h3>下载并填写表格</h3>
+              <p>只需填价、量、货号和少量属性，其余 AI 补</p>
+            </div>
+            <el-button
+              type="primary"
+              size="small"
+              :disabled="!canDownloadTemplate || smartPlanLoading || docTemplateDownloading"
+              :loading="docTemplateDownloading"
+              @click="downloadDocTemplate"
+            >
+              下载
+            </el-button>
+          </header>
+        </section>
+
+        <!-- 4 上传解析 -->
+        <section class="flow-step" :class="{ 'is-locked': !doc.categoryId }">
+          <header class="flow-step-head">
+            <span class="flow-step-badge">4</span>
+            <div class="flow-step-titles">
+              <h3>上传表格</h3>
+              <p>填好后拖入，AI 自动补全文案和属性</p>
+            </div>
+          </header>
+          <div v-if="doc.categoryId" class="flow-step-body">
+            <div class="upload-drop-zone" @dragover.prevent @dragenter.prevent @drop.prevent="onDropDocFiles">
+              <el-upload
+                v-model:file-list="docSpreadsheetFiles"
+                :auto-upload="false"
+                multiple
+                accept=".xlsx,.xls,.xlsm,.csv"
+                drag
+                @change="onDocSpreadsheetChange"
+              >
+                <div class="upload-drop-inner">
+                  <p>拖入已填好的 Excel</p>
+                </div>
+              </el-upload>
+            </div>
+            <div class="flow-compact-actions">
+              <el-button type="primary" :loading="docGrid.loading" :disabled="!canParseDocuments()" @click="parseDocuments">
+                {{ parseStatus || "开始解析" }}
               </el-button>
             </div>
           </div>
-          <p v-else-if="habitsPanel.selected_template_name" class="muted habits-foot">
-            成稿将使用模板「{{ habitsPanel.selected_template_name }}」+ 店铺政策。
-          </p>
         </section>
-        <h3 style="margin-top: 24px">3. 下载填写表</h3>
-        <p v-if="doc.categoryId && !canDownloadTemplate" class="muted step-hint">
-          {{ smartPlanLoading ? "正在生成列规划，请稍候…" : "请先选类目并等待上方出现列名后再下载" }}
-        </p>
-        <div class="toolbar" style="margin: 12px 0">
-          <el-button type="primary" :disabled="!canDownloadTemplate || smartPlanLoading || docTemplateDownloading" :loading="docTemplateDownloading" @click="downloadDocTemplate">
-            下载填写表
-          </el-button>
-          <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新生成</el-button>
-        </div>
-        <h3 style="margin-top: 24px">4. 上传表格并解析</h3>
-        <div
-          class="upload-drop-zone"
-          @dragover.prevent
-          @dragenter.prevent
-          @drop.prevent="onDropDocFiles"
-        >
-          <el-upload
-            v-model:file-list="docSpreadsheetFiles"
-            :auto-upload="false"
-            multiple
-            accept=".xlsx,.xls,.xlsm,.csv,.txt,.md,.pdf"
-            drag
-            @change="onDocSpreadsheetChange"
-          >
-            <div class="upload-drop-inner">
-              <p>拖入已填好的表格（可选，也可在解析前只传图）</p>
-            </div>
-          </el-upload>
-        </div>
-        <div class="step-actions" style="margin-top: 16px">
-          <el-button type="primary" :loading="docGrid.loading" :disabled="!doc.categoryId || !canParseDocuments()" @click="parseDocuments">
-            {{ parseStatus || "解析" }}
-          </el-button>
-        </div>
-        </template>
       </div>
 
       <section
@@ -268,11 +208,8 @@
         aria-live="polite"
       >
         <header class="audit-prep-head">
-          <h2 class="audit-page-title">AI 审核助手</h2>
-          <p class="audit-subtitle">正在补全标题、属性与图片，完成后自动进入内容审核</p>
-        </header>
-        <header class="ai-timeline-head">
-          <strong>处理进度</strong>
+          <h2 class="audit-page-title">AI 补全中</h2>
+          <p class="audit-subtitle">补标题、属性和图片，完成后自动进入审核</p>
           <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
           <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
         </header>
@@ -304,7 +241,7 @@
           <div class="audit-page-head-main">
             <div>
               <h2 class="audit-page-title">内容审核</h2>
-              <p class="audit-subtitle">请仔细检查 AI 生成的产品信息和图片，确认无误后即可批量发布到阿里国际站</p>
+              <p class="audit-subtitle">核对标题、图片和属性，通过后批量成稿</p>
             </div>
           </div>
         </header>
@@ -327,8 +264,7 @@
               </button>
             </div>
             <div class="audit-toolbar-right">
-              <el-input v-model="reviewSearch" clearable placeholder="搜索产品名称或关键词" class="audit-search" />
-              <el-button plain disabled>筛选</el-button>
+              <el-input v-model="reviewSearch" clearable placeholder="搜索名称或关键词" class="audit-search" />
               <el-button plain :loading="docGrid.checking" @click="recheckDocGrid">刷新</el-button>
             </div>
           </div>
@@ -558,8 +494,8 @@ const restoring = ref(false);
 const docStep = ref(0);
 const docReached = ref(0);
 const docSteps = [
-  { key: "setup", label: "上传图片并生成填写表" },
-  { key: "grid", label: "审核出图成稿" },
+  { key: "setup", label: "准备表格" },
+  { key: "grid", label: "审核成稿" },
 ];
 const reviewFilter = ref("all");
 const reviewSearch = ref("");
@@ -1016,6 +952,13 @@ const canDownloadTemplate = computed(
   () => Boolean(doc.categoryId && smartPlan.value.columns?.length && !smartPlanLoading.value),
 );
 const showSmartPlanTimeline = computed(() => smartPlanLoading.value || smartPlanShowAi.value);
+const smartPlanLoadingText = computed(() => {
+  const running = smartPlanAiSteps.value.find((step) => step.status === "running");
+  if (running?.detail) return running.detail;
+  if (running?.label) return `正在${running.label}…`;
+  const sec = smartPlanElapsedSec.value;
+  return sec >= 8 ? `正在生成填写表…（${sec}s）` : "正在生成填写表…";
+});
 const planSourceLabel = computed(() => {
   const planner = String(smartPlan.value.planner || "");
   if (planner.includes("vision")) return "含读图";
@@ -1103,9 +1046,9 @@ const auditStats = computed(() => {
 });
 const auditFilterOptions = computed(() => [
   { id: "all", label: "全部", count: auditStats.value.total },
-  { id: "pending", label: "待审核", count: auditStats.value.pending },
-  { id: "approved", label: "审核通过", count: auditStats.value.approved },
-  { id: "rejected", label: "审核不通过", count: auditStats.value.rejected },
+  { id: "pending", label: "待审", count: auditStats.value.pending },
+  { id: "approved", label: "通过", count: auditStats.value.approved },
+  { id: "rejected", label: "不通过", count: auditStats.value.rejected },
 ]);
 const rowDetailTitle = computed(() => {
   if (!rowDetailRow.value) return "商品详情";
@@ -2248,6 +2191,7 @@ async function loadSmartPlan(override = null) {
     const raw = await buildSmartPlanForm(categoryId, categoryName, refresh);
     applySmartPlan(raw, categoryId);
     finishPlanUi(raw);
+    void maybeAutoAdoptHabits(smartPlan.value);
   } catch (error) {
     const msg = String(error.message || "");
     if (msg.includes("店铺不存在")) {
@@ -2256,6 +2200,7 @@ async function loadSmartPlan(override = null) {
         const raw = await buildSmartPlanForm(categoryId, categoryName, refresh);
         applySmartPlan(raw, categoryId);
         finishPlanUi(raw);
+        void maybeAutoAdoptHabits(smartPlan.value);
         return;
       }
     }
@@ -2264,6 +2209,7 @@ async function loadSmartPlan(override = null) {
         const raw = await fetchSmartPlanFallback(categoryId, categoryName);
         applySmartPlan(raw, categoryId);
         finishPlanUi(raw);
+        void maybeAutoAdoptHabits(smartPlan.value);
         ElMessage.warning("读图规划失败，已改用类目规则表，仍可下载填写");
         return;
       } catch {
@@ -2329,11 +2275,34 @@ function syncHabitsFromPlan(plan) {
   }
 }
 
-async function adoptHabitsRecommendation() {
+let habitsAutoAdoptKey = "";
+
+function habitsAutoAdoptEligible(plan) {
+  const habits = plan?.habits;
+  if (!habits || habits.ready || habitsApplying.value) return false;
+  if (habits.status !== "needs_pick") return false;
+  const rec = habits.shipping_recommendation;
+  if (!rec || rec.confidence !== "high") return false;
+  const shippingId = habits.recommended_shipping_template_id || rec.shipping_template_id;
+  if (!shippingId) return false;
+  const key = `${doc.categoryId}:${shippingId}`;
+  if (habitsAutoAdoptKey === key) return false;
+  habitsAutoAdoptKey = key;
+  habitsShippingPick.value = shippingId;
+  return true;
+}
+
+async function maybeAutoAdoptHabits(plan) {
+  if (!habitsAutoAdoptEligible(plan)) return;
+  await adoptHabitsRecommendation({ silent: true });
+}
+
+async function adoptHabitsRecommendation(options = {}) {
+  const silent = Boolean(options.silent);
   if (!store.shopId || !doc.categoryId) return;
   const shippingId = habitsShippingPick.value || habitsPanel.value?.recommended_shipping_template_id || "";
   if (!shippingId) {
-    ElMessage.warning("请选择运费模板");
+    if (!silent) ElMessage.warning("请选择运费模板");
     return;
   }
   habitsApplying.value = true;
@@ -2350,10 +2319,13 @@ async function adoptHabitsRecommendation() {
       smartPlan.value = { ...smartPlan.value, habits: result.habits };
     }
     syncHabitsFromPlan(smartPlan.value);
-    ElMessage.success("发品习惯已保存，成稿时将自动套用");
+    if (!silent) {
+      ElMessage.success("发品习惯已保存，成稿时将自动套用");
+    }
     await persistSession({ server: true });
   } catch (error) {
-    ElMessage.error(error.message);
+    habitsAutoAdoptKey = "";
+    if (!silent) ElMessage.error(error.message);
   } finally {
     habitsApplying.value = false;
   }
@@ -5094,7 +5066,21 @@ onUnmounted(() => {
 }
 
 .audit-prep-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
   margin-bottom: 16px;
+}
+
+.audit-prep-head .audit-page-title,
+.audit-prep-head .audit-subtitle {
+  width: 100%;
+  margin: 0;
+}
+
+.audit-prep-head .ai-timeline-badge {
+  margin-left: auto;
 }
 
 .audit-table tr.is-selected td {

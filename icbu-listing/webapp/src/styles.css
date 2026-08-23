@@ -677,82 +677,46 @@ a {
 .fishbone {
   display: flex;
   align-items: stretch;
-  margin-bottom: 20px;
-  overflow: hidden;
-  border-radius: var(--radius);
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .fishbone-step {
-  --notch: 13px;
-  position: relative;
   flex: 1 1 0;
   min-width: 0;
-  border: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   cursor: default;
-  text-align: left;
-  padding: 7px 12px 7px calc(var(--notch) + 14px);
-  margin-right: calc(var(--notch) * -1 + 2px);
-  background: var(--gray3);
+  text-align: center;
+  padding: 10px 12px;
+  background: var(--surface);
   color: var(--muted);
   font-family: inherit;
   font-size: 13px;
-  clip-path: polygon(
-    0 0,
-    calc(100% - var(--notch)) 0,
-    100% 50%,
-    calc(100% - var(--notch)) 100%,
-    0 100%,
-    var(--notch) 50%
-  );
-  transition: background 0.1s ease, color 0.1s ease;
-}
-
-.fishbone-step:first-child {
-  padding-left: 14px;
-  clip-path: polygon(0 0, calc(100% - var(--notch)) 0, 100% 50%, calc(100% - var(--notch)) 100%, 0 100%);
-}
-
-.fishbone-step:last-child {
-  margin-right: 0;
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, var(--notch) 50%);
-}
-
-.fishbone-step small {
-  display: block;
-  font-size: 11px;
-  line-height: 1.4;
-  opacity: 0.85;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .fishbone-step b {
   display: block;
   font-weight: 500;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
 }
 
 .fishbone-step.is-done {
-  background: var(--accent-soft);
+  background: var(--accent-wash);
+  border-color: var(--accent-line);
   color: var(--accent-text);
   cursor: pointer;
 }
 
 .fishbone-step.is-done:hover {
-  background: var(--accent-line);
+  background: var(--accent-soft);
 }
 
 .fishbone-step.is-current {
   background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
-}
-
-.fishbone-step.is-current small {
-  opacity: 0.75;
 }
 
 .step-panel {
@@ -774,6 +738,200 @@ a {
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+/* ---------- guided flow (Feed) ---------- */
+
+.flow-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.flow-step {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.flow-step.is-done {
+  border-color: var(--accent-line);
+  background: var(--gray2);
+}
+
+.flow-step.is-locked {
+  opacity: 0.72;
+}
+
+.flow-step-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.flow-step-badge {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--gray4);
+  color: var(--ink-2);
+}
+
+.flow-step.is-done .flow-step-badge {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.flow-step-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.flow-step-titles h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.flow-step-titles p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.flow-step-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.flow-step-body > .toolbar:first-child {
+  margin-top: 14px;
+}
+
+.flow-compact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ready-card {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-wash);
+}
+
+.ready-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ready-card-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ready-meta {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.ready-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.ready-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.flow-loading {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--line);
+  background: var(--gray2);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.flow-loading-bar {
+  margin-top: 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--gray4);
+  overflow: hidden;
+}
+
+.flow-loading-bar span {
+  display: block;
+  height: 100%;
+  width: 36%;
+  background: var(--accent);
+  border-radius: inherit;
+  animation: flow-loading-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes flow-loading-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.flow-details {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.flow-details summary {
+  cursor: pointer;
+  color: var(--accent-text);
+  user-select: none;
+}
+
+.page-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.step-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* ---------- element plus ---------- */
