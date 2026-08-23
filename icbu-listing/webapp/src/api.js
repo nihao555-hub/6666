@@ -149,6 +149,7 @@ export const api = {
   excelGridRegenCopy: (form) => http.post("/excel/grid-regen-copy", form),
   excelGridInferFields: (form) => http.post("/excel/grid-infer-fields", form),
   excelGridSuggestTemplate: (form) => http.post("/excel/grid-suggest-template", form),
+  excelApplyHabits: (body) => http.post("/excel/apply-habits", body),
   excelGridPollImages: (form) => http.post("/excel/grid-poll-images", form),
   excelImportRows: (form) => http.post("/excel/import-rows", form),
   excelTemplateUrl: (style, listingTemplateId, extra = {}) => {

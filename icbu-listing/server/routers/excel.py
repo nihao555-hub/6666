@@ -19,7 +19,7 @@ from gop_client import GopError  # noqa: E402
 from ..db import SessionLocal, reload_db_from_blob, reload_db_from_blob_throttled
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, ecosystem_brief, excel_import, excel_images, feed_sessions, grid_images, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
+from ..services import catalog, distribution, document_parse, ecosystem_brief, excel_import, excel_images, feed_sessions, grid_images, habits_ready, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -281,6 +281,7 @@ def smart_plan_endpoint(
             category_name=hint or category_name,
             ai=ai,
             refresh=refresh,
+            user=user,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -348,6 +349,7 @@ async def smart_plan_from_images(
             ai=ai,
             refresh=refresh or bool(vision_samples),
             vision_samples=vision_samples,
+            user=user,
         )
         if vision_samples:
             plan["planner"] = f"{plan.get('planner') or 'rules'}+vision"
@@ -356,6 +358,46 @@ async def smart_plan_from_images(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/apply-habits")
+def apply_habits_endpoint(
+    body: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Save adopted freight template (and refresh habits status)."""
+    reload_db_from_blob_throttled(min_interval_seconds=3.0)
+    shop_id = str(body.get("shop_id") or "").strip()
+    category_id = str(body.get("category_id") or "").strip()
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop = shop_for(db, user, shop_id)
+    shipping_id = str(body.get("shipping_template_id") or body.get("recommended_shipping_template_id") or "").strip()
+    template_id = str(body.get("template_id") or body.get("selected_template_id") or "").strip()
+    apply_to = str(body.get("apply_to") or "both").strip().lower()
+    if not shipping_id:
+        raise HTTPException(status_code=400, detail="请选择运费模板")
+    result = habits_ready.apply_habits(
+        db,
+        shop,
+        category_id=category_id,
+        shipping_template_id=shipping_id,
+        template_id=template_id,
+        apply_shipping_to=apply_to,
+    )
+    ai = AiClient.from_env_or_none()
+    habits = habits_ready.check_and_prepare(
+        db,
+        shop_api(shop),
+        shop,
+        user,
+        category_id=category_id,
+        category_name=str(body.get("category_name") or ""),
+        ai=ai,
+        auto_fix=False,
+    )
+    return {**result, "habits": habits}
 
 
 @router.get("/smart-template")
@@ -381,6 +423,7 @@ def download_smart_template(
         category_name=hint or category_name,
         ai=ai,
         refresh=refresh,
+        user=user,
     )
     return _smart_template_response(plan, hint or category_name)
 

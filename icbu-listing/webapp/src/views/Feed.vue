@@ -189,6 +189,41 @@
             </div>
           </div>
         </section>
+
+        <section v-if="habitsPanel && doc.categoryId && !smartPlanLoading" class="plan-panel habits-panel">
+          <header class="plan-head">
+            <h4>发品习惯</h4>
+            <span class="plan-badge" :class="habitsReady ? 'is-ok' : 'is-warn'">{{ habitsReady ? "已就绪" : "待确认" }}</span>
+          </header>
+          <p v-if="habitsPanel.shipping_recommendation?.reasoning" class="plan-reasoning muted">
+            {{ habitsPanel.shipping_recommendation.reasoning }}
+          </p>
+          <ul class="habits-checks">
+            <li v-for="item in habitsPanel.checks || []" :key="item.id" :class="item.ok && !item.needs_pick ? 'is-ok' : 'is-warn'">
+              <span>{{ item.label }}</span>
+              <span class="habits-value">{{ item.value || "—" }}</span>
+            </li>
+          </ul>
+          <div v-if="habitsNeedsPick" class="habits-pick">
+            <label class="muted">运费模板（来自阿里官方选项）</label>
+            <el-select v-model="habitsShippingPick" filterable style="width: 100%; margin-top: 8px">
+              <el-option
+                v-for="opt in habitsPanel.shipping_options || []"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+            <div class="habits-actions">
+              <el-button type="primary" :loading="habitsApplying" @click="adoptHabitsRecommendation">
+                采用推荐并发货习惯
+              </el-button>
+            </div>
+          </div>
+          <p v-else-if="habitsPanel.selected_template_name" class="muted habits-foot">
+            成稿将使用模板「{{ habitsPanel.selected_template_name }}」+ 店铺政策。
+          </p>
+        </section>
         <h3 style="margin-top: 24px">3. 下载填写表</h3>
         <p v-if="doc.categoryId && !canDownloadTemplate" class="muted step-hint">
           {{ smartPlanLoading ? "正在生成列规划，请稍候…" : "请先选类目并等待上方出现列名后再下载" }}
@@ -275,6 +310,9 @@
         </header>
 
         <section class="audit-toolbar-card">
+          <div v-if="habitsSummaryLine" class="audit-habits-strip muted">
+            发品习惯：{{ habitsSummaryLine }}
+          </div>
           <div class="audit-toolbar">
             <div class="audit-filters" role="tablist" aria-label="筛选商品">
               <button
@@ -583,7 +621,9 @@ const excel = reactive({
   photoPolicy: "complete",
   emptyPolicy: "draw",
 });
-const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", guarantee: "", category_name: "" });
+const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", guarantee: "", category_name: "", habits: null });
+const habitsShippingPick = ref("");
+const habitsApplying = ref(false);
 const useEcosystemAssistant = ref(false);
 const smartPlanLoading = ref(false);
 const smartPlanError = ref("");
@@ -686,10 +726,20 @@ function clearSmartPlanStepAnimation() {
 
 function finishSmartPlanStepAnimation() {
   stopSmartPlanStepTimers();
+  const habitsDetail = habitsPanel.value?.selected_template_name
+    ? `模板「${habitsPanel.value.selected_template_name}」${habitsReady.value ? "已就绪" : "待确认运费"}`
+    : habitsPanel.value?.status === "needs_pick"
+      ? "待选运费模板"
+      : "";
   smartPlanAiSteps.value = smartPlanAiSteps.value.map((step) => ({
     ...step,
     status: step.status === "error" ? "error" : "done",
-    detail: step.id === "plan" ? `完成（${smartPlan.value.column_count || 0} 列）` : step.detail,
+    detail:
+      step.id === "plan"
+        ? `完成（${smartPlan.value.column_count || 0} 列）`
+        : step.id === "habits" && habitsDetail
+          ? habitsDetail
+          : step.detail,
   }));
   window.setTimeout(() => {
     if (!smartPlanLoading.value) {
@@ -973,6 +1023,23 @@ const planSourceLabel = computed(() => {
   if (planner) return "规则规划";
   return "";
 });
+const habitsPanel = computed(() => smartPlan.value.habits || null);
+const habitsReady = computed(() => Boolean(habitsPanel.value?.ready));
+const habitsNeedsPick = computed(
+  () => habitsPanel.value?.status === "needs_pick" && (habitsPanel.value?.shipping_options?.length || 0) > 0,
+);
+const habitsSummaryLine = computed(() => {
+  const habits = habitsPanel.value;
+  if (!habits) return "";
+  const parts = [];
+  const shipping = (habits.checks || []).find((item) => item.id === "shippingTemplateId");
+  if (shipping?.value) parts.push(`运费 ${shipping.value}`);
+  if (habits.selected_template_name) parts.push(`模板 ${habits.selected_template_name}`);
+  if (doc.templateName && doc.templateName !== habits.selected_template_name) {
+    parts.push(`审核模板 ${doc.templateName}`);
+  }
+  return parts.join(" · ");
+});
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
@@ -1249,6 +1316,7 @@ function applySmartPlan(raw, categoryId = "") {
   const plan = normalizeSmartPlan({ ...raw, category_id: raw?.category_id || categoryId });
   smartPlan.value = plan;
   docGrid.columns = plan.columns || [];
+  syncHabitsFromPlan(plan);
   if (raw?.vision_samples?.length) {
     visionPreview.value = raw.vision_samples;
   }
@@ -2242,7 +2310,53 @@ function normalizeSmartPlan(raw) {
     covered_by_shop: raw.covered_by_shop || [],
     covered_by_template: raw.covered_by_template || [],
     ai_fills: raw.ai_fills || [],
+    habits: raw.habits || null,
+    selected_template_id: raw.selected_template_id || raw.habits?.selected_template_id || "",
+    selected_template_name: raw.selected_template_name || raw.habits?.selected_template_name || "",
   };
+}
+
+function syncHabitsFromPlan(plan) {
+  const habits = plan?.habits;
+  if (!habits) return;
+  const rec = habits.recommended_shipping_template_id || habits.shipping_recommendation?.shipping_template_id || "";
+  habitsShippingPick.value = rec || habitsShippingPick.value;
+  const tid = plan.selected_template_id || habits.selected_template_id || "";
+  if (tid) {
+    doc.templateId = tid;
+    doc.templateName = plan.selected_template_name || habits.selected_template_name || doc.templateName;
+    doc.templateReason = habits.selected_template_is_auto ? "已自动创建类目模板" : "规划阶段已匹配";
+  }
+}
+
+async function adoptHabitsRecommendation() {
+  if (!store.shopId || !doc.categoryId) return;
+  const shippingId = habitsShippingPick.value || habitsPanel.value?.recommended_shipping_template_id || "";
+  if (!shippingId) {
+    ElMessage.warning("请选择运费模板");
+    return;
+  }
+  habitsApplying.value = true;
+  try {
+    const result = await api.excelApplyHabits({
+      shop_id: store.shopId,
+      category_id: doc.categoryId,
+      category_name: doc.categoryName || smartPlan.value.category_name || "",
+      shipping_template_id: shippingId,
+      template_id: habitsPanel.value?.selected_template_id || doc.templateId || "",
+      apply_to: "both",
+    });
+    if (result.habits) {
+      smartPlan.value = { ...smartPlan.value, habits: result.habits };
+    }
+    syncHabitsFromPlan(smartPlan.value);
+    ElMessage.success("发品习惯已保存，成稿时将自动套用");
+    await persistSession({ server: true });
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    habitsApplying.value = false;
+  }
 }
 
 async function refreshSmartPlan() {
@@ -3490,6 +3604,57 @@ onUnmounted(() => {
   border-radius: var(--radius);
   padding: 16px 18px;
   background: var(--surface);
+}
+.habits-panel {
+  border-color: var(--accent-line);
+}
+.habits-checks {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.habits-checks li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--gray3);
+}
+.habits-checks li.is-ok {
+  border-left: 3px solid #16a34a;
+}
+.habits-checks li.is-warn {
+  border-left: 3px solid #d97706;
+}
+.habits-value {
+  color: var(--muted);
+  text-align: right;
+}
+.habits-pick {
+  margin-top: 14px;
+}
+.habits-actions {
+  margin-top: 12px;
+}
+.habits-foot {
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+.plan-badge.is-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+.plan-badge.is-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+.audit-habits-strip {
+  padding: 8px 12px 0;
+  font-size: 13px;
 }
 .plan-panel-loading {
   background: var(--gray3);

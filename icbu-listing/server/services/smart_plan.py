@@ -23,7 +23,7 @@ from schema import SchemaField, index_fields, parse_schema  # noqa: E402
 from sqlalchemy.orm import Session
 
 from ..db import persist_database
-from ..models import CategorySmartPlan, Shop
+from ..models import CategorySmartPlan, Shop, Template
 from . import catalog, defaults as defaults_service, excel_import, schema_labels, templates as template_service
 from .icbu_publishing_skill import checklist_for_review, skill_prompt_block
 from .review_enrich import schema_inventory_summary, ai_target_columns
@@ -622,6 +622,16 @@ def _save_cached_plan(
         db.rollback()
 
 
+def _with_habits(plan: dict[str, Any], habits_pre: dict[str, Any] | None) -> dict[str, Any]:
+    if not habits_pre:
+        return plan
+    out = dict(plan)
+    out["habits"] = habits_pre
+    out["selected_template_id"] = habits_pre.get("selected_template_id") or ""
+    out["selected_template_name"] = habits_pre.get("selected_template_name") or ""
+    return out
+
+
 def build_plan(
     db: Session,
     api: Any,
@@ -632,11 +642,36 @@ def build_plan(
     ai: AiClient | None = None,
     refresh: bool = False,
     vision_samples: Sequence[Mapping[str, Any]] | None = None,
+    user: Any | None = None,
 ) -> dict[str, Any]:
     if not category_id:
         raise ValueError("先选叶子类目")
     shop_defaults = _shop_defaults(shop)
-    template_values = _template_values(db, shop.id, category_id)
+    habits_pre: dict[str, Any] | None = None
+    template_values: dict[str, Any] = {}
+    if user is not None:
+        from . import habits_ready
+
+        product_vision = vision_plan.vision_summary_text(vision_samples or [])
+        habits_pre = habits_ready.check_and_prepare(
+            db,
+            api,
+            shop,
+            user,
+            category_id=category_id,
+            category_name=category_name,
+            ai=ai,
+            vision_summary=product_vision,
+            vision_samples=vision_samples or [],
+            auto_fix=True,
+        )
+        tid = str(habits_pre.get("selected_template_id") or "").strip()
+        if tid:
+            row = db.get(Template, tid)
+            if row is not None:
+                template_values = template_service.values_of(row)
+    if not template_values:
+        template_values = _template_values(db, shop.id, category_id)
     habits_fp = _habits_fingerprint(shop_defaults, template_values)
     if not refresh and not vision_samples:
         fast = _try_fast_cached_plan(
@@ -647,7 +682,7 @@ def build_plan(
             refresh=refresh,
         )
         if fast is not None:
-            return fast
+            return _with_habits(fast, habits_pre)
         cross_shop = _try_user_category_cached_plan(
             db,
             shop.user_id,
@@ -657,7 +692,7 @@ def build_plan(
             refresh=refresh,
         )
         if cross_shop is not None:
-            return cross_shop
+            return _with_habits(cross_shop, habits_pre)
     xml = catalog.get_schema_xml(db, api, category_id, "zh")
     fields = parse_schema(xml)
     fields_flat = excel_import.flatten_schema_fields(fields)
@@ -669,7 +704,7 @@ def build_plan(
         if cached is not None:
             if category_name and not cached.get("category_name"):
                 cached["category_name"] = category_name
-            return cached
+            return _with_habits(cached, habits_pre)
     candidates, covered_shop, covered_template = candidate_columns(
         fields,
         shop_defaults=shop_defaults,
@@ -773,6 +808,12 @@ def build_plan(
         "habits_fingerprint": habits_fp,
         "cached": False,
     }
+    if user is not None and habits_pre is not None:
+        plan = _with_habits(plan, habits_pre)
+    elif user is not None:
+        from . import habits_ready
+
+        habits_ready.attach_to_plan(db, api, shop, user, plan, ai=ai, auto_fix=False)
     _save_cached_plan(db, shop.id, category_id, input_hash, planner, plan)
     return plan
 
