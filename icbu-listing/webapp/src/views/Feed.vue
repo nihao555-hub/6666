@@ -137,8 +137,8 @@
         <section v-if="smartPlanShowAi" class="plan-panel plan-panel-loading">
           <section class="ai-timeline ai-timeline-vertical" aria-live="polite">
             <header class="ai-timeline-head">
-              <strong>AI 正在分析类目</strong>
-              <span class="ai-timeline-badge is-live">进行中</span>
+              <strong>AI 正在分析类目{{ smartPlanLoading ? "…" : "" }}</strong>
+              <span class="ai-timeline-badge is-live">{{ smartPlanLoading ? "进行中" : "完成" }}</span>
             </header>
             <ol class="ai-timeline-track">
               <li
@@ -156,10 +156,16 @@
                     <span class="ai-timeline-label">{{ step.label }}</span>
                     <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
                   </div>
+                  <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
                 </div>
               </li>
             </ol>
           </section>
+        </section>
+
+        <section v-else-if="smartPlanError" class="plan-panel plan-panel-error">
+          <p>{{ smartPlanError }}</p>
+          <el-button type="primary" :loading="smartPlanLoading" @click="refreshSmartPlan">重试生成</el-button>
         </section>
 
         <section v-else-if="doc.categoryId && smartPlan.column_count" class="plan-panel">
@@ -570,6 +576,7 @@ const excel = reactive({
 const smartPlan = ref({ columns: [], column_count: 0, reasoning: "", tips: "", guarantee: "", category_name: "" });
 const useEcosystemAssistant = ref(false);
 const smartPlanLoading = ref(false);
+const smartPlanError = ref("");
 const smartPlanShowAi = ref(false);
 const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
@@ -717,6 +724,11 @@ function pendingPlanImageCountValue() {
 
 function hasPlanImages() {
   return imageSetupMode.value === "confirmed" && pendingPlanImageCountValue() > 0;
+}
+
+function hasUploadablePlanImages() {
+  if (imageSetupMode.value !== "confirmed") return false;
+  return allUploadImageFiles().some((item) => item.raw) || selectedPhotobankList().length > 0;
 }
 
 const pendingPlanImageCount = computed(() => pendingPlanImageCountValue());
@@ -887,7 +899,7 @@ async function buildSmartPlanForm(categoryId, categoryName, refresh) {
   body.append("category_id", categoryId);
   body.append("category_name", categoryName || "");
   if (refresh) body.append("refresh", "true");
-  if (hasPlanImages()) {
+  if (hasUploadablePlanImages()) {
     allUploadImageFiles().forEach((item) => {
       if (item.raw) body.append("files", item.raw, item.name);
     });
@@ -900,6 +912,15 @@ async function buildSmartPlanForm(categoryId, categoryName, refresh) {
     category_id: categoryId,
     category_name: categoryName,
     ...(refresh ? { refresh: true } : {}),
+  });
+}
+
+async function fetchSmartPlanFallback(categoryId, categoryName) {
+  return api.excelSmartPlan({
+    shop_id: store.shopId,
+    category_id: categoryId,
+    category_name: categoryName,
+    refresh: false,
   });
 }
 const planImageCount = computed(() => confirmedPlanImageCount.value);
@@ -2070,11 +2091,12 @@ async function loadSmartPlan(override = null) {
   const categoryName = override?.categoryName ?? doc.categoryName ?? "";
   const refresh = Boolean(override?.refresh);
   const background = Boolean(override?.background);
-  const hasVision = hasPlanImages();
+  const hasVision = hasUploadablePlanImages();
   if (!store.shopId || !categoryId) return;
 
   if (!background) {
     smartPlanLoading.value = true;
+    smartPlanError.value = "";
     clearSmartPlanStepAnimation();
     if (refresh || hasVision) {
       smartPlanShowAi.value = true;
@@ -2091,6 +2113,7 @@ async function loadSmartPlan(override = null) {
   const finishPlanUi = (raw) => {
     if (background) return;
     clearSmartPlanAiDelay();
+    smartPlanError.value = "";
     if (raw.cached && !hasVision) {
       smartPlanShowAi.value = false;
       clearSmartPlanStepAnimation();
@@ -2101,7 +2124,7 @@ async function loadSmartPlan(override = null) {
   };
 
   try {
-    const raw = await buildSmartPlanForm(categoryId, categoryName, refresh || hasVision);
+    const raw = await buildSmartPlanForm(categoryId, categoryName, refresh);
     applySmartPlan(raw, categoryId);
     finishPlanUi(raw);
   } catch (error) {
@@ -2109,14 +2132,28 @@ async function loadSmartPlan(override = null) {
     if (msg.includes("店铺不存在")) {
       await store.ensureShops();
       if (store.shopId) {
-        const raw = await buildSmartPlanForm(categoryId, categoryName, refresh || hasVision);
+        const raw = await buildSmartPlanForm(categoryId, categoryName, refresh);
         applySmartPlan(raw, categoryId);
         finishPlanUi(raw);
         return;
       }
     }
+    if (hasVision && !override?.fallbackTried) {
+      try {
+        const raw = await fetchSmartPlanFallback(categoryId, categoryName);
+        applySmartPlan(raw, categoryId);
+        finishPlanUi(raw);
+        ElMessage.warning("读图规划失败，已改用类目规则表，仍可下载填写");
+        return;
+      } catch {
+        /* try error surface below */
+      }
+    }
     if (!background) {
       clearSmartPlanStepAnimation();
+      smartPlanShowAi.value = false;
+      smartPlanError.value = msg || "生成填写表失败，请重试";
+      patchSmartPlanStep("plan", { status: "error", detail: smartPlanError.value });
     }
     throw error;
   } finally {
@@ -2159,12 +2196,15 @@ async function refreshSmartPlan() {
     ElMessage.warning("先选叶子类目");
     return;
   }
+  smartPlanError.value = "";
   try {
     await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName, refresh: true });
     ElMessage.success(`已重新规划：需填 ${smartPlan.value.column_count || 0} 列`);
     await persistSession({ server: true });
   } catch (error) {
-    ElMessage.error(error.message);
+    if (!smartPlan.value.column_count) {
+      ElMessage.error(smartPlanError.value || error.message);
+    }
   }
 }
 
@@ -3203,7 +3243,7 @@ async function pickCategory(node) {
   doc.categoryId = categoryId;
   doc.categoryName = categoryName;
 
-  const localCached = hasPlanImages() ? null : loadLocalSmartPlan(categoryId);
+  const localCached = hasUploadablePlanImages() ? null : loadLocalSmartPlan(categoryId);
   if (localCached?.columns?.length) {
     applySmartPlan({ ...localCached, cached: true }, categoryId);
     ElMessage.success(`已选「${categoryName}」`);
@@ -3215,10 +3255,18 @@ async function pickCategory(node) {
   try {
     await store.ensureShops();
     await loadSmartPlan({ categoryId, categoryName });
-    ElMessage.success(`已选「${smartPlan.value.category_name || categoryName}」`);
+    if (smartPlan.value.column_count) {
+      ElMessage.success(`已选「${smartPlan.value.category_name || categoryName}」`);
+    } else if (smartPlanError.value) {
+      ElMessage.error(smartPlanError.value);
+    }
     await persistSession({ server: true });
   } catch (error) {
-    ElMessage.error(error.message);
+    if (smartPlan.value.column_count) {
+      ElMessage.warning(`类目已选，但规划异常：${error.message}`);
+    } else {
+      ElMessage.error(smartPlanError.value || error.message);
+    }
   }
 }
 
@@ -4041,6 +4089,19 @@ onUnmounted(() => {
 
 .vision-preview li + li {
   margin-top: 6px;
+}
+
+.plan-panel-error {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid #fecdca;
+  border-radius: var(--radius);
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.plan-panel-error p {
+  margin: 0 0 10px;
 }
 
 .category-next-box {

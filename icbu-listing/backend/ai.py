@@ -330,7 +330,13 @@ class AiClient:
         except AiUnavailable:
             return None
 
-    def chat(self, messages: list[dict[str, Any]], temperature: float = 0.2) -> str:
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout: float | None = None,
+    ) -> str:
         response = requests.post(
             f"{self.base_url}/chat/completions",
             headers={
@@ -338,7 +344,7 @@ class AiClient:
                 "Content-Type": "application/json",
             },
             json={"model": self.text_model, "messages": messages, "temperature": temperature},
-            timeout=self.timeout,
+            timeout=self.timeout if timeout is None else timeout,
         )
         if response.status_code >= 400:
             raise AiUnavailable(f"模型返回 {response.status_code}: {response.text[:200]}")
@@ -348,8 +354,14 @@ class AiClient:
             raise AiUnavailable("模型没有返回内容")
         return choices[0].get("message", {}).get("content") or ""
 
-    def chat_json(self, messages: list[dict[str, Any]], temperature: float = 0.2) -> dict[str, Any]:
-        text = self.chat(messages, temperature)
+    def chat_json(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        text = self.chat(messages, temperature, timeout=timeout)
         try:
             return extract_json(text)
         except (json.JSONDecodeError, ValueError):
@@ -357,9 +369,15 @@ class AiClient:
                 {"role": "assistant", "content": text[:2000]},
                 {"role": "user", "content": "Return the same answer as valid JSON only, no markdown fence."},
             ]
-            return extract_json(self.chat(repair, 0.0))
+            return extract_json(self.chat(repair, 0.0, timeout=timeout))
 
-    def understand(self, images: Sequence[ImageInput], hint: str = "") -> Understanding:
+    def understand(
+        self,
+        images: Sequence[ImageInput],
+        hint: str = "",
+        *,
+        timeout: float | None = None,
+    ) -> Understanding:
         if not images:
             raise AiUnavailable("没有图片可供识别")
         content: list[dict[str, Any]] = [{"type": "text", "text": UNDERSTAND_PROMPT}]
@@ -367,7 +385,7 @@ class AiClient:
             content.append({"type": "text", "text": f"Seller note (may be Chinese): {hint}"})
         for image in images[:6]:
             content.append({"type": "image_url", "image_url": {"url": image.as_data_url()}})
-        payload = self.chat_json([{"role": "user", "content": content}])
+        payload = self.chat_json([{"role": "user", "content": content}], timeout=timeout)
         return Understanding.from_payload(payload)
 
     def write_copy(

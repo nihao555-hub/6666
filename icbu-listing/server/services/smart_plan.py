@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
 import re
 from typing import Any, Mapping, Sequence
 
@@ -46,6 +48,9 @@ SCORE_OPTIONAL_TOP = (
 )
 
 PLANNER_VERSION = "evidence-minimal-v3"
+PLANNER_LLM_TIMEOUT = float(os.environ.get("PLANNER_LLM_TIMEOUT", "28"))
+
+logger = logging.getLogger(__name__)
 
 MAX_EVIDENCE_ATTRS = 4
 RULE_EVIDENCE_ATTRS = 2
@@ -527,7 +532,11 @@ def _llm_user_columns(
         product_vision=product_vision or "（卖家尚未上传商品图）",
         skill_rules=skill_prompt_block(),
     )
-    payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.1)
+    payload = ai.chat_json(
+        [{"role": "user", "content": prompt}],
+        temperature=0.1,
+        timeout=PLANNER_LLM_TIMEOUT,
+    )
     raw_ids = payload.get("user_columns") or []
     chosen: list[str] = []
     allowed = {str(col["id"]) for col in candidates}
@@ -700,7 +709,8 @@ def build_plan(
                 reasoning = llm_reasoning
             if llm_tips:
                 tips = llm_tips
-        except AiUnavailable:
+        except Exception as exc:
+            logger.warning("smart plan LLM fallback to rules: %s", exc)
             user_ids = _finalize_user_columns(candidates, user_ids, vision_samples=vision_samples)
     else:
         user_ids = _finalize_user_columns(candidates, user_ids, vision_samples=vision_samples)

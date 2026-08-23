@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
@@ -11,6 +12,9 @@ from ai import AiClient, AiUnavailable, ImageInput, Understanding  # noqa: E402
 
 MAX_GROUPS = 5
 MAX_IMAGES_PER_GROUP = 6
+PLAN_MAX_GROUPS = 1
+PLAN_MAX_IMAGES_PER_GROUP = 4
+VISION_PLAN_TIMEOUT = float(os.environ.get("VISION_PLAN_TIMEOUT", "28"))
 
 _VISION_ATTR_HINTS: list[tuple[re.Pattern[str], tuple[str, ...]]] = [
     (re.compile(r"材质|材料|material", re.I), ("material", "材质", "材料")),
@@ -51,6 +55,10 @@ def analyze_images_for_plan(
     ai: AiClient | None,
     uploads: Sequence[tuple[str, bytes]],
     bank_images: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    max_groups: int = PLAN_MAX_GROUPS,
+    max_images_per_group: int = PLAN_MAX_IMAGES_PER_GROUP,
+    vision_timeout: float = VISION_PLAN_TIMEOUT,
 ) -> list[dict[str, Any]]:
     """Run vision on grouped uploads + photobank URLs. Returns sample dicts per SKU group."""
     if ai is None:
@@ -62,24 +70,34 @@ def analyze_images_for_plan(
         key = _group_key(name)
         groups[key].append((name, content))
     samples: list[dict[str, Any]] = []
-    for group_key, files in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))[:MAX_GROUPS]:
-        inputs = [ImageInput(filename=name, content=content) for name, content in files[:MAX_IMAGES_PER_GROUP]]
+    limit = max(1, min(int(max_groups), MAX_GROUPS))
+    per_group = max(1, min(int(max_images_per_group), MAX_IMAGES_PER_GROUP))
+    for group_key, files in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))[:limit]:
+        inputs = [ImageInput(filename=name, content=content) for name, content in files[:per_group]]
         try:
-            understanding = ai.understand(inputs, hint=f"Batch SKU group: {group_key}")
-        except (AiUnavailable, ValueError, TypeError):
+            understanding = ai.understand(
+                inputs,
+                hint=f"Batch SKU group: {group_key}",
+                timeout=vision_timeout,
+            )
+        except (AiUnavailable, ValueError, TypeError, OSError):
             continue
         samples.append(understanding_to_dict(understanding, group=group_key, image_count=len(files)))
     bank = [item for item in (bank_images or []) if str(item.get("url") or "").strip()]
-    if bank:
+    if bank and len(samples) < limit:
         inputs = [
             ImageInput(
                 filename=str(item.get("file_name") or "bank.jpg"),
                 url=str(item.get("url") or ""),
             )
-            for item in bank[:MAX_IMAGES_PER_GROUP]
+            for item in bank[:per_group]
         ]
         try:
-            understanding = ai.understand(inputs, hint="Selected from shop photobank")
+            understanding = ai.understand(
+                inputs,
+                hint="Selected from shop photobank",
+                timeout=vision_timeout,
+            )
             samples.append(
                 understanding_to_dict(
                     understanding,
@@ -87,7 +105,7 @@ def analyze_images_for_plan(
                     image_count=len(bank),
                 )
             )
-        except (AiUnavailable, ValueError, TypeError):
+        except (AiUnavailable, ValueError, TypeError, OSError):
             pass
     return samples
 

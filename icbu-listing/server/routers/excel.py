@@ -331,8 +331,12 @@ async def smart_plan_from_images(
         raise HTTPException(status_code=400, detail="先上传商品图或从图片银行选图")
     from ..services import vision_plan
 
-    vision_samples = vision_plan.analyze_images_for_plan(ai, uploads, bank)
-    if not vision_samples and ai is None:
+    vision_samples: list[dict[str, Any]] = []
+    try:
+        vision_samples = vision_plan.analyze_images_for_plan(ai, uploads, bank)
+    except Exception:
+        vision_samples = []
+    if not vision_samples and ai is None and (uploads or bank):
         raise HTTPException(status_code=400, detail="未配置 AI，无法从图片生成填写表")
     try:
         plan = smart_plan.build_plan(
@@ -342,7 +346,7 @@ async def smart_plan_from_images(
             category_id=category_id,
             category_name=hint or category_name,
             ai=ai,
-            refresh=True if vision_samples else refresh,
+            refresh=refresh or bool(vision_samples),
             vision_samples=vision_samples,
         )
         if vision_samples:
