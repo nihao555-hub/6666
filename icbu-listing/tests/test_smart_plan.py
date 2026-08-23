@@ -109,6 +109,14 @@ class SmartPlanUnitTests(unittest.TestCase):
         self.assertIn("schema.paymentMethod", ids)
         self.assertNotIn("attr.icbuCatProp.p-15", ids)
 
+    def test_is_core_only_plan_detects_stale_cache(self) -> None:
+        core_plan = {
+            "columns": [smart_plan._core_column(fid) for fid in ("sku", "price", "moq", "images", "brand", "name", "note")],
+        }
+        self.assertTrue(smart_plan._is_core_only_plan(core_plan))
+        core_plan["columns"].append({"id": "attr.icbuCatProp.p-15", "label": "材质"})
+        self.assertFalse(smart_plan._is_core_only_plan(core_plan))
+
     def test_llm_memory_columns_include_all_required_off_sheet(self) -> None:
         from schema import parse_schema  # noqa: E402
 

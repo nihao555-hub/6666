@@ -32,6 +32,7 @@ from . import vision_plan
 
 CORE_IDS = ("sku", "price", "moq")
 CORE_OPTIONAL = ("images", "brand", "name", "note")
+CORE_ALL = frozenset(CORE_IDS) | frozenset(CORE_OPTIONAL)
 
 # Optional schema fields that affect the local 5.0 quality score when present.
 SCORE_OPTIONAL_TOP = (
@@ -179,6 +180,15 @@ def _cached_plan_payload(row: CategorySmartPlan, *, category_name: str = "") -> 
     return payload
 
 
+def _is_core_only_plan(plan: Mapping[str, Any]) -> bool:
+    """True when the download sheet has no category evidence attrs (likely stale cache)."""
+    cols = plan.get("columns") or plan.get("download_columns") or []
+    ids = [str(col.get("id") or "") for col in cols if col.get("id")]
+    if not ids:
+        return True
+    return all(fid in CORE_ALL for fid in ids)
+
+
 def _try_fast_cached_plan(
     db: Session,
     shop_id: str,
@@ -193,7 +203,10 @@ def _try_fast_cached_plan(
     row = db.get(CategorySmartPlan, {"shop_id": shop_id, "category_id": category_id})
     if row is None:
         return None
-    return _cached_plan_payload(row, category_name=category_name)
+    payload = _cached_plan_payload(row, category_name=category_name)
+    if payload is None or _is_core_only_plan(payload):
+        return None
+    return payload
 
 
 def _try_user_category_cached_plan(
@@ -217,7 +230,10 @@ def _try_user_category_cached_plan(
     )
     if row is None:
         return None
-    return _cached_plan_payload(row, category_name=category_name)
+    payload = _cached_plan_payload(row, category_name=category_name)
+    if payload is None or _is_core_only_plan(payload):
+        return None
+    return payload
 
 
 def _shop_defaults(shop: Shop) -> dict[str, Any]:

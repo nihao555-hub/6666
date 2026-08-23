@@ -130,6 +130,12 @@
               <div v-if="smartColumnLabels?.length" class="ready-tags">
                 <span v-for="label in smartColumnLabels" :key="label" class="ready-tag">{{ label }}</span>
               </div>
+              <p class="ready-meta plan-flow-note">
+                下载表 {{ smartPlan.column_count }} 列（你填写）
+                <template v-if="smartPlanEvidenceCount">，含 {{ smartPlanEvidenceCount }} 个类目属性</template>
+                <template v-if="smartPlanAiFillCount">；上传后 AI 补 {{ smartPlanAiFillCount }} 个官方字段</template>
+                <template v-else-if="smartPlan.review_note">；{{ smartPlan.review_note }}</template>
+              </p>
               <p v-if="habitsNeedsPick" class="ready-meta">
                 推荐运费：{{ habitsPanel.shipping_recommendation?.label || "—" }}
               </p>
@@ -991,6 +997,16 @@ async function fetchSmartPlanFallback(categoryId, categoryName) {
   });
 }
 const planImageCount = computed(() => confirmedPlanImageCount.value);
+const smartPlanAiFillCount = computed(() => {
+  const n = smartPlan.value.ai_fill_attr_count || 0;
+  if (n) return n;
+  return (smartPlan.value.ai_fills || []).filter((item) => String(item.group || "") === "schema").length;
+});
+const smartPlanEvidenceCount = computed(() => {
+  const ids = smartPlan.value.evidence_column_ids || [];
+  if (ids.length) return ids.length;
+  return (smartPlan.value.columns || []).filter((col) => String(col.id || "").startsWith("attr.")).length;
+});
 const smartColumnLabels = computed(() =>
   (smartPlan.value.columns || []).map((col) => col.label || col.header || col.id).filter(Boolean),
 );
@@ -1328,6 +1344,14 @@ function onEcosystemToggleChange(value) {
   void persistSession();
 }
 
+const SMART_PLAN_CORE_IDS = new Set(["sku", "price", "moq", "images", "brand", "name", "note"]);
+
+function isCoreOnlySmartPlan(plan) {
+  const ids = (plan?.columns || []).map((col) => col.id).filter(Boolean);
+  if (!ids.length) return true;
+  return ids.every((id) => SMART_PLAN_CORE_IDS.has(id));
+}
+
 function smartPlanCacheKey(categoryId) {
   return `${SMART_PLAN_CACHE_PREFIX}:${store.user?.id || "guest"}:${store.shopId || ""}:${categoryId}`;
 }
@@ -1343,7 +1367,7 @@ function loadLocalSmartPlan(categoryId) {
 }
 
 function saveLocalSmartPlan(categoryId, plan) {
-  if (!categoryId || !plan?.columns?.length) return;
+  if (!categoryId || !plan?.columns?.length || isCoreOnlySmartPlan(plan)) return;
   try {
     localStorage.setItem(
       smartPlanCacheKey(categoryId),
@@ -1963,15 +1987,16 @@ async function finishResumeSession() {
     return;
   }
   const localCached = hasUploadablePlanImages() ? null : loadLocalSmartPlan(doc.categoryId);
-  if (localCached?.columns?.length) {
+  if (localCached?.columns?.length && !isCoreOnlySmartPlan(localCached)) {
     applySmartPlan({ ...localCached, cached: true }, doc.categoryId);
   }
   void loadSmartPlan({
     categoryId: doc.categoryId,
     categoryName: doc.categoryName,
-    background: Boolean(localCached?.columns?.length),
+    background: Boolean(localCached?.columns?.length && !isCoreOnlySmartPlan(localCached)),
+    refresh: Boolean(isCoreOnlySmartPlan(localCached)),
   }).catch((error) => {
-    if (!localCached?.columns?.length) ElMessage.error(error.message);
+    if (!localCached?.columns?.length || isCoreOnlySmartPlan(localCached)) ElMessage.error(error.message);
   });
   ensureGridPolling();
   if (!doc.reviewAiDone && docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
@@ -2430,6 +2455,9 @@ function normalizeSmartPlan(raw) {
     covered_by_shop: raw.covered_by_shop || [],
     covered_by_template: raw.covered_by_template || [],
     ai_fills: raw.ai_fills || [],
+    ai_fill_attr_count: raw.ai_fill_attr_count || (raw.ai_fill_attrs || []).length || 0,
+    evidence_column_ids: raw.evidence_column_ids || [],
+    review_note: raw.review_note || "",
     habits: raw.habits || null,
     selected_template_id: raw.selected_template_id || raw.habits?.selected_template_id || "",
     selected_template_name: raw.selected_template_name || raw.habits?.selected_template_name || "",
@@ -3617,7 +3645,7 @@ async function pickCategory(node) {
   doc.categoryName = categoryName;
 
   const localCached = hasUploadablePlanImages() ? null : loadLocalSmartPlan(categoryId);
-  if (localCached?.columns?.length) {
+  if (localCached?.columns?.length && !isCoreOnlySmartPlan(localCached)) {
     applySmartPlan({ ...localCached, cached: true }, categoryId);
     try {
       await store.ensureShops();
@@ -3634,7 +3662,7 @@ async function pickCategory(node) {
 
   try {
     await store.ensureShops();
-    await loadSmartPlan({ categoryId, categoryName });
+    await loadSmartPlan({ categoryId, categoryName, refresh: isCoreOnlySmartPlan(localCached) });
     if (smartPlan.value.column_count) {
       ElMessage.success(`已选「${smartPlan.value.category_name || categoryName}」`);
     } else if (smartPlanError.value) {
