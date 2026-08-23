@@ -1,4 +1,4 @@
-"""Smart batch plan: minimal evidence columns; AI infers remaining required + score."""
+"""Smart batch plan: sufficient evidence columns; AI infers remaining required + score."""
 
 import json
 import os
@@ -81,15 +81,16 @@ def _pencil_candidates() -> list[dict]:
 
 
 class SmartPlanUnitTests(unittest.TestCase):
-    def test_rule_based_keeps_minimal_evidence_not_all_required(self) -> None:
+    def test_rule_based_includes_sufficient_evidence_attrs(self) -> None:
         candidates = _pencil_candidates()
         chosen = smart_plan._rule_based_user_columns(candidates)
         self.assertIn("sku", chosen)
         self.assertIn("attr.icbuCatProp.p-15", chosen)
-        self.assertNotIn("attr.icbuCatProp.p-2", chosen)
-        self.assertNotIn("attr.icbuCatProp.p-9", chosen)
+        self.assertIn("attr.saleProp.s-1", chosen)
         self.assertNotIn("schema.paymentMethod", chosen)
-        self.assertLessEqual(len([fid for fid in chosen if fid.startswith("attr.")]), smart_plan.MAX_EVIDENCE_ATTRS)
+        attr_cols = [fid for fid in chosen if fid.startswith("attr.")]
+        self.assertGreaterEqual(len(attr_cols), 2)
+        self.assertLessEqual(len(attr_cols), smart_plan.MAX_USER_MUST_PROVIDE_ATTRS)
 
     def test_sanitize_strips_score_columns_from_llm(self) -> None:
         candidates = _pencil_candidates()
@@ -105,9 +106,11 @@ class SmartPlanUnitTests(unittest.TestCase):
         user_ids = set(smart_plan._rule_based_user_columns(candidates))
         targets = review_enrich.ai_target_columns(candidates, user_ids)
         ids = {item["id"] for item in targets}
-        self.assertIn("attr.icbuCatProp.p-2", ids)
+        # Required attrs on the download sheet are excluded from AI infer targets.
+        for fid in user_ids:
+            if fid.startswith("attr."):
+                self.assertNotIn(fid, ids)
         self.assertIn("schema.paymentMethod", ids)
-        self.assertNotIn("attr.icbuCatProp.p-15", ids)
 
     def test_is_core_only_plan_detects_stale_cache(self) -> None:
         core_plan = {

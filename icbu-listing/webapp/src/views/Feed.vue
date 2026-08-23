@@ -108,7 +108,7 @@
               <h3>选类目，生成填写表</h3>
               <p v-if="doc.categoryName">{{ doc.categoryName }} · {{ smartPlan.column_count || "—" }} 列</p>
               <p v-else-if="!canPickCategory">先完成上一步</p>
-              <p v-else>选叶子类目，系统自动生成要填的列</p>
+              <p v-else>选叶子类目，生成你必须提供的依据列</p>
             </div>
             <el-button v-if="canPickCategory && !doc.categoryId" type="primary" size="small" @click="openDocCategory">选类目</el-button>
             <el-button v-else-if="doc.categoryId" text size="small" @click="openDocCategory">更换</el-button>
@@ -131,9 +131,9 @@
                 <span v-for="label in smartColumnLabels" :key="label" class="ready-tag">{{ label }}</span>
               </div>
               <p class="ready-meta plan-flow-note">
-                下载表 {{ smartPlan.column_count }} 列（你填写）
-                <template v-if="smartPlanEvidenceCount">，含 {{ smartPlanEvidenceCount }} 个类目属性</template>
-                <template v-if="smartPlanAiFillCount">；上传后 AI 补 {{ smartPlanAiFillCount }} 个官方字段</template>
+                下载表 {{ smartPlan.column_count }} 列 — 你必须提供的依据
+                <template v-if="smartPlanEvidenceCount">（含 {{ smartPlanEvidenceCount }} 个类目属性）</template>
+                <template v-if="smartPlanAiFillCount">；填完后 AI 高置信补 {{ smartPlanAiFillCount }} 个官方字段</template>
                 <template v-else-if="smartPlan.review_note">；{{ smartPlan.review_note }}</template>
               </p>
               <p v-if="habitsNeedsPick" class="ready-meta">
@@ -161,7 +161,7 @@
             <span class="flow-step-badge">3</span>
             <div class="flow-step-titles">
               <h3>下载并填写表格</h3>
-              <p>只需填价、量、货号和少量属性，其余 AI 补</p>
+              <p>填你必须提供的依据（含无法推断的必填项），AI 据此补全其余官方必填</p>
               <p v-if="confirmedPlanImageCount" class="flow-step-note">已选图会嵌进「图片」列</p>
             </div>
             <el-button
@@ -182,7 +182,7 @@
             <span class="flow-step-badge">4</span>
             <div class="flow-step-titles">
               <h3>上传表格</h3>
-              <p>填好后拖入，AI 自动补全文案和属性</p>
+              <p>填好后拖入，AI 读取你的依据并高置信补全官方属性与文案</p>
             </div>
           </header>
           <div v-if="doc.categoryId" class="flow-step-body">

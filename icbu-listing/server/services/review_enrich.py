@@ -390,7 +390,7 @@ def _ai_fill_empty_columns(
     category_line = f"Leaf category: {category_name}\n" if category_name else ""
     prompt = (
         "You are an Alibaba.com (ICBU) wholesale listing attribute specialist.\n"
-        "The seller filled a MINIMAL evidence sheet. Infer empty fields in fields_to_fill.\n\n"
+        "The seller filled an evidence sheet with facts they must provide. Infer empty fields in fields_to_fill.\n\n"
         f"{category_line}"
         "Rules (follow strictly for high accuracy):\n"
         "1. user_facts = every cell the seller typed on the download sheet (including name, note, filled attrs).\n"
