@@ -175,7 +175,7 @@
           </header>
           <div v-if="smartPlan.tips" class="plan-reasoning">{{ smartPlan.tips }}</div>
           <div v-if="smartPlan.guarantee" class="plan-reasoning plan-guarantee">{{ smartPlan.guarantee }}</div>
-          <div v-if="smartColumnLabels.length" class="plan-columns">
+          <div v-if="smartColumnLabels?.length" class="plan-columns">
             <div class="plan-column-tags">
               <span v-for="label in smartColumnLabels" :key="label" class="plan-tag">{{ label }}</span>
             </div>
@@ -502,7 +502,6 @@ let sessionRecoveryInFlight = null;
 let localDraftTimer = null;
 let serverSyncTimer = null;
 const sessionApiRetryDelaysFresh = [300, 700, 1200];
-const sessionApiRetryDelaysFetch = [150];
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -924,6 +923,9 @@ async function fetchSmartPlanFallback(categoryId, categoryName) {
   });
 }
 const planImageCount = computed(() => confirmedPlanImageCount.value);
+const smartColumnLabels = computed(() =>
+  (smartPlan.value.columns || []).map((col) => col.label || col.header || col.id).filter(Boolean),
+);
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
@@ -1344,31 +1346,50 @@ function retryDelaysForSessionWrite() {
   return isSessionFresh() ? sessionApiRetryDelaysFresh : [];
 }
 
-async function fetchFeedSessionWithRetry(id, options = {}) {
-  const { boot = false, maxAttempts } = options;
-  let lastError = null;
-  let delays = boot ? [0, 80, 160] : sessionApiRetryDelaysFetch;
-  if (maxAttempts !== undefined) {
-    delays = delays.slice(0, Math.max(0, maxAttempts - 1));
+async function ensureSessionRecord(id) {
+  if (!id || deadSessionIds.has(id)) return null;
+  if (sessionId.value !== id && loadLocalDraft()?.sessionId !== id) return null;
+  try {
+    const draft = loadLocalDraft();
+    const saved = await api.saveFeedSession(id, {
+      shop_id: store.shopId || "",
+      step: draft?.sessionId === id && typeof draft.step === "number" ? draft.step : currentStep(),
+      reached: draft?.sessionId === id && typeof draft.reached === "number" ? draft.reached : currentReached(),
+      payload: draft?.sessionId === id && draft.payload ? draft.payload : sessionPayload(),
+    });
+    verifySession(id);
+    rememberOpenSession(id);
+    return saved;
+  } catch (error) {
+    if (isSessionApiMissing(error)) return null;
+    throw error;
   }
-  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
-    try {
-      return await api.getFeedSession(id);
-    } catch (error) {
-      lastError = error;
-      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
-      await sleep(delays[attempt]);
-    }
-  }
-  throw lastError || new Error("读取任务失败");
+}
+
+async function upsertSessionFromLocal(id) {
+  if (!id || deadSessionIds.has(id)) return null;
+  const pushed = await pushLocalSessionToServer(id);
+  if (pushed) return pushed;
+  return ensureSessionRecord(id);
+}
+
+function rememberRemoteSession(remote) {
+  if (!remote?.id) return remote;
+  verifySession(remote.id);
+  openSessions.value = [remote, ...openSessions.value.filter((item) => item.id !== remote.id)];
+  return remote;
+}
+
+async function fetchFeedSessionOnce(id) {
+  return api.getFeedSession(id);
 }
 
 async function pushLocalSessionToServer(id) {
+  if (sessionId.value !== id && loadLocalDraft()?.sessionId !== id) return null;
   const draft = loadLocalDraft();
-  if (!draft || draft.sessionId !== id) return null;
-  const payload = draft.payload || sessionPayload();
-  const step = typeof draft.step === "number" ? draft.step : currentStep();
-  const reached = typeof draft.reached === "number" ? draft.reached : currentReached();
+  const payload = draft?.sessionId === id && draft.payload ? draft.payload : sessionPayload();
+  const step = draft?.sessionId === id && typeof draft.step === "number" ? draft.step : currentStep();
+  const reached = draft?.sessionId === id && typeof draft.reached === "number" ? draft.reached : currentReached();
   try {
     const saved = await saveSessionWithRetry(id, {
       shop_id: store.shopId || "",
@@ -1392,7 +1413,9 @@ async function saveSessionWithRetry(id, body) {
       return await api.saveFeedSession(id, body);
     } catch (error) {
       lastError = error;
-      if (!isSessionApiMissing(error) || attempt >= delays.length) throw error;
+      // PATCH upserts — 404 should not repeat; only retry fresh creates on blob lag
+      if (isSessionApiMissing(error)) throw error;
+      if (attempt >= delays.length) throw error;
       await sleep(delays[attempt]);
     }
   }
@@ -1696,7 +1719,7 @@ async function startPathImpl() {
     docGrid.ready_count = 0;
     docGrid.source = "";
     docFiles.value = [];
-    smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", category_name: "" };
+    smartPlan.value = { columns: [], column_count: 0, reasoning: "", tips: "", guarantee: "", category_name: "" };
     applySession(created);
     touchSessionCreatedAt();
     verifySession(created.id);
@@ -1742,29 +1765,21 @@ async function finishResumeSession() {
   }
 }
 
-async function resolveSessionById(id, options = {}) {
+async function resolveSessionById(id) {
   if (!id || deadSessionIds.has(id)) return null;
   const cached = sessionFromOpenList(id);
-  if (cached) return cached;
+  if (cached) {
+    verifySession(id);
+    return cached;
+  }
+  const upserted = await upsertSessionFromLocal(id);
+  if (upserted) return rememberRemoteSession(upserted);
   try {
-    const remote = await fetchFeedSessionWithRetry(id, options);
-    if (remote?.id) {
-      verifySession(remote.id);
-      const existing = openSessions.value.some((item) => item.id === remote.id);
-      if (!existing) {
-        openSessions.value = [remote, ...openSessions.value.filter((item) => item.id !== remote.id)];
-      }
-      return remote;
-    }
+    const remote = await fetchFeedSessionOnce(id);
+    return rememberRemoteSession(remote);
   } catch (error) {
-    if (isSessionApiMissing(error)) {
-      const upserted = await pushLocalSessionToServer(id);
-      if (upserted) {
-        openSessions.value = [upserted, ...openSessions.value.filter((item) => item.id !== upserted.id)];
-        return upserted;
-      }
-      forgetSession(id);
-    }
+    if (!isSessionApiMissing(error)) throw error;
+    forgetSession(id);
   }
   return null;
 }
@@ -1835,16 +1850,21 @@ async function hydrateSessionFromServer(id) {
       void finishResumeSession();
       return;
     }
-    const upserted = await pushLocalSessionToServer(id);
+    const upserted = await upsertSessionFromLocal(id);
     if (upserted) {
       applySession(upserted);
       void finishResumeSession();
       return;
     }
-    const remote = await resolveSessionById(id, { boot: true, maxAttempts: 2 });
+    const remote = await resolveSessionById(id);
     if (remote) {
       applySession(remote);
       void finishResumeSession();
+      return;
+    }
+    if (sessionId.value === id) {
+      forgetSession(id);
+      if (route.query.session === id) router.replace({ query: {} });
     }
   } catch {
     /* keep local draft visible */
@@ -1871,18 +1891,20 @@ async function bootSession() {
     if (wanted && deadSessionIds.has(wanted)) {
       router.replace({ query: {} });
     } else if (wanted && !deadSessionIds.has(wanted)) {
-      const [, cached] = await Promise.all([
+      sessionId.value = wanted;
+      const [, remote] = await Promise.all([
         shopsReady,
-        resolveSessionById(wanted, { boot: true }),
+        resolveSessionById(wanted),
       ]);
       void loadOpenSessions();
-      if (cached) {
-        applySession(cached);
+      if (remote) {
+        applySession(remote);
         verifySession(wanted);
         router.replace({ query: { session: wanted } });
         void finishResumeSession();
         return;
       }
+      forgetSession(wanted);
       router.replace({ query: {} });
     }
 
