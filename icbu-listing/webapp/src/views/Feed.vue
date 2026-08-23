@@ -302,11 +302,15 @@
           </div>
         </section>
 
+        <section v-if="hasPendingImageJobs()" class="audit-ai-banner">
+          后台并发生成图片：{{ docImageGenSummary || "进行中" }} — 可先审价/量/属性，图会自动刷新
+        </section>
+
         <section class="audit-context-strip">
           <span>共 <b>{{ auditFieldColumns.length }}</b> 列</span>
           <span>表格填写 {{ auditColumnStats.user }}</span>
           <span>AI 补全 {{ auditColumnStats.ai }}</span>
-          <span class="muted">你上传的表格、图片和 AI 推断字段都会带进成稿，左右滑看全部列</span>
+          <span class="muted">表头含全部必填官方字段，后续 LLM 继承此表记忆继续补；左右滑看全部列</span>
         </section>
 
         <section class="audit-table-card">
@@ -574,6 +578,7 @@ const doc = reactive({
   templateName: "",
   templateReason: "",
   reviewAiDone: false,
+  llmColumnManifest: [],
 });
 const docGrid = reactive({
   columns: [],
@@ -760,7 +765,7 @@ const awaitingReviewAssist = computed(() => {
 });
 
 const reviewAiAllDone = computed(() => {
-  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return false;
+  if (docGrid.loading || reviewAssistRunning.value) return false;
   return reviewAiSteps.value.every((step) => ["done", "skip"].includes(step.status));
 });
 
@@ -1276,6 +1281,7 @@ function sessionPayload() {
       visionPreview: visionPreview.value,
       useEcosystemAssistant: useEcosystemAssistant.value,
       reviewAiDone: doc.reviewAiDone || reviewAiAllDone.value,
+      llmColumnManifest: doc.llmColumnManifest,
     },
     rowCount: docGrid.row_count || docGrid.rows.length || doc.batch?.count || 0,
     batchId: doc.batch?.batch_id || "",
@@ -1439,6 +1445,9 @@ function applyDraftPayload(draft) {
     if (payload.doc.reviewAiDone) {
       doc.reviewAiDone = true;
       markReviewAiDone();
+    }
+    if (payload.doc.llmColumnManifest?.length) {
+      doc.llmColumnManifest = payload.doc.llmColumnManifest;
     }
     restoreUploadNameLists(payload.doc);
   }
@@ -1819,6 +1828,9 @@ function applySession(session) {
       doc.reviewAiDone = true;
       markReviewAiDone();
     }
+    if (payload.doc.llmColumnManifest?.length) {
+      doc.llmColumnManifest = payload.doc.llmColumnManifest;
+    }
     restoreUploadNameLists(payload.doc);
   } else {
     doc.categoryId = "";
@@ -1828,6 +1840,7 @@ function applySession(session) {
     doc.templateName = "";
     doc.templateReason = "";
     doc.reviewAiDone = false;
+    doc.llmColumnManifest = [];
     docGrid.columns = [];
     docGrid.rows = [];
     docGrid.row_issues = [];
@@ -2118,6 +2131,8 @@ watch(
   (step) => {
     if (step === 1 && docGrid.rows.length) {
       docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+      void autoStartReviewImages();
+      ensureGridPolling();
     }
   },
 );
@@ -2514,6 +2529,7 @@ function goToAuditStep() {
   doc.reviewAiDone = true;
   markReviewAiDone();
   void persistSession({ server: true });
+  void autoStartReviewImages();
 }
 
 function advanceDoc(index) {
@@ -2988,14 +3004,15 @@ async function generateImagesForRows(lines, options = {}) {
     docGrid.rows = normalizeDocRows(result.rows || []);
     if (result.errors?.length) {
       if (!silent) ElMessage.warning(result.errors[0]);
-      return { ok: false, error: result.errors[0] };
+      return { ok: false, error: result.errors[0], jobs_started: result.jobs_started || 0 };
     }
     ensureGridPolling();
     await persistSession();
     if (!silent) {
-      ElMessage.success(lines?.length ? "已开始为选中行出图" : "已开始为全部商品出图");
+      const n = result.jobs_started || 0;
+      ElMessage.success(lines?.length ? `已开始为选中行出图` : `已并发提交 ${n} 行出图`);
     }
-    return { ok: true };
+    return { ok: true, jobs_started: result.jobs_started || 0 };
   } catch (error) {
     if (!silent) ElMessage.error(error.message);
     return { ok: false, error: error.message };
@@ -3249,7 +3266,12 @@ async function runReviewAssistImpl(force = false) {
 
       patchReviewStep("attrs", { status: "running", detail: "从填写表与文案补全官方属性…" });
       docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
-      const inferResult = await inferFieldsForRows([], { silent: true });
+      const imageNeed = rowsNeedingImageJobs().length;
+      const imagePromise = imageNeed
+        ? generateImagesForRows([], { silent: true })
+        : Promise.resolve({ ok: true, skipped: true });
+      const inferPromise = inferFieldsForRows([], { silent: true });
+      const [inferResult, imageResult] = await Promise.all([inferPromise, imagePromise]);
       if (inferResult.skipped) {
         if (inferResult.reason === "no_rows") {
           patchReviewStep("attrs", { status: "error", detail: "无商品行" });
@@ -3273,20 +3295,13 @@ async function runReviewAssistImpl(force = false) {
       }
 
       const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
-      const imageNeed = rowsNeedingImageJobs().length;
       if (imageNeed) {
-        patchReviewStep("images", {
-          status: "running",
-          detail: matchedPhotos
-            ? `已配对 ${matchedPhotos} 行，提交 ${imageNeed} 行补图…`
-            : `提交 ${imageNeed} 行出图任务…`,
-        });
-        const imageResult = await generateImagesForRows([], { silent: true });
         if (imageResult.ok) {
           ensureGridPolling();
+          const started = imageResult.jobs_started || rowsNeedingImageJobs().length;
           patchReviewStep("images", {
-            status: "running",
-            detail: docImageGenSummary.value || "后台生成中…",
+            status: "done",
+            detail: `已并发提交 ${started} 行出图，审核时可继续操作`,
           });
         } else {
           patchReviewStep("images", { status: "error", detail: imageResult.error || "出图失败" });
@@ -3294,7 +3309,7 @@ async function runReviewAssistImpl(force = false) {
       } else if (matchedPhotos) {
         patchReviewStep("images", { status: "done", detail: `已配对 ${matchedPhotos}/${docGrid.rows.length} 行图片` });
       } else {
-        patchReviewStep("images", { status: "done", detail: "图片已齐或任务进行中" });
+        patchReviewStep("images", { status: "done", detail: "图片已齐" });
       }
     }
 
@@ -3356,6 +3371,7 @@ async function parseDocuments() {
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || smartPlan.value.columns || [];
+    doc.llmColumnManifest = result.llm_column_manifest || docGrid.columns || [];
     if (result.download_columns?.length) {
       smartPlan.value = normalizeSmartPlan({ ...smartPlan.value, columns: result.download_columns, column_count: result.download_columns.length });
     }

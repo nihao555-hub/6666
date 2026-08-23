@@ -838,6 +838,18 @@ async def parse_documents(
         enrich_warnings = ["进入审核后会自动生成英文标题和关键词；单价/起订量/官方属性列需你填写。"]
         result["download_columns"] = download_columns
         result["columns"] = review_columns
+        result["llm_column_manifest"] = [
+            {
+                "id": col.get("id"),
+                "label": col.get("label"),
+                "required": bool(col.get("required")),
+                "source": col.get("source"),
+                "options": (col.get("options") or [])[:40],
+                "llm_memory": bool(col.get("llm_memory")),
+            }
+            for col in review_columns
+            if col.get("id")
+        ]
         result["rows"] = enriched_rows
         result["warnings"] = list(result.get("warnings") or []) + enrich_warnings
         return result
@@ -1043,6 +1055,11 @@ async def grid_generate_images(
     if not category_id:
         raise HTTPException(status_code=400, detail="先选叶子类目")
     hint = _category_hint(db, user, shop_id, category_id, category_name)
+
+    def row_image_has_enough(item: Mapping[str, Any]) -> bool:
+        slots = item.get("image_slots") or []
+        return sum(1 for slot in slots if str(slot.get("url") or "").strip()) >= 6
+
     targets: set[int] = set()
     if isinstance(selected, list) and selected:
         for item in selected:
@@ -1051,37 +1068,52 @@ async def grid_generate_images(
             line = _safe_line(item)
             if line:
                 targets.add(line)
+
+    def _kickoff(row: Mapping[str, Any]) -> tuple[dict[str, Any], str | None]:
+        line = _safe_line(row.get("line"))
+        if targets and line not in targets:
+            return grid_images.refresh_row_job(dict(row), user.id), None
+        item = grid_images.refresh_row_job(dict(row), user.id)
+        status = str(item.get("image_job_status") or "")
+        if item.get("image_job_id") and status in {"queued", "running", "succeeded"}:
+            return item, None
+        if row_image_has_enough(item):
+            return item, None
+        try:
+            job_id = grid_images.start_row_job(
+                user.id,
+                item,
+                category_id=category_id,
+                category_name=hint or category_name,
+            )
+            item["image_job_id"] = job_id
+            return grid_images.refresh_row_job(item, user.id), None
+        except ValueError as exc:
+            return item, f"第 {line or '?'} 行：{exc}"
+        except Exception as exc:
+            return dict(row), f"第 {line or '?'} 行：{exc}"
+
+    rows_in = [row for row in payload if isinstance(row, Mapping)]
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
-    for row in payload:
-        if not isinstance(row, Mapping):
-            continue
-        line = _safe_line(row.get("line"))
-        try:
-            if targets and line not in targets:
-                updated.append(grid_images.refresh_row_job(row, user.id))
-                continue
-            item = grid_images.refresh_row_job(dict(row), user.id)
-            status = str(item.get("image_job_status") or "")
-            if item.get("image_job_id") and status in {"queued", "running"}:
-                updated.append(item)
-                continue
-            try:
-                job_id = grid_images.start_row_job(
-                    user.id,
-                    item,
-                    category_id=category_id,
-                    category_name=hint or category_name,
-                )
-                item["image_job_id"] = job_id
-                item = grid_images.refresh_row_job(item, user.id)
-            except ValueError as exc:
-                errors.append(f"第 {line or '?'} 行：{exc}")
+    jobs_started = 0
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    workers = min(64, max(1, len(rows_in)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_kickoff, row): row for row in rows_in}
+        for future in as_completed(futures):
+            item, err = future.result()
+            if err:
+                errors.append(err)
+            elif str(item.get("image_job_id") or "").strip() and str(item.get("image_job_status") or "") in {
+                "queued",
+                "running",
+            }:
+                jobs_started += 1
             updated.append(item)
-        except Exception as exc:
-            errors.append(f"第 {line or '?'} 行：{exc}")
-            updated.append(dict(row))
-    return {"rows": updated, "errors": errors}
+    updated.sort(key=lambda item: _safe_line(item.get("line")) or 0)
+    return {"rows": updated, "errors": errors, "jobs_started": jobs_started}
 
 
 @router.post("/grid-poll-images")

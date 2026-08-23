@@ -818,6 +818,55 @@ def build_plan(
     return plan
 
 
+def llm_memory_columns(
+    fields: Sequence[SchemaField],
+    user_column_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Audit-only columns: every required schema field + score optionals for downstream LLM."""
+    specs = index_fields(fields)
+    targets: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for group_id in ("icbuCatProp", "saleProp"):
+        group = specs.get(group_id)
+        if group is None:
+            continue
+        group_name = str(group.name or group_id)
+        for child in group.children or []:
+            if child.type == "label" or child.id in SKIP_ATTR_IDS:
+                continue
+            col = _attr_column(group_id, group_name, child, required=bool(child.required))
+            col_id = str(col["id"])
+            if col_id in user_column_ids or col_id in seen:
+                continue
+            if child.required:
+                col["source"] = "schema_required"
+                col["llm_memory"] = True
+                targets.append(col)
+                seen.add(col_id)
+            elif child.options:
+                col = dict(col)
+                col["required"] = False
+                col["source"] = "schema_score"
+                col["llm_memory"] = True
+                targets.append(col)
+                seen.add(col_id)
+
+    for field_id in SCORE_OPTIONAL_TOP:
+        spec = specs.get(field_id)
+        if spec is None or spec.type == "label":
+            continue
+        col_id = f"schema.{field_id}"
+        if col_id in user_column_ids or col_id in seen:
+            continue
+        col = _top_column(spec, required=False)
+        col["llm_memory"] = True
+        targets.append(col)
+        seen.add(col_id)
+
+    return targets
+
+
 def expand_audit_columns(
     db: Session,
     api: Any,
@@ -841,7 +890,7 @@ def expand_audit_columns(
             template_values=template_values,
         )
         user_ids = {str(col.get("id") or "") for col in plan_columns if col.get("id")}
-        ai_targets = review_enrich.ai_target_columns(candidates, user_ids)
+        ai_targets = llm_memory_columns(fields, user_ids)
         return review_enrich.audit_columns(plan_columns, ai_targets)
     except Exception:
         return review_enrich.order_review_columns(plan_columns)

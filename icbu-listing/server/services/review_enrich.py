@@ -202,13 +202,11 @@ def _norm_corpus(text: str) -> str:
     return " ".join((text or "").lower().replace("_", " ").replace("-", " ").split())
 
 
-def _facts_from_user_columns(
+def _facts_from_row_memory(
     row: Mapping[str, Any],
     columns: Sequence[Mapping[str, Any]],
-    *,
-    user_column_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Serialize download-sheet cells plus AI copy for attribute inference."""
+    """Serialize every filled audit cell so later LLM steps inherit this grid state."""
     understanding = _understanding_from_row(row)
     by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
     facts: dict[str, Any] = {
@@ -229,32 +227,45 @@ def _facts_from_user_columns(
         if text:
             facts[copy_key] = text
             facts[label] = text
-    skip = SKIP_INFER_IDS | {"title", "keywords", "highlights"}
-    for key, value in row.items():
-        key_text = str(key)
-        if key_text in skip or not str(value or "").strip():
+    for col_id, col in by_id.items():
+        if col_id in SKIP_INFER_IDS:
             continue
-        if user_column_ids is not None and key_text not in user_column_ids:
+        text = str(row.get(col_id) or "").strip()
+        if not text:
             continue
-        col = by_id.get(key_text)
-        label = str(col.get("label") or key_text) if col else key_text
-        facts[key_text] = str(value).strip()
-        facts[f"{label}"] = str(value).strip()
+        label = str(col.get("label") or col_id)
+        facts[col_id] = text
+        facts[label] = text
+    raw_cells = row.get("_raw_cells")
+    if isinstance(raw_cells, Mapping):
+        facts["_raw_cells"] = {str(k): str(v) for k, v in raw_cells.items() if v not in (None, "")}
+    infer_patch = row.get("_infer_fields")
+    if isinstance(infer_patch, Mapping):
+        facts["_infer_fields"] = {str(k): str(v) for k, v in infer_patch.items() if v not in (None, "")}
     images = str(row.get("images") or "").strip()
     if images:
         facts["images"] = images
     return facts
 
 
+def _facts_from_user_columns(
+    row: Mapping[str, Any],
+    columns: Sequence[Mapping[str, Any]],
+    *,
+    user_column_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Serialize audit grid state for attribute inference (inherits prior fills + user sheet)."""
+    del user_column_ids  # full grid memory — download sheet + AI fills + inferred attrs
+    return _facts_from_row_memory(row, columns)
+
+
 def _row_corpus(row: Mapping[str, Any], user_column_ids: set[str] | None = None) -> str:
-    """Build searchable text from filled download-sheet cells (including name/note/sku)."""
+    """Build searchable text from filled audit cells for high-confidence option matching."""
     bits: list[str] = []
     skip_output_only = {"title", "keywords", "highlights"}
     for key, value in row.items():
         key_text = str(key)
         if key_text.startswith("_") or key_text in skip_output_only:
-            continue
-        if user_column_ids is not None and key_text not in user_column_ids:
             continue
         text = str(value or "").strip()
         if text:

@@ -109,6 +109,34 @@ class SmartPlanUnitTests(unittest.TestCase):
         self.assertIn("schema.paymentMethod", ids)
         self.assertNotIn("attr.icbuCatProp.p-15", ids)
 
+    def test_llm_memory_columns_include_all_required_off_sheet(self) -> None:
+        from schema import parse_schema  # noqa: E402
+
+        fields = parse_schema(
+            """<?xml version="1.0"?><itemSchema>
+              <field id="icbuCatProp" type="complex"><fields>
+                <field id="p-15" name="Material" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules></field>
+                <field id="p-2" name="Hardness" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules></field>
+              </fields></field>
+              <field id="saleProp" type="complex"><fields>
+                <field id="s-1" name="Colors" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules>
+                  <options><option displayName="12" value="12"/></options>
+                </field>
+              </fields></field>
+              <field id="paymentMethod" type="multiCheck">
+                <options><option displayName="T/T" value="T/T"/></options>
+              </field>
+            </itemSchema>"""
+        )
+        user_ids = {"sku", "price", "moq", "attr.icbuCatProp.p-15"}
+        targets = smart_plan.llm_memory_columns(fields, user_ids)
+        ids = {item["id"] for item in targets}
+        self.assertIn("attr.icbuCatProp.p-2", ids)
+        self.assertIn("attr.saleProp.s-1", ids)
+        self.assertIn("schema.paymentMethod", ids)
+        self.assertNotIn("attr.icbuCatProp.p-15", ids)
+        self.assertTrue(all(item.get("llm_memory") for item in targets))
+
     def test_finalize_restores_anchors_when_llm_omits(self) -> None:
         candidates = _pencil_candidates()
         finalized = smart_plan._finalize_user_columns(candidates, ["sku", "price", "moq"])
