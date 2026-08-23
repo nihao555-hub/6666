@@ -573,8 +573,11 @@ def build_plan(
         template_values=template_values,
     )
     planner = "rules"
-    reasoning = "按官方必填项和店铺/模板覆盖情况生成最短填写表。"
-    tips = "每行一个 SKU。价格、起订量必填；有报价单可直接上传，不必手填每一列。"
+    reasoning = (
+        "填写表 = 你要填的依据：价/量/货号 + 该类目官方必填属性 + 影响信息分的选填列"
+        "（店铺/模板已覆盖的不重复）。上传后 AI 读取表中每一列，补英文文案与仍空且可推断的字段。"
+    )
+    tips = "每行一个 SKU。价/量/货号必填；官方属性与加分项按列填写——这些列就是 AI 推断的依据，不是只写在备注里。"
     template_summary = _template_summary(template_values)
     ai_completes = _ai_completes_block(
         covered_shop=covered_shop,
@@ -584,7 +587,7 @@ def build_plan(
     user_ids = _rule_based_user_columns(candidates)
     if ai is not None:
         try:
-            user_ids, reasoning, tips = _llm_user_columns(
+            _, llm_reasoning, llm_tips = _llm_user_columns(
                 ai,
                 category_id=category_id,
                 category_name=category_name,
@@ -595,9 +598,13 @@ def build_plan(
                 template_summary=template_summary,
                 ai_completes=ai_completes,
             )
-            planner = "llm"
+            planner = "rules+llm"
+            if llm_reasoning:
+                reasoning = llm_reasoning
+            if llm_tips:
+                tips = llm_tips
         except AiUnavailable:
-            planner = "rules"
+            pass
     user_ids = _finalize_user_columns(candidates, user_ids)
     columns = columns_for_ids(candidates, user_ids)
     user_id_set = set(user_ids)
