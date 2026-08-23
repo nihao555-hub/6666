@@ -49,7 +49,7 @@ def create_session(payload: CreateIn, db: Session = Depends(get_db), user: User 
 @router.get("/{session_id}")
 def get_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     db.expire_all()
-    row = sessions.get_owned(db, user.id, session_id)
+    row = sessions.get_owned_with_retry(db, user.id, session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这条做到一半的记录不在了")
     return sessions.public_view(row)

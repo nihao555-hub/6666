@@ -855,6 +855,13 @@ async def grid_infer_fields(
     }
 
 
+def _safe_line(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 @router.post("/grid-generate-images")
 async def grid_generate_images(
     shop_id: str = Form(""),
@@ -877,33 +884,44 @@ async def grid_generate_images(
     if not category_id:
         raise HTTPException(status_code=400, detail="先选叶子类目")
     hint = _category_hint(db, user, shop_id, category_id, category_name)
-    targets = {int(item) for item in selected if str(item).strip()} if isinstance(selected, list) and selected else set()
+    targets: set[int] = set()
+    if isinstance(selected, list) and selected:
+        for item in selected:
+            if not str(item).strip():
+                continue
+            line = _safe_line(item)
+            if line:
+                targets.add(line)
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
     for row in payload:
         if not isinstance(row, Mapping):
             continue
-        line = int(row.get("line") or 0)
-        if targets and line not in targets:
-            updated.append(grid_images.refresh_row_job(row, user.id))
-            continue
-        item = grid_images.refresh_row_job(dict(row), user.id)
-        status = str(item.get("image_job_status") or "")
-        if item.get("image_job_id") and status in {"queued", "running"}:
-            updated.append(item)
-            continue
+        line = _safe_line(row.get("line"))
         try:
-            job_id = grid_images.start_row_job(
-                user.id,
-                item,
-                category_id=category_id,
-                category_name=hint or category_name,
-            )
-            item["image_job_id"] = job_id
-            item = grid_images.refresh_row_job(item, user.id)
-        except ValueError as exc:
+            if targets and line not in targets:
+                updated.append(grid_images.refresh_row_job(row, user.id))
+                continue
+            item = grid_images.refresh_row_job(dict(row), user.id)
+            status = str(item.get("image_job_status") or "")
+            if item.get("image_job_id") and status in {"queued", "running"}:
+                updated.append(item)
+                continue
+            try:
+                job_id = grid_images.start_row_job(
+                    user.id,
+                    item,
+                    category_id=category_id,
+                    category_name=hint or category_name,
+                )
+                item["image_job_id"] = job_id
+                item = grid_images.refresh_row_job(item, user.id)
+            except ValueError as exc:
+                errors.append(f"第 {line or '?'} 行：{exc}")
+            updated.append(item)
+        except Exception as exc:
             errors.append(f"第 {line or '?'} 行：{exc}")
-        updated.append(item)
+            updated.append(dict(row))
     return {"rows": updated, "errors": errors}
 
 
