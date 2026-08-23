@@ -12,7 +12,12 @@
           </span>
           <el-link v-if="path.length" type="info" style="margin-left: 8px" @click="openNode('0')">回到顶层</el-link>
         </p>
+        <div v-if="!loading && !children.length" class="tree-empty">
+          <p class="muted">还没有拉到类目树。请确认店铺已登录，或点右侧常用类目。</p>
+          <el-button size="small" type="primary" :loading="loading" @click="retryRoot">重试拉取</el-button>
+        </div>
         <el-table
+          v-else
           v-loading="loading && !children.length"
           :data="children"
           height="420"
@@ -87,6 +92,7 @@ import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { store } from "../store";
 import {
+  invalidateCategoryCache,
   readCategoryCache,
   sidebarCacheKey,
   treeCacheKey,
@@ -167,21 +173,28 @@ async function loadSidebar(options = {}) {
   }
 }
 
-async function openNode(parent) {
+async function openNode(parent, options = {}) {
+  const { force = false } = options;
   if (!store.shopId) {
     ElMessage.warning("先登录一个店铺");
     return;
   }
   const cacheKey = treeCacheKey(store.shopId, parent);
-  const cached = readCategoryCache(cacheKey);
+  if (force) invalidateCategoryCache(cacheKey);
+  const cached = force ? null : readCategoryCache(cacheKey);
   if (cached) applyTree(cached);
   if (!cached || !children.value.length) loading.value = true;
   try {
     const data = await api.categories(store.shopId, parent);
     children.value = data.children || [];
     path.value = data.path || [];
-    writeCategoryCache(cacheKey, { children: children.value, path: path.value });
+    if (children.value.length) {
+      writeCategoryCache(cacheKey, { children: children.value, path: path.value });
+    } else {
+      invalidateCategoryCache(cacheKey);
+    }
   } catch (error) {
+    invalidateCategoryCache(cacheKey);
     if (!cached) {
       children.value = [];
       ElMessage.error(error.message);
@@ -189,6 +202,10 @@ async function openNode(parent) {
   } finally {
     loading.value = false;
   }
+}
+
+function retryRoot() {
+  void openNode("0", { force: true });
 }
 
 async function onOpen() {
@@ -264,6 +281,18 @@ async function recordPick(payload) {
 .crumbs {
   margin: 0 0 10px;
   min-height: 22px;
+}
+.tree-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 420px;
+  justify-content: center;
+  padding: 12px 0;
+}
+.tree-empty p {
+  margin: 0;
 }
 .side-block + .side-block {
   margin-top: 14px;

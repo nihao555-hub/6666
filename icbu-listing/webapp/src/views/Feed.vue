@@ -528,6 +528,7 @@ let sessionRecoveryInFlight = null;
 let localDraftTimer = null;
 let serverSyncTimer = null;
 const sessionApiRetryDelaysFresh = [300, 700, 1200];
+const sessionApiRetryDelaysBoot = [0, 80, 160];
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -1561,6 +1562,23 @@ async function fetchFeedSessionOnce(id) {
   return api.getFeedSession(id);
 }
 
+async function fetchFeedSessionWithRetry(id, options = {}) {
+  const { boot = false } = options;
+  let lastError = null;
+  const delays = boot ? sessionApiRetryDelaysBoot : [];
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await api.getFeedSession(id);
+    } catch (error) {
+      lastError = error;
+      if (isSessionApiMissing(error)) throw error;
+      if (attempt >= delays.length) throw error;
+      await sleep(delays[attempt]);
+    }
+  }
+  throw lastError || new Error("加载失败");
+}
+
 async function pushLocalSessionToServer(id) {
   if (sessionId.value !== id && loadLocalDraft()?.sessionId !== id) return null;
   const draft = loadLocalDraft();
@@ -1944,18 +1962,25 @@ async function finishResumeSession() {
     }
     return;
   }
-  try {
-    await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
-    ensureGridPolling();
-    if (!doc.reviewAiDone && docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
-      void runReviewAssist(true);
-    }
-  } catch (error) {
-    ElMessage.error(error.message);
+  const localCached = hasUploadablePlanImages() ? null : loadLocalSmartPlan(doc.categoryId);
+  if (localCached?.columns?.length) {
+    applySmartPlan({ ...localCached, cached: true }, doc.categoryId);
+  }
+  void loadSmartPlan({
+    categoryId: doc.categoryId,
+    categoryName: doc.categoryName,
+    background: Boolean(localCached?.columns?.length),
+  }).catch((error) => {
+    if (!localCached?.columns?.length) ElMessage.error(error.message);
+  });
+  ensureGridPolling();
+  if (!doc.reviewAiDone && docStep.value === 1 && (rowsNeedingCopy().length || rowsNeedingImageJobs().length)) {
+    void runReviewAssist(true);
   }
 }
 
-async function resolveSessionById(id) {
+async function resolveSessionById(id, options = {}) {
+  const { boot = false } = options;
   if (!id || deadSessionIds.has(id)) return null;
   const cached = sessionFromOpenList(id);
   if (cached) {
@@ -1965,7 +1990,9 @@ async function resolveSessionById(id) {
   const upserted = await upsertSessionFromLocal(id);
   if (upserted) return rememberRemoteSession(upserted);
   try {
-    const remote = await fetchFeedSessionOnce(id);
+    const remote = boot
+      ? await fetchFeedSessionWithRetry(id, { boot: true })
+      : await fetchFeedSessionOnce(id);
     return rememberRemoteSession(remote);
   } catch (error) {
     if (!isSessionApiMissing(error)) throw error;
@@ -2033,20 +2060,8 @@ async function backToChooser() {
 async function hydrateSessionFromServer(id) {
   if (!id || deadSessionIds.has(id)) return;
   try {
-    await loadOpenSessions();
-    const cached = sessionFromOpenList(id);
-    if (cached) {
-      applySession(cached);
-      void finishResumeSession();
-      return;
-    }
-    const upserted = await upsertSessionFromLocal(id);
-    if (upserted) {
-      applySession(upserted);
-      void finishResumeSession();
-      return;
-    }
-    const remote = await resolveSessionById(id);
+    void loadOpenSessions();
+    const remote = await resolveSessionById(id, { boot: true });
     if (remote) {
       applySession(remote);
       void finishResumeSession();
@@ -2082,9 +2097,18 @@ async function bootSession() {
       router.replace({ query: {} });
     } else if (wanted && !deadSessionIds.has(wanted)) {
       sessionId.value = wanted;
+      const draft = loadLocalDraft();
+      if (draft?.sessionId === wanted) {
+        applyDraftPayload(draft);
+        verifySession(wanted);
+        router.replace({ query: { session: wanted } });
+        sessionBooting.value = false;
+        void hydrateSessionFromServer(wanted);
+        return;
+      }
       const [, remote] = await Promise.all([
         shopsReady,
-        resolveSessionById(wanted),
+        resolveSessionById(wanted, { boot: true }),
       ]);
       void loadOpenSessions();
       if (remote) {
@@ -2119,10 +2143,11 @@ onMounted(async () => {
   }).catch(() => {
     aiServiceReady.value = null;
   });
-  void store.ensureShops().then(() => {
+  const shopsReady = store.shops.length ? Promise.resolve() : store.ensureShops();
+  void shopsReady.then(() => {
     if (store.shopId) void prefetchCategoryPicker(store.shopId);
   });
-  await bootSession();
+  await Promise.all([bootSession(), shopsReady]);
 });
 
 let saveTimer = null;
@@ -3594,6 +3619,17 @@ async function pickCategory(node) {
   const localCached = hasUploadablePlanImages() ? null : loadLocalSmartPlan(categoryId);
   if (localCached?.columns?.length) {
     applySmartPlan({ ...localCached, cached: true }, categoryId);
+    try {
+      await store.ensureShops();
+      void loadSmartPlan({ categoryId, categoryName, background: true });
+      ElMessage.success(`已选「${localCached.category_name || categoryName}」`);
+      await persistSession({ server: true });
+      return;
+    } catch (error) {
+      ElMessage.warning(`类目已选，后台刷新规划失败：${error.message}`);
+      await persistSession({ server: true });
+      return;
+    }
   }
 
   try {

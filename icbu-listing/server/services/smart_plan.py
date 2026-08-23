@@ -647,6 +647,26 @@ def build_plan(
     if not category_id:
         raise ValueError("先选叶子类目")
     shop_defaults = _shop_defaults(shop)
+    if not refresh and not vision_samples:
+        fast = _try_fast_cached_plan(
+            db,
+            shop.id,
+            category_id,
+            category_name=category_name,
+            refresh=refresh,
+        )
+        if fast is not None:
+            return fast
+        cross_shop = _try_user_category_cached_plan(
+            db,
+            shop.user_id,
+            shop.id,
+            category_id,
+            category_name=category_name,
+            refresh=refresh,
+        )
+        if cross_shop is not None:
+            return cross_shop
     habits_pre: dict[str, Any] | None = None
     template_values: dict[str, Any] = {}
     if user is not None:
@@ -673,26 +693,6 @@ def build_plan(
     if not template_values:
         template_values = _template_values(db, shop.id, category_id)
     habits_fp = _habits_fingerprint(shop_defaults, template_values)
-    if not refresh and not vision_samples:
-        fast = _try_fast_cached_plan(
-            db,
-            shop.id,
-            category_id,
-            category_name=category_name,
-            refresh=refresh,
-        )
-        if fast is not None:
-            return _with_habits(fast, habits_pre)
-        cross_shop = _try_user_category_cached_plan(
-            db,
-            shop.user_id,
-            shop.id,
-            category_id,
-            category_name=category_name,
-            refresh=refresh,
-        )
-        if cross_shop is not None:
-            return _with_habits(cross_shop, habits_pre)
     xml = catalog.get_schema_xml(db, api, category_id, "zh")
     fields = parse_schema(xml)
     fields_flat = excel_import.flatten_schema_fields(fields)

@@ -4,6 +4,8 @@ import { api } from "./api";
 const SHOP_KEY = "auto-shoper.shop";
 const SIDEBAR_KEY = "auto-shoper.sidebar-collapsed";
 
+let ensureShopsPromise = null;
+
 export const store = reactive({
   user: null,
   shops: [],
@@ -40,6 +42,14 @@ export const store = reactive({
   },
 
   async ensureShops() {
+    if (ensureShopsPromise) return ensureShopsPromise;
+    ensureShopsPromise = this._ensureShopsImpl().finally(() => {
+      ensureShopsPromise = null;
+    });
+    return ensureShopsPromise;
+  },
+
+  async _ensureShopsImpl() {
     await this.loadShops();
     if (!this.shops.length) {
       try {
