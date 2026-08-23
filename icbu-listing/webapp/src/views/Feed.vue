@@ -302,18 +302,32 @@
           </div>
         </section>
 
+        <section class="audit-context-strip">
+          <span>共 <b>{{ auditFieldColumns.length }}</b> 列</span>
+          <span>表格填写 {{ auditColumnStats.user }}</span>
+          <span>AI 补全 {{ auditColumnStats.ai }}</span>
+          <span class="muted">你上传的表格、图片和 AI 推断字段都会带进成稿，左右滑看全部列</span>
+        </section>
+
         <section class="audit-table-card">
           <div class="audit-table-scroll">
-            <table class="audit-table">
+            <table class="audit-table audit-table-full">
               <thead>
                 <tr>
-                  <th class="col-check"><el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll" /></th>
-                  <th class="col-product">商品</th>
-                  <th class="col-title">标题</th>
-                  <th class="col-price">价 / 起订</th>
-                  <th class="col-images">图</th>
-                  <th class="col-status">状态</th>
-                  <th class="col-actions">操作</th>
+                  <th class="col-check sticky-col"><el-checkbox v-model="docGrid.selectAll" @change="toggleSelectAll" /></th>
+                  <th class="col-product sticky-col">商品</th>
+                  <th
+                    v-for="col in auditFieldColumns"
+                    :key="col.id"
+                    class="col-field"
+                    :class="auditColumnClass(col)"
+                  >
+                    {{ col.label }}
+                    <span v-if="col.required" class="need">必填</span>
+                  </th>
+                  <th class="col-images sticky-col-right">图</th>
+                  <th class="col-status sticky-col-right">状态</th>
+                  <th class="col-actions sticky-col-right">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -326,10 +340,10 @@
                     'is-needs-fix': rowNeedsFix(view.row),
                   }"
                 >
-                  <td class="col-check">
+                  <td class="col-check sticky-col">
                     <el-checkbox v-model="view.row._selected" />
                   </td>
-                  <td class="col-product">
+                  <td class="col-product sticky-col">
                     <div class="audit-product">
                       <div class="audit-product-thumb">
                         <img v-if="rowProductThumb(view.row)" :src="rowProductThumb(view.row)" alt="" />
@@ -341,15 +355,16 @@
                       </div>
                     </div>
                   </td>
-                  <td class="col-title">
-                    <span class="audit-cell-text" :title="view.row.title">{{ view.row.title || "—" }}</span>
+                  <td
+                    v-for="col in auditFieldColumns"
+                    :key="`${view.index}-${col.id}`"
+                    class="col-field"
+                    :class="auditColumnClass(col)"
+                    @dblclick="openRowDetail(view, col.id)"
+                  >
+                    <span class="audit-cell-text" :title="formatAuditCell(view.row, col)">{{ formatAuditCell(view.row, col) || "—" }}</span>
                   </td>
-                  <td class="col-price">
-                    <span class="audit-price">{{ formatAuditPrice(view.row.price) }}</span>
-                    <span v-if="view.row.moq" class="audit-moq"> / {{ view.row.moq }}</span>
-                    <span v-else class="audit-moq is-warn">缺 MOQ</span>
-                  </td>
-                  <td class="col-images">
+                  <td class="col-images sticky-col-right">
                     <div class="audit-image-strip">
                       <div
                         v-for="(url, imgIdx) in rowImageUrls(view.row).slice(0, 3)"
@@ -362,10 +377,10 @@
                       <span v-else-if="!rowImageCount(view.row)" class="audit-image-more is-warn">无</span>
                     </div>
                   </td>
-                  <td class="col-status">
+                  <td class="col-status sticky-col-right">
                     <span class="audit-status" :class="`is-${rowStatusTone(view.row)}`">{{ rowStatusLabel(view.row) }}</span>
                   </td>
-                  <td class="col-actions">
+                  <td class="col-actions sticky-col-right">
                     <div class="audit-row-actions">
                       <button
                         v-if="rowAuditStatus(view.row) !== 'approved'"
@@ -379,7 +394,7 @@
                   </td>
                 </tr>
                 <tr v-if="!paginatedDocRowViews.length">
-                  <td colspan="7" class="review-empty">
+                  <td :colspan="auditTableColSpan" class="review-empty">
                     暂无商品<el-button text @click="reviewFilter = 'all'; reviewSearch = ''">显示全部</el-button>
                   </td>
                 </tr>
@@ -420,7 +435,7 @@
           <el-button v-if="docProgress.complete" type="primary" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
         </div>
 
-        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="480px" destroy-on-close>
+        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="560px" destroy-on-close>
           <div v-if="rowDetailRow" class="audit-drawer">
             <ul v-if="rowDetailIssues.length" class="audit-drawer-issues">
               <li v-for="(issue, idx) in rowDetailIssues" :key="idx">{{ issue }}</li>
@@ -525,6 +540,7 @@ const reviewPage = ref(1);
 const reviewPageSize = ref(50);
 const rowDetailOpen = ref(false);
 const rowDetailRow = ref(null);
+const rowDetailFocusField = ref("");
 const reviewImageInput = ref(null);
 const docInferring = ref(false);
 const parseStatus = ref("");
@@ -915,6 +931,7 @@ function addDocImageFiles(files) {
     syncDocFilesFromParts();
     invalidateImageSetupAfterChange();
     scheduleLocalDraft();
+    scheduleDocImageSync();
   }
   return added;
 }
@@ -1012,7 +1029,18 @@ const docPercent = computed(() => {
   return Math.min(100, Math.round((docProgress.value.done / doc.batch.count) * 100));
 });
 const docDataColumns = computed(() => docGrid.columns.filter((col) => col.id !== "images"));
-const auditTableColSpan = computed(() => 5 + docDataColumns.value.length);
+const auditFieldColumns = computed(() => docDataColumns.value);
+const auditTableColSpan = computed(() => 2 + auditFieldColumns.value.length + 3);
+const auditColumnStats = computed(() => {
+  let user = 0;
+  let ai = 0;
+  auditFieldColumns.value.forEach((col) => {
+    const src = String(col.source || "");
+    if (src === "user" || col.required || tableCoreIds.has(col.id)) user += 1;
+    else ai += 1;
+  });
+  return { user, ai };
+});
 const docRequiredAttrColumns = computed(() =>
   docDataColumns.value.filter((col) => col.required && !copyColumnIds.has(col.id) && !tableCoreIds.has(col.id)),
 );
@@ -1099,18 +1127,19 @@ const rowDetailTitle = computed(() => {
   return rowDetailRow.value.name || rowDetailRow.value.sku || "商品详情";
 });
 const rowDetailColumns = computed(() => {
-  const row = rowDetailRow.value;
-  if (!row) return [];
-  const prefer = ["title", "keywords", "price", "moq", "sku", "name", "note"];
-  const seen = new Set();
   const cols = [];
-  prefer.forEach((id) => {
-    const col = docDataColumns.value.find((item) => item.id === id);
+  const seen = new Set();
+  const push = (col) => {
     if (col && !seen.has(col.id)) {
       cols.push(col);
       seen.add(col.id);
     }
-  });
+  };
+  ["sku", "name", "brand", "price", "moq", "note"].forEach((id) => push(docDataColumns.value.find((item) => item.id === id)));
+  ["title", "keywords", "highlights"].forEach((id) => push(docDataColumns.value.find((item) => item.id === id)));
+  docRequiredAttrColumns.value.forEach((col) => push(col));
+  docScoreAttrColumns.value.forEach((col) => push(col));
+  docDataColumns.value.forEach((col) => push(col));
   return cols;
 });
 const rowDetailIssues = computed(() => {
@@ -1121,6 +1150,7 @@ const rowDetailIssues = computed(() => {
   if (rowMissingCopy(row)) items.push("补标题或关键词");
   if (rowImageCount(row) < 1) items.push("至少配一张图");
   if (issueLineSet.value.has(row.line)) items.push("价/量格式有问题");
+  rowEmptyRequiredAttrs(row).forEach((col) => items.push(`必填「${col.label}」还空着`));
   return items;
 });
 const filteredDocRowViews = computed(() => {
@@ -1332,7 +1362,9 @@ function hasSmartPlanForCategory(categoryId) {
 function applySmartPlan(raw, categoryId = "") {
   const plan = normalizeSmartPlan({ ...raw, category_id: raw?.category_id || categoryId });
   smartPlan.value = plan;
-  docGrid.columns = plan.columns || [];
+  if (!docGrid.rows.length) {
+    docGrid.columns = plan.columns || [];
+  }
   syncHabitsFromPlan(plan);
   if (raw?.vision_samples?.length) {
     visionPreview.value = raw.vision_samples;
@@ -2246,11 +2278,26 @@ function onDocFilesChange() {
 }
 
 function scheduleDocImageSync() {
-  /* Images stay in browser until parse; server staging caused 404 noise on Vercel. */
+  if (!sessionId.value || sessionBooting.value || deadSessionIds.has(sessionId.value)) return;
+  clearTimeout(imageSyncTimer);
+  imageSyncTimer = setTimeout(() => {
+    void syncDocImagesToSession();
+  }, 1200);
 }
 
 async function syncDocImagesToSession() {
-  /* no-op — see scheduleDocImageSync */
+  if (!sessionId.value || deadSessionIds.has(sessionId.value)) return;
+  const files = allUploadImageFiles().filter((item) => item.raw);
+  if (!files.length) return;
+  const form = new FormData();
+  form.append("kind", "excel_images");
+  form.append("keep", files.map((item) => item.name).join(","));
+  files.forEach((item) => form.append("files", item.raw, item.name));
+  try {
+    await uploadSessionFilesWithRetry(sessionId.value, form);
+  } catch {
+    /* best effort — import still tries session fallback */
+  }
 }
 
 async function loadSmartPlan(override = null) {
@@ -2612,6 +2659,13 @@ function formatAuditPrice(value) {
   return raw;
 }
 
+function formatAuditCell(row, col) {
+  if (!row || !col) return "";
+  const value = row[col.id];
+  if (col.id === "price") return formatAuditPrice(value);
+  return String(value || "").trim();
+}
+
 function rowAuditReady(row) {
   return rowReady(row) && !rowMissingCopy(row) && rowImageCount(row) >= 1 && !rowHasIssues(row);
 }
@@ -2678,9 +2732,12 @@ function batchReject() {
   ElMessage.success(`已标记 ${targets.length} 个商品为未通过`);
 }
 
-function openRowDetail(view) {
+function openRowDetail(view, focusField = "") {
   rowDetailRow.value = view.row;
   rowDetailOpen.value = true;
+  if (focusField) {
+    rowDetailFocusField.value = focusField;
+  }
 }
 
 function pickReviewImages() {
@@ -3311,6 +3368,7 @@ async function parseDocuments() {
     docReached.value = Math.max(docReached.value, 1);
     patchReviewStep("service", { status: "done", detail: "解析完成" });
     void persistSession({ server: true });
+    scheduleDocImageSync();
     await runReviewAssist(true);
     maybeEnterAuditStep();
     ElMessage.success(`识别到 ${docGrid.row_count} 个商品，AI 补全完成后进入审核`);
@@ -3331,7 +3389,9 @@ async function recheckDocGrid(options = {}) {
   body.append("shop_id", store.shopId || "");
   body.append("category_id", doc.categoryId);
   body.append("image_mode", excelImageMode.value);
-  if (smartPlan.value.columns?.length) {
+  if (docGrid.columns?.length) {
+    body.append("columns", JSON.stringify(docGrid.columns));
+  } else if (smartPlan.value.columns?.length) {
     body.append("columns", JSON.stringify(smartPlan.value.columns));
   }
   body.append("rows", JSON.stringify(docGrid.rows));
@@ -3392,13 +3452,15 @@ async function importDocRows() {
   body.append("category_id", doc.categoryId);
   body.append("session_id", sessionId.value);
   body.append("image_mode", excelImageMode.value);
-  if (smartPlan.value.columns?.length) {
-    body.append("columns", JSON.stringify(smartPlan.value.columns));
+  const importColumns = docGrid.columns?.length ? docGrid.columns : smartPlan.value.columns;
+  if (importColumns?.length) {
+    body.append("columns", JSON.stringify(importColumns));
   }
   if (doc.templateId) {
     body.append("listing_template_id", doc.templateId);
   }
   body.append("rows", JSON.stringify(targets));
+  await syncDocImagesToSession();
   allUploadImageFiles().forEach((item) => body.append("images", item.raw, item.name));
   docGrid.loading = true;
   try {
@@ -5109,6 +5171,54 @@ onUnmounted(() => {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.audit-context-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--gray3);
+  font-size: 12px;
+}
+
+.audit-context-strip b {
+  color: var(--ink);
+}
+
+.audit-context-strip .muted {
+  color: var(--muted);
+}
+
+.audit-table-full {
+  min-width: max(100%, 960px);
+}
+
+.audit-table-full .col-field {
+  min-width: 108px;
+  max-width: 180px;
+}
+
+.audit-table-full .sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.audit-table-full .sticky-col-right {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.audit-table-scroll {
+  overflow-x: auto;
 }
 
 .audit-summary-strip .is-good b {

@@ -141,13 +141,17 @@ def _sample_rows() -> list[dict]:
 def _sample_payload() -> dict:
     rows = _sample_rows()
     columns = [
-        {"id": "sku", "label": "货号", "required": True},
-        {"id": "name", "label": "品名", "required": False},
-        {"id": "title", "label": "标题", "required": False},
-        {"id": "keywords", "label": "关键词", "required": False},
-        {"id": "price", "label": "单价", "required": True},
-        {"id": "moq", "label": "起订量", "required": True},
-        {"id": "images", "label": "图片", "required": False},
+        {"id": "sku", "label": "货号", "required": True, "source": "user"},
+        {"id": "name", "label": "品名", "required": False, "source": "user"},
+        {"id": "title", "label": "标题", "required": False, "source": "ai"},
+        {"id": "keywords", "label": "关键词", "required": False, "source": "ai"},
+        {"id": "price", "label": "单价", "required": True, "source": "user"},
+        {"id": "moq", "label": "起订量", "required": True, "source": "user"},
+        {"id": "brand", "label": "品牌", "required": False, "source": "user"},
+        {"id": "note", "label": "备注", "required": False, "source": "user"},
+        {"id": "attr.icbuCatProp.p-2", "label": "品牌属性", "required": True, "source": "schema"},
+        {"id": "attr.icbuCatProp.p-1", "label": "材质", "required": True, "source": "schema"},
+        {"id": "images", "label": "图片", "required": False, "source": "user"},
     ]
     return {
         "doc": {

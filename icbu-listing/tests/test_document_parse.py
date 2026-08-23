@@ -46,6 +46,32 @@ class DocumentParseTests(unittest.TestCase):
         self.assertEqual(back.images, ["a.jpg", "b.jpg"])
         self.assertEqual(back.category_id, "123456")
 
+    def test_grid_item_keeps_attrs_outside_column_list(self) -> None:
+        item = {
+            "line": 2,
+            "sku": "BR-02",
+            "price": "2.00",
+            "moq": "100",
+            "title": "Brush set",
+            "attr.icbuCatProp.p-color": "Red",
+        }
+        back = document_parse.grid_item_to_row(item, self.columns, line=2, category_id="123456")
+        self.assertEqual(back.attributes.get("icbuCatProp", {}).get("p-color"), "Red")
+
+    def test_raw_cells_roundtrip(self) -> None:
+        row = ExcelRow(
+            sku="BR-03",
+            price="1.00",
+            moq="50",
+            images=[],
+            line=2,
+            raw={"自定义列": "保留值", "货号": "BR-03"},
+        )
+        item = document_parse.row_to_grid_item(row, self.columns)
+        self.assertEqual(item.get("_raw_cells", {}).get("自定义列"), "保留值")
+        back = document_parse.grid_item_to_row(item, self.columns, line=2)
+        self.assertEqual(back.raw.get("自定义列"), "保留值")
+
     def test_csv_spreadsheet_parses_without_llm(self) -> None:
         buffer = io.StringIO()
         writer = csv.writer(buffer)

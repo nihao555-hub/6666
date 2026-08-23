@@ -144,7 +144,43 @@ def row_to_grid_item(row: ExcelRow, columns: Sequence[Mapping[str, Any]]) -> dic
             item[field_id] = row.specs.get(key, "")
         else:
             item[field_id] = core.get(field_id, "")
+    if row.raw:
+        extras = {str(k): str(v) for k, v in row.raw.items() if v not in (None, "")}
+        if extras:
+            item["_raw_cells"] = extras
     return attach_row_images(item)
+
+
+def _apply_grid_field(
+    field_id: str,
+    raw: str,
+    col: Mapping[str, Any] | None,
+    *,
+    extra_by_id: Mapping[str, Mapping[str, Any]],
+    attributes: dict[str, dict[str, Any]],
+    schema_top: dict[str, str],
+    specs: dict[str, str],
+) -> None:
+    if not raw:
+        return
+    if field_id.startswith("attr."):
+        spec = extra_by_id.get(field_id) or col or {"id": field_id}
+        group = str(spec.get("group") or field_id.split(".")[1])
+        child = str(spec.get("field_id") or field_id.split(".")[-1])
+        value = _option_value(raw, spec.get("options") or [])
+        attributes.setdefault(group, {})[child] = value
+    elif field_id.startswith("schema."):
+        parts = field_id.split(".")
+        col = col or {"id": field_id, "options": []}
+        if len(parts) == 2:
+            top_id = parts[1]
+            schema_top[top_id] = _option_value(raw, col.get("options") or []) or raw
+        elif len(parts) >= 3:
+            group, child = parts[1], parts[2]
+            value = _option_value(raw, col.get("options") or []) or raw
+            attributes.setdefault(group, {})[child] = value
+    elif field_id.startswith("spec."):
+        specs[field_id.split(".", 1)[1]] = raw
 
 
 def grid_item_to_row(
@@ -159,28 +195,48 @@ def grid_item_to_row(
     attributes: dict[str, dict[str, Any]] = {}
     schema_top: dict[str, str] = {}
     specs: dict[str, str] = {}
+    seen_ids: set[str] = set()
     for col in columns:
         field_id = str(col["id"])
+        seen_ids.add(field_id)
         raw = str(item.get(field_id) or "").strip()
+        _apply_grid_field(
+            field_id,
+            raw,
+            col,
+            extra_by_id=extra_by_id,
+            attributes=attributes,
+            schema_top=schema_top,
+            specs=specs,
+        )
+    for key, val in item.items():
+        if not isinstance(key, str) or key.startswith("_") or key in seen_ids:
+            continue
+        if not key.startswith(("attr.", "schema.", "spec.")):
+            continue
+        raw = str(val or "").strip()
         if not raw:
             continue
-        if field_id.startswith("attr."):
-            spec = extra_by_id.get(field_id) or col
-            group = str(spec.get("group") or field_id.split(".")[1])
-            child = str(spec.get("field_id") or field_id.split(".")[-1])
-            value = _option_value(raw, spec.get("options") or [])
-            attributes.setdefault(group, {})[child] = value
-        elif field_id.startswith("schema."):
-            parts = field_id.split(".")
-            if len(parts) == 2:
-                top_id = parts[1]
-                schema_top[top_id] = _option_value(raw, col.get("options") or []) or raw
-            elif len(parts) >= 3:
-                group, child = parts[1], parts[2]
-                value = _option_value(raw, col.get("options") or []) or raw
-                attributes.setdefault(group, {})[child] = value
-        elif field_id.startswith("spec."):
-            specs[field_id.split(".", 1)[1]] = raw
+        seen_ids.add(key)
+        _apply_grid_field(
+            key,
+            raw,
+            extra_by_id.get(key),
+            extra_by_id=extra_by_id,
+            attributes=attributes,
+            schema_top=schema_top,
+            specs=specs,
+        )
+
+    raw_cells = item.get("_raw_cells") if isinstance(item.get("_raw_cells"), Mapping) else {}
+    raw_payload = {
+        **{str(col["id"]): str(item.get(col["id"]) or "") for col in columns},
+        **{str(k): str(v) for k, v in raw_cells.items() if v not in (None, "")},
+        "highlights": str(item.get("highlights") or ""),
+        "image_job_id": str(item.get("image_job_id") or ""),
+    }
+    if raw_cells:
+        raw_payload["_raw_cells"] = {str(k): str(v) for k, v in raw_cells.items() if v not in (None, "")}
 
     return ExcelRow(
         sku=str(item.get("sku") or "").strip(),
@@ -198,11 +254,7 @@ def grid_item_to_row(
         attributes=attributes,
         schema_top=schema_top,
         listing_template_id=str(item.get("_template_id") or item.get("listing_template_id") or "").strip(),
-        raw={
-            **{str(col["id"]): str(item.get(col["id"]) or "") for col in columns},
-            "highlights": str(item.get("highlights") or ""),
-            "image_job_id": str(item.get("image_job_id") or ""),
-        },
+        raw=raw_payload,
     )
 
 
