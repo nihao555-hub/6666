@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 
 import requests
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -387,12 +387,12 @@ def download_smart_template(
 
 @router.post("/smart-template-from-plan")
 def download_smart_template_from_plan(
-    body: dict[str, Any],
+    body: dict[str, Any] = Body(...),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Response:
     """Build XLSX from an already-loaded smart plan (skips schema fetch + LLM)."""
-    reload_db_from_blob()
+    reload_db_from_blob_throttled(min_interval_seconds=3.0)
     shop_id = str(body.get("shop_id") or "").strip()
     category_id = str(body.get("category_id") or "").strip()
     if not shop_id or not category_id:
@@ -407,11 +407,15 @@ def download_smart_template_from_plan(
         "columns": columns,
         "reasoning": body.get("reasoning") or "",
         "tips": body.get("tips") or "",
+        "guarantee": body.get("guarantee") or body.get("user_fill_contract") or "",
         "covered_by_shop": body.get("covered_by_shop") or [],
         "covered_by_template": body.get("covered_by_template") or [],
         "ai_fills": body.get("ai_fills") or [],
     }
-    return _smart_template_response(plan, plan["category_name"] or category_id)
+    try:
+        return _smart_template_response(plan, plan["category_name"] or category_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _smart_template_response(plan: Mapping[str, Any], name_hint: str) -> Response:

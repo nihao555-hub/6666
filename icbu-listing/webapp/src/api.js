@@ -12,9 +12,18 @@ export function attachApiAuth({ router, store }) {
 
 http.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
     const status = error.response?.status || 0;
-    const detail = error.response?.data?.detail;
+    let detail = error.response?.data?.detail;
+    if (detail === undefined && error.response?.data instanceof Blob) {
+      try {
+        const text = await error.response.data.text();
+        const payload = JSON.parse(text);
+        detail = payload.detail;
+      } catch {
+        /* ignore */
+      }
+    }
     const message = typeof detail === "string" ? detail : error.message || "请求失败";
     if (status === 401 && authStore) {
       authStore.reset();
@@ -27,6 +36,26 @@ http.interceptors.response.use(
     return Promise.reject(wrapped);
   },
 );
+
+async function parseXlsxBlob(blob) {
+  if (!(blob instanceof Blob) || blob.size < 4) {
+    throw new Error("下载失败：文件为空");
+  }
+  const header = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+  if (header[0] !== 0x50 || header[1] !== 0x4b) {
+    let detail = "服务器返回的不是有效 Excel";
+    if (blob.type?.includes("json") || blob.size < 4096) {
+      try {
+        const payload = JSON.parse(await blob.text());
+        if (payload.detail) detail = payload.detail;
+      } catch {
+        /* ignore */
+      }
+    }
+    throw new Error(detail);
+  }
+  return blob;
+}
 
 export const api = {
   me: () => http.get("/auth/me"),
@@ -105,8 +134,13 @@ export const api = {
   excelSmartPlan: (params) => http.get("/excel/smart-plan", { params, timeout: 90000 }),
   excelSmartPlanFromImages: (form) => http.post("/excel/smart-plan-from-images", form, { timeout: 120000 }),
   excelEcosystemBrief: (params) => http.get("/excel/ecosystem-brief", { params }),
-  excelSmartTemplateFromPlan: (body) =>
-    http.post("/excel/smart-template-from-plan", body, { responseType: "blob" }),
+  excelSmartTemplateFromPlan: async (body) => {
+    const response = await http.post("/excel/smart-template-from-plan", body, {
+      responseType: "blob",
+      timeout: 60000,
+    });
+    return parseXlsxBlob(response);
+  },
   officialExcelAttrs: (shopId, categoryId) =>
     http.get("/excel/official-attrs", { params: { shop_id: shopId, category_id: categoryId } }),
   excelDocParse: (form) => http.post("/excel/doc-parse", form),

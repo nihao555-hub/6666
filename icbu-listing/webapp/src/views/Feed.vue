@@ -172,7 +172,13 @@
           <header class="plan-head">
             <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
             <span class="plan-badge">{{ smartPlan.column_count }} 列</span>
+            <span v-if="planSourceLabel" class="plan-badge plan-badge-muted">{{ planSourceLabel }}</span>
           </header>
+          <p class="plan-source-hint muted">
+            表头来源：读取<strong>阿里官方类目 schema</strong> → 去掉店铺默认/模板已覆盖项 →
+            商品图已识别的属性不再重复 → 保留 sku/价/量/货号 + 2～4 个你最该填的<strong>证据属性</strong>（如材质、类型、色数）。
+            其余必填与加分项上传后由 AI 推断。
+          </p>
           <div v-if="smartPlan.tips" class="plan-reasoning">{{ smartPlan.tips }}</div>
           <div v-if="smartPlan.guarantee" class="plan-reasoning plan-guarantee">{{ smartPlan.guarantee }}</div>
           <div v-if="smartColumnLabels?.length" class="plan-columns">
@@ -182,8 +188,11 @@
           </div>
         </section>
         <h3 style="margin-top: 24px">3. 下载填写表</h3>
+        <p v-if="doc.categoryId && !canDownloadTemplate" class="muted step-hint">
+          {{ smartPlanLoading ? "正在生成列规划，请稍候…" : "请先选类目并等待上方出现列名后再下载" }}
+        </p>
         <div class="toolbar" style="margin: 12px 0">
-          <el-button type="primary" :disabled="!doc.categoryId || smartPlanLoading || docTemplateDownloading" :loading="docTemplateDownloading" @click="downloadDocTemplate">
+          <el-button type="primary" :disabled="!canDownloadTemplate || smartPlanLoading || docTemplateDownloading" :loading="docTemplateDownloading" @click="downloadDocTemplate">
             下载填写表
           </el-button>
           <el-button :disabled="!doc.categoryId || smartPlanLoading" @click="refreshSmartPlan">重新生成</el-button>
@@ -926,6 +935,16 @@ const planImageCount = computed(() => confirmedPlanImageCount.value);
 const smartColumnLabels = computed(() =>
   (smartPlan.value.columns || []).map((col) => col.label || col.header || col.id).filter(Boolean),
 );
+const canDownloadTemplate = computed(
+  () => Boolean(doc.categoryId && smartPlan.value.columns?.length && !smartPlanLoading.value),
+);
+const planSourceLabel = computed(() => {
+  const planner = String(smartPlan.value.planner || "");
+  if (planner.includes("vision")) return "含读图";
+  if (planner.includes("llm")) return "AI 规划";
+  if (planner) return "规则规划";
+  return "";
+});
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
@@ -2191,7 +2210,8 @@ function normalizeSmartPlan(raw) {
     header: col.header || col.label || col.id,
     label: col.label || col.header || col.id,
     required: Boolean(col.required),
-    options: col.options,
+    options: col.options || [],
+    hint: col.hint || "",
     kind: col.kind,
     group: col.group,
     field_id: col.field_id,
@@ -3198,38 +3218,22 @@ async function downloadDocTemplate() {
     if (!smartPlan.value.columns?.length) {
       await loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName });
     }
-    const categoryName = doc.categoryName || smartPlan.value.category_name || "";
-    let blob;
-    if (smartPlan.value.columns?.length) {
-      blob = await api.excelSmartTemplateFromPlan({
-        shop_id: store.shopId,
-        category_id: doc.categoryId,
-        category_name: categoryName,
-        columns: smartPlan.value.columns,
-        reasoning: smartPlan.value.reasoning,
-        tips: smartPlan.value.tips,
-        covered_by_shop: smartPlan.value.covered_by_shop,
-        covered_by_template: smartPlan.value.covered_by_template,
-        ai_fills: smartPlan.value.ai_fills,
-      });
-    } else {
-      const response = await fetch(api.excelSmartTemplateUrl({
-        categoryId: doc.categoryId,
-        shopId: store.shopId,
-        categoryName,
-      }), { credentials: "include" });
-      if (!response.ok) {
-        let detail = "下载失败";
-        try {
-          const payload = await response.json();
-          detail = payload.detail || detail;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(detail);
-      }
-      blob = await response.blob();
+    if (!smartPlan.value.columns?.length) {
+      throw new Error("还没有生成填写列，请稍候或点「重新生成」");
     }
+    const categoryName = doc.categoryName || smartPlan.value.category_name || "";
+    const blob = await api.excelSmartTemplateFromPlan({
+      shop_id: store.shopId,
+      category_id: doc.categoryId,
+      category_name: categoryName,
+      columns: smartPlan.value.columns,
+      reasoning: smartPlan.value.reasoning,
+      tips: smartPlan.value.tips,
+      guarantee: smartPlan.value.guarantee,
+      covered_by_shop: smartPlan.value.covered_by_shop,
+      covered_by_template: smartPlan.value.covered_by_template,
+      ai_fills: smartPlan.value.ai_fills,
+    });
     const safeName = (categoryName || doc.categoryId).replace(/[/\\?%*:|"<>]/g, "-");
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -3237,7 +3241,7 @@ async function downloadDocTemplate() {
     anchor.download = `智能批量上品-${safeName}.xlsx`;
     anchor.click();
     URL.revokeObjectURL(url);
-    ElMessage.success("填写表已开始下载");
+    ElMessage.success(`填写表已开始下载（${smartPlan.value.column_count || smartPlan.value.columns.length} 列）`);
   } catch (error) {
     ElMessage.error(error.message || "下载失败");
   } finally {
@@ -4124,6 +4128,17 @@ onUnmounted(() => {
 
 .plan-panel-error p {
   margin: 0 0 10px;
+}
+
+.plan-source-hint {
+  margin: 8px 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.plan-badge-muted {
+  background: var(--gray3);
+  color: var(--ink-2);
 }
 
 .category-next-box {
