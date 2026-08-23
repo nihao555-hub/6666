@@ -242,7 +242,7 @@
           <div class="audit-page-head-main">
             <div>
               <h2 class="audit-page-title">内容审核</h2>
-              <p class="audit-subtitle">核对标题、图片和属性，通过后批量成稿</p>
+              <p class="audit-subtitle">表格填的是依据。扫标题、图、价/量即可；物流和店政策成稿时自动套，不用在这里逐条填。</p>
             </div>
           </div>
         </header>
@@ -250,6 +250,18 @@
         <section class="audit-toolbar-card">
           <div v-if="habitsSummaryLine" class="audit-habits-strip muted">
             发品习惯：{{ habitsSummaryLine }}
+          </div>
+          <div v-if="reviewStats.total" class="audit-summary-strip">
+            <span>共 <b>{{ reviewStats.total }}</b> 条</span>
+            <span>可成稿 <b>{{ reviewReadyStats.ready }}</b></span>
+            <span>已通过 <b>{{ auditStats.approved }}</b></span>
+            <span v-if="reviewReadyStats.noCopy">缺文案 {{ reviewReadyStats.noCopy }}</span>
+            <span v-if="reviewReadyStats.noImages">缺图 {{ reviewReadyStats.noImages }}</span>
+            <span v-if="reviewReadyStats.noPrice">缺价量 {{ reviewReadyStats.noPrice }}</span>
+            <div class="audit-summary-actions">
+              <el-button size="small" type="primary" plain @click="batchApproveReady">通过全部可成稿</el-button>
+              <el-button size="small" plain @click="batchApprove">通过已选</el-button>
+            </div>
           </div>
           <div class="audit-toolbar">
             <div class="audit-filters" role="tablist" aria-label="筛选商品">
@@ -382,7 +394,7 @@
               v-model:current-page="reviewPage"
               v-model:page-size="reviewPageSize"
               :total="filteredDocRowViews.length"
-              :page-sizes="[10, 20, 50]"
+              :page-sizes="[20, 50, 100, 200]"
               layout="total, prev, pager, next, sizes"
               size="small"
             />
@@ -403,11 +415,17 @@
           <el-button v-if="docProgress.complete" type="primary" @click="goDocBatchDrafts('pending')">去审这一批</el-button>
         </div>
 
-        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="560px" destroy-on-close>
+        <el-drawer v-model="rowDetailOpen" :title="rowDetailTitle" size="520px" destroy-on-close>
           <div v-if="rowDetailRow" class="audit-drawer">
+            <p v-if="rowDetailIssues.length" class="audit-drawer-hint">
+              只列出还需留意的项；其它列已在表格或会自动套用。
+            </p>
+            <ul v-if="rowDetailIssues.length" class="audit-drawer-issues">
+              <li v-for="(issue, idx) in rowDetailIssues" :key="idx">{{ issue }}</li>
+            </ul>
             <div class="audit-drawer-section">
-              <h4>全部字段</h4>
-              <div v-for="col in docDataColumns" :key="col.id" class="audit-drawer-field">
+              <h4>核对项</h4>
+              <div v-for="col in rowDetailColumns" :key="col.id" class="audit-drawer-field">
                 <label>
                   {{ col.label }}
                   <span v-if="col.required" class="need">必填</span>
@@ -501,7 +519,7 @@ const docSteps = [
 const reviewFilter = ref("all");
 const reviewSearch = ref("");
 const reviewPage = ref(1);
-const reviewPageSize = ref(10);
+const reviewPageSize = ref(50);
 const rowDetailOpen = ref(false);
 const rowDetailRow = ref(null);
 const reviewImageInput = ref(null);
@@ -1032,6 +1050,20 @@ const reviewStats = computed(() => {
     selected: docSelectedCount.value,
   };
 });
+const reviewReadyStats = computed(() => {
+  const rows = docGrid.rows || [];
+  let ready = 0;
+  let noCopy = 0;
+  let noImages = 0;
+  let noPrice = 0;
+  rows.forEach((row) => {
+    if (!rowReady(row)) noPrice += 1;
+    if (rowMissingCopy(row)) noCopy += 1;
+    if (rowImageCount(row) < 1) noImages += 1;
+    if (rowAuditReady(row)) ready += 1;
+  });
+  return { ready, noCopy, noImages, noPrice };
+});
 const auditStats = computed(() => {
   const rows = docGrid.rows || [];
   let pending = 0;
@@ -1047,6 +1079,7 @@ const auditStats = computed(() => {
 });
 const auditFilterOptions = computed(() => [
   { id: "all", label: "全部", count: auditStats.value.total },
+  { id: "ready", label: "可成稿", count: reviewReadyStats.value.ready },
   { id: "pending", label: "待审", count: auditStats.value.pending },
   { id: "approved", label: "通过", count: auditStats.value.approved },
   { id: "rejected", label: "不通过", count: auditStats.value.rejected },
@@ -1054,6 +1087,38 @@ const auditFilterOptions = computed(() => [
 const rowDetailTitle = computed(() => {
   if (!rowDetailRow.value) return "商品详情";
   return rowDetailRow.value.name || rowDetailRow.value.sku || "商品详情";
+});
+const rowDetailColumns = computed(() => {
+  const row = rowDetailRow.value;
+  if (!row) return [];
+  const prefer = ["title", "keywords", "price", "moq", "sku", "name"];
+  const seen = new Set();
+  const cols = [];
+  prefer.forEach((id) => {
+    const col = docDataColumns.value.find((item) => item.id === id);
+    if (col && !seen.has(col.id)) {
+      cols.push(col);
+      seen.add(col.id);
+    }
+  });
+  docRequiredAttrColumns.value.forEach((col) => {
+    if (!String(row[col.id] || "").trim() && !seen.has(col.id)) {
+      cols.push(col);
+      seen.add(col.id);
+    }
+  });
+  return cols;
+});
+const rowDetailIssues = computed(() => {
+  const row = rowDetailRow.value;
+  if (!row) return [];
+  const items = [];
+  if (!rowReady(row)) items.push("缺价格或起订量");
+  if (rowMissingCopy(row)) items.push("缺标题或关键词");
+  if (rowImageCount(row) < 1) items.push("至少配一张图");
+  rowEmptyRequiredAttrs(row).forEach((col) => items.push(`必填属性「${col.label}」还空着`));
+  if (issueLineSet.value.has(row.line)) items.push("价/量校验未过，点刷新");
+  return items;
 });
 const filteredDocRowViews = computed(() => {
   const q = reviewSearch.value.trim().toLowerCase();
@@ -1067,6 +1132,8 @@ const filteredDocRowViews = computed(() => {
           return rowAuditStatus(row) === "approved";
         case "rejected":
           return rowAuditStatus(row) === "rejected";
+        case "ready":
+          return rowAuditReady(row);
         case "issues":
           return rowHasIssues(row);
         case "no_images":
@@ -2500,7 +2567,7 @@ function formatAuditPrice(value) {
 }
 
 function rowAuditReady(row) {
-  return !rowHasIssues(row) && rowReady(row) && !rowMissingCopy(row) && rowImageCount(row) >= 6;
+  return rowReady(row) && !rowMissingCopy(row) && rowImageCount(row) >= 1 && !rowHasIssues(row);
 }
 
 function rowEmptyRequiredAttrs(row) {
@@ -2524,6 +2591,19 @@ function approveRow(row) {
 function rejectRow(row) {
   row._audit_status = "rejected";
   persistSession();
+}
+
+function batchApproveReady() {
+  const targets = docGrid.rows.filter((row) => rowAuditReady(row) && rowAuditStatus(row) !== "approved");
+  if (!targets.length) {
+    ElMessage.info("没有可自动通过的行（需价、量、标题、关键词、至少一张图）");
+    return;
+  }
+  targets.forEach((row) => {
+    row._audit_status = "approved";
+  });
+  persistSession();
+  ElMessage.success(`已通过 ${targets.length} 条可成稿商品`);
 }
 
 function batchApprove() {
@@ -5034,6 +5114,44 @@ onUnmounted(() => {
   border-radius: 8px 8px 0 0;
   background: #fff;
   overflow: hidden;
+}
+
+.audit-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.audit-summary-strip b {
+  color: var(--ink);
+}
+
+.audit-summary-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.audit-drawer-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.audit-drawer-issues {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: #cf1322;
+  font-size: 13px;
+}
+
+.audit-drawer-issues li + li {
+  margin-top: 4px;
 }
 
 .audit-toolbar {

@@ -23,6 +23,7 @@ from ..services import (
     dedup,
     distribution,
     images as image_service,
+    issue_filter,
     pipeline,
     products as catalogue,
     publisher,
@@ -52,6 +53,12 @@ class PublishBatchIn(BaseModel):
     draft_ids: list[str]
 
 
+class BulkReviewIn(BaseModel):
+    draft_ids: list[str] = []
+    batch_id: str = ""
+    note: str = ""
+
+
 class GeneratedFeedIn(BaseModel):
     shop_id: str
     job_id: str
@@ -77,7 +84,7 @@ def draft_view(draft: Draft, detailed: bool = False, shop_name: str = "") -> dic
         "category_id": draft.category_id,
         "category_name": draft.category_name,
         "category_confidence": draft.category_confidence,
-        "issues": _json(draft.issues_json, []),
+        "issues": issue_filter.for_user(_json(draft.issues_json, [])),
         "images": _json(draft.images_json, []),
         "product_id": draft.product_id,
         "product_online_id": draft.product_online_id,
@@ -650,6 +657,32 @@ def patch_draft(
         draft.audit_json = audit.dump(payload_audit)
     db.commit()
     return _detailed_draft(db, user, draft)
+
+
+@router.post("/drafts/bulk-review")
+def bulk_review_drafts(
+    payload: BulkReviewIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Mark many drafts reviewed at once — for batches of hundreds/thousands."""
+    query = db.query(Draft).filter(Draft.user_id == user.id)
+    if payload.batch_id:
+        query = query.filter(Draft.batch_id == payload.batch_id)
+    if payload.draft_ids:
+        query = query.filter(Draft.id.in_(payload.draft_ids))
+    rows = query.all()
+    reviewed = 0
+    skipped = 0
+    for draft in rows:
+        issues = issue_filter.for_user(_json(draft.issues_json, []))
+        if draft.status == "red" or any(item.get("level") == "red" for item in issues):
+            skipped += 1
+            continue
+        audit.mark_reviewed(draft, payload.note)
+        reviewed += 1
+    db.commit()
+    return {"ok": True, "reviewed": reviewed, "skipped": skipped, "total": len(rows)}
 
 
 @router.delete("/drafts/{draft_id}")

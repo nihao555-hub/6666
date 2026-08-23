@@ -30,7 +30,7 @@ from schema import (  # noqa: E402
 )
 
 from ..models import CategoryMemory, Shop
-from . import audit_logistics, catalog, defaults as defaults_service, quality, templates as template_service
+from . import audit_logistics, catalog, defaults as defaults_service, issue_filter, quality, templates as template_service
 from .fact_bundle import FactBundle
 from .images import BankImage
 from .schema_fill import ATTR_GROUPS, FillResult, align_attributes, apply_trade_from_facts
@@ -638,6 +638,7 @@ def rescore_draft(draft: Any, xml: str, *, db: Session | None = None, shop: Shop
         issues.append({"field_id": "price", "field_name": "价格", "level": "red", "message": "价格要你来定"})
     if not getattr(draft, "moq", None):
         issues.append({"field_id": "minOrderQuantity", "field_name": "起订量", "level": "red", "message": "起订量要你来定"})
+    issues = issue_filter.for_user(issues)
     draft.issues_json = json.dumps(issues, ensure_ascii=False)
     draft.status = status_of(issues)
 
@@ -814,6 +815,7 @@ def build_draft(
     if 0 < copy_confidence < UNCERTAIN:
         result.add_issue("productTitle", "商品标题", "yellow", "AI 对文案不太确定，扫一眼标题")
 
+    result.issues = issue_filter.for_user(result.issues)
     result.status = status_of(result.issues)
     if result.status != "red":
         remember_category(db, shop, understanding, category_id, category_name)

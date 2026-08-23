@@ -19,7 +19,8 @@
     <el-row :gutter="14">
       <el-col :span="16">
         <div class="card" v-if="visibleIssues.length">
-          <h3>需要你确认（{{ visibleIssues.length }}）</h3>
+          <h3>还需你改（{{ visibleIssues.length }}）</h3>
+          <p class="muted" style="margin: 0 0 10px">只显示真要你动的项。运费、包装、店政策在右侧物流卡或发品习惯里，不用在这里填。</p>
           <div v-for="issue in visibleIssues" :key="issue.path || issue.field_id" class="issue">
             <div class="issue-head">
               <i class="dot" :class="issue.level"></i>

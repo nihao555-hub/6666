@@ -16,11 +16,17 @@
     <div class="page-head">
       <div>
         <h2>商品</h2>
-        <p class="muted">填完短表、AI 成稿之后还不能发。每条打开看标题和官方属性，点「审过了」才能发。选错但合法的选项（HB 写成 2B）只能人看出来。</p>
+        <p class="muted">批量成稿后：列表里「批量审过」或「本批全部审过」，不必每条打开。只有红项才需单独改。</p>
       </div>
       <div v-if="tab === 'local'">
+        <el-button :disabled="!selected.length" @click="bulkReviewSelected">
+          批量审过（{{ selected.length }}）
+        </el-button>
         <el-button :disabled="!selected.length" @click="publishSelected">
           批量发布（{{ selected.length }}）
+        </el-button>
+        <el-button type="primary" @click="bulkReviewBatch" v-if="batchId">
+          本批全部审过
         </el-button>
         <el-button type="primary" @click="selectReady">一键选中已审可发</el-button>
       </div>
@@ -267,6 +273,28 @@ async function publishSelected() {
     const result = await api.publishMany(selected.value.map((item) => item.id));
     ElMessage.success(`已排队 ${result.queued} 条，去队列看进度`);
     setTimeout(reload, 1200);
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+async function bulkReviewSelected() {
+  if (!selected.value.length) return;
+  try {
+    const result = await api.bulkReviewDrafts({ draft_ids: selected.value.map((item) => item.id) });
+    ElMessage.success(`已审过 ${result.reviewed} 条${result.skipped ? `，跳过 ${result.skipped} 条红项` : ""}`);
+    await reload();
+  } catch (error) {
+    ElMessage.error(error.message);
+  }
+}
+
+async function bulkReviewBatch() {
+  if (!batchId.value) return;
+  try {
+    const result = await api.bulkReviewDrafts({ batch_id: batchId.value });
+    ElMessage.success(`本批已审过 ${result.reviewed} 条${result.skipped ? `，跳过 ${result.skipped} 条红项` : ""}`);
+    await reload();
   } catch (error) {
     ElMessage.error(error.message);
   }

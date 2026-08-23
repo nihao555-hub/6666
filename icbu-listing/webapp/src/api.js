@@ -184,6 +184,7 @@ export const api = {
   deleteDraft: (id) => http.delete(`/drafts/${id}`),
   publishDraft: (id) => http.post(`/drafts/${id}/publish`),
   publishMany: (draftIds) => http.post("/drafts/publish", { draft_ids: draftIds }),
+  bulkReviewDrafts: (body) => http.post("/drafts/bulk-review", body),
 
   jobs: (params) => http.get("/jobs", { params }),
   retryJob: (id) => http.post(`/jobs/${id}/retry`),
