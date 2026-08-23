@@ -134,11 +134,13 @@
         </div>
 
         <template v-if="canPickCategory">
-        <section v-if="smartPlanShowAi" class="plan-panel plan-panel-loading">
+        <section v-if="showSmartPlanTimeline" class="plan-panel plan-panel-loading plan-bridge-panel">
+          <p class="plan-bridge-label">第 2 步 → 第 3 步：生成填写表</p>
           <section class="ai-timeline ai-timeline-vertical" aria-live="polite">
             <header class="ai-timeline-head">
-              <strong>AI 正在分析类目{{ smartPlanLoading ? "…" : "" }}</strong>
+              <strong>AI 正在规划填写列{{ smartPlanLoading ? "…" : "" }}</strong>
               <span class="ai-timeline-badge is-live">{{ smartPlanLoading ? "进行中" : "完成" }}</span>
+              <span v-if="smartPlanLoading && smartPlanElapsedSec" class="ai-timeline-elapsed">已用时 {{ smartPlanElapsedSec }} 秒</span>
             </header>
             <ol class="ai-timeline-track">
               <li
@@ -168,7 +170,7 @@
           <el-button type="primary" :loading="smartPlanLoading" @click="refreshSmartPlan">重试生成</el-button>
         </section>
 
-        <section v-else-if="doc.categoryId && smartPlan.column_count" class="plan-panel">
+        <section v-else-if="!smartPlanLoading && doc.categoryId && smartPlan.column_count" class="plan-panel">
           <header class="plan-head">
             <h4>{{ smartPlan.category_name || doc.categoryName }}</h4>
             <span class="plan-badge">{{ smartPlan.column_count }} 列</span>
@@ -586,6 +588,7 @@ const useEcosystemAssistant = ref(false);
 const smartPlanLoading = ref(false);
 const smartPlanError = ref("");
 const smartPlanShowAi = ref(false);
+const smartPlanElapsedSec = ref(0);
 const docTemplateDownloading = ref(false);
 const categoryBrowser = ref(false);
 const categoryTemplates = ref([]);
@@ -598,6 +601,7 @@ const reviewAiSteps = ref(createReviewAiSteps());
 const smartPlanAiSteps = ref(createSmartPlanAiSteps());
 let smartPlanStepTimer = null;
 let smartPlanAiDelayTimer = null;
+let smartPlanElapsedTimer = null;
 let smartPlanStepStartedAt = 0;
 
 function createSmartPlanAiSteps() {
@@ -618,11 +622,16 @@ function patchSmartPlanStep(id, patch) {
 }
 
 function startSmartPlanStepAnimation(hasVision = false) {
-  clearSmartPlanStepAnimation();
+  stopSmartPlanStepTimers();
   resetSmartPlanAiSteps();
   smartPlanStepStartedAt = Date.now();
+  smartPlanElapsedSec.value = 0;
+  smartPlanElapsedTimer = window.setInterval(() => {
+    if (!smartPlanLoading.value) return;
+    smartPlanElapsedSec.value = Math.max(0, Math.floor((Date.now() - smartPlanStepStartedAt) / 1000));
+  }, 1000);
   if (hasVision) {
-    patchSmartPlanStep("vision", { status: "running", detail: "分析已上传的商品图…" });
+    patchSmartPlanStep("vision", { status: "running", detail: "分析已确认的商品图…" });
   } else {
     patchSmartPlanStep("vision", { status: "done", detail: "未上传图片，按类目规则规划" });
     patchSmartPlanStep("schema", { status: "running", detail: "拉取类目 schema…" });
@@ -631,18 +640,34 @@ function startSmartPlanStepAnimation(hasVision = false) {
     if (!smartPlanLoading.value) return;
     const elapsed = Date.now() - smartPlanStepStartedAt;
     if (hasVision && elapsed >= 800) {
-      patchSmartPlanStep("vision", { status: "done", detail: "" });
+      patchSmartPlanStep("vision", { status: "done", detail: "读图完成" });
       patchSmartPlanStep("schema", { status: "running", detail: "拉取类目 schema…" });
     }
-    if (elapsed >= (hasVision ? 1600 : 900)) {
+    if (elapsed >= (hasVision ? 2200 : 900)) {
       patchSmartPlanStep("schema", { status: "done", detail: "" });
-      patchSmartPlanStep("habits", { status: "running", detail: "店铺默认与刊登模板…" });
+      patchSmartPlanStep("habits", { status: "running", detail: "对照店铺默认与刊登模板…" });
     }
-    if (elapsed >= (hasVision ? 2400 : 1800)) {
+    if (elapsed >= (hasVision ? 3800 : 1800)) {
       patchSmartPlanStep("habits", { status: "done", detail: "" });
-      patchSmartPlanStep("plan", { status: "running", detail: "结合图片生成填写列…" });
+      const sec = Math.floor(elapsed / 1000);
+      patchSmartPlanStep("plan", {
+        status: "running",
+        detail: sec >= 8 ? `AI 正在生成填写列…（${sec}s）` : "结合类目与图片生成填写列…",
+      });
     }
   }, 400);
+}
+
+function stopSmartPlanStepTimers() {
+  clearSmartPlanAiDelay();
+  if (smartPlanStepTimer) {
+    clearInterval(smartPlanStepTimer);
+    smartPlanStepTimer = null;
+  }
+  if (smartPlanElapsedTimer) {
+    clearInterval(smartPlanElapsedTimer);
+    smartPlanElapsedTimer = null;
+  }
 }
 
 function clearSmartPlanAiDelay() {
@@ -653,22 +678,24 @@ function clearSmartPlanAiDelay() {
 }
 
 function clearSmartPlanStepAnimation() {
-  clearSmartPlanAiDelay();
-  if (smartPlanStepTimer) {
-    clearInterval(smartPlanStepTimer);
-    smartPlanStepTimer = null;
-  }
+  stopSmartPlanStepTimers();
   smartPlanStepStartedAt = 0;
+  smartPlanElapsedSec.value = 0;
   smartPlanShowAi.value = false;
 }
 
 function finishSmartPlanStepAnimation() {
-  clearSmartPlanStepAnimation();
+  stopSmartPlanStepTimers();
   smartPlanAiSteps.value = smartPlanAiSteps.value.map((step) => ({
     ...step,
-    status: "done",
-    detail: step.id === "plan" ? "完成" : "",
+    status: step.status === "error" ? "error" : "done",
+    detail: step.id === "plan" ? `完成（${smartPlan.value.column_count || 0} 列）` : step.detail,
   }));
+  window.setTimeout(() => {
+    if (!smartPlanLoading.value) {
+      smartPlanShowAi.value = false;
+    }
+  }, 900);
 }
 
 function createReviewAiSteps() {
@@ -938,6 +965,7 @@ const smartColumnLabels = computed(() =>
 const canDownloadTemplate = computed(
   () => Boolean(doc.categoryId && smartPlan.value.columns?.length && !smartPlanLoading.value),
 );
+const showSmartPlanTimeline = computed(() => smartPlanLoading.value || smartPlanShowAi.value);
 const planSourceLabel = computed(() => {
   const planner = String(smartPlan.value.planner || "");
   if (planner.includes("vision")) return "含读图";
@@ -2138,30 +2166,14 @@ async function loadSmartPlan(override = null) {
   if (!background) {
     smartPlanLoading.value = true;
     smartPlanError.value = "";
-    clearSmartPlanStepAnimation();
-    if (refresh || hasVision) {
-      smartPlanShowAi.value = true;
-      startSmartPlanStepAnimation(hasVision);
-    } else {
-      smartPlanAiDelayTimer = window.setTimeout(() => {
-        if (!smartPlanLoading.value) return;
-        smartPlanShowAi.value = true;
-        startSmartPlanStepAnimation(hasVision);
-      }, 400);
-    }
+    smartPlanShowAi.value = true;
+    startSmartPlanStepAnimation(hasVision);
   }
 
   const finishPlanUi = (raw) => {
     if (background) return;
-    clearSmartPlanAiDelay();
     smartPlanError.value = "";
-    if (raw.cached && !hasVision) {
-      smartPlanShowAi.value = false;
-      clearSmartPlanStepAnimation();
-    } else {
-      smartPlanShowAi.value = true;
-      finishSmartPlanStepAnimation();
-    }
+    finishSmartPlanStepAnimation();
   };
 
   try {
@@ -2191,8 +2203,8 @@ async function loadSmartPlan(override = null) {
       }
     }
     if (!background) {
-      clearSmartPlanStepAnimation();
-      smartPlanShowAi.value = false;
+      stopSmartPlanStepTimers();
+      smartPlanShowAi.value = true;
       smartPlanError.value = msg || "生成填写表失败，请重试";
       patchSmartPlanStep("plan", { status: "error", detail: smartPlanError.value });
     }
@@ -3272,10 +3284,6 @@ async function pickCategory(node) {
   const localCached = hasUploadablePlanImages() ? null : loadLocalSmartPlan(categoryId);
   if (localCached?.columns?.length) {
     applySmartPlan({ ...localCached, cached: true }, categoryId);
-    ElMessage.success(`已选「${categoryName}」`);
-    await persistSession({ server: true });
-    void loadSmartPlan({ categoryId, categoryName, background: true });
-    return;
   }
 
   try {
@@ -3524,6 +3532,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
@@ -4139,6 +4148,26 @@ onUnmounted(() => {
 .plan-badge-muted {
   background: var(--gray3);
   color: var(--ink-2);
+}
+
+.plan-bridge-panel {
+  margin-top: 16px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-wash);
+}
+
+.plan-bridge-label {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.ai-timeline-elapsed {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: normal;
 }
 
 .category-next-box {
