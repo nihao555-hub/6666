@@ -40,52 +40,80 @@
 
       <div v-if="docStep === 0 && !awaitingReviewAssist && !docGrid.loading && !reviewAssistRunning" class="step-panel">
         <h3>1. 上传商品图</h3>
-        <p class="muted step-hint">先上传全部商品图（本地文件夹或图片银行），AI 会读图后再生成填写表。</p>
-        <div class="toolbar" style="margin: 12px 0">
-          <el-button :disabled="!store.shopId" :loading="photobankLoading" @click="togglePhotobank">
-            {{ photobankOpen ? "收起图片银行" : "从图片银行选图" }}
-          </el-button>
-          <el-button plain @click="pickImageFolder">选本地图片文件夹</el-button>
-          <span v-if="planImageCount" class="muted">{{ planImageCount }} 张已选</span>
+        <p class="muted step-hint">
+          先选完全部商品图，点<strong>确定选图</strong>后，再选类目。AI 只会分析你确认过的图片。
+        </p>
+        <div v-if="imageSetupMode === 'confirmed'" class="image-setup-badge is-confirmed">
+          已确认 {{ confirmedPlanImageCount }} 张商品图
+          <button type="button" class="link-btn" @click="resetImageSetup">重新选图</button>
         </div>
-        <section v-if="photobankOpen" class="photobank-panel">
-          <div v-if="photobankLoading" class="muted">加载图片银行…</div>
-          <div v-else-if="!photobankImages.length" class="muted">图片银行为空或未连接店铺</div>
-          <div v-else class="photobank-grid">
-            <button
-              v-for="item in photobankImages"
-              :key="item.id || item.url"
-              type="button"
-              class="photobank-item"
-              :class="{ 'is-selected': selectedPhotobankIds.has(item.id || item.url) }"
-              @click="togglePhotobankImage(item)"
-            >
-              <img :src="item.url" :alt="item.file_name || 'bank'" loading="lazy" />
-              <span>{{ item.file_name || item.id }}</span>
-            </button>
+        <div v-else-if="imageSetupMode === 'skipped'" class="image-setup-badge is-skipped">
+          已跳过图片，将仅按类目生成填写表
+          <button type="button" class="link-btn" @click="resetImageSetup">改为上传图片</button>
+        </div>
+        <template v-else>
+          <div class="toolbar" style="margin: 12px 0">
+            <el-button :disabled="!store.shopId" :loading="photobankLoading" @click="openPhotobank">
+              从图片银行选图
+            </el-button>
+            <el-button plain @click="pickImageFolder">选本地图片文件夹</el-button>
+            <span v-if="pendingPlanImageCount" class="muted">待确认 {{ pendingPlanImageCount }} 张</span>
           </div>
-        </section>
-        <div
-          class="upload-drop-zone"
-          @dragover.prevent
-          @dragenter.prevent
-          @drop.prevent="onDropImageFiles"
-        >
-          <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
-          <el-upload
-            v-model:file-list="docImageFiles"
-            :auto-upload="false"
-            multiple
-            accept=".jpg,.jpeg,.png,.webp,.gif"
-            drag
-            @change="onDocImageFilesChange"
-          >
-            <div class="upload-drop-inner">
-              <p>拖入商品图片（按 SKU 分文件夹更好）</p>
+          <section v-if="photobankOpen" class="photobank-panel">
+            <header class="photobank-head">
+              <strong>图片银行</strong>
+              <span class="muted">点选图片，选完后点确定</span>
+            </header>
+            <div v-if="photobankLoading" class="muted">加载图片银行…</div>
+            <div v-else-if="!photobankImages.length" class="muted">图片银行为空或未连接店铺</div>
+            <div v-else class="photobank-grid">
+              <button
+                v-for="item in photobankImages"
+                :key="item.id || item.url"
+                type="button"
+                class="photobank-item"
+                :class="{ 'is-selected': photobankDraftIds.has(item.id || item.url) }"
+                @click="togglePhotobankDraft(item)"
+              >
+                <img :src="item.url" :alt="item.file_name || 'bank'" loading="lazy" />
+                <span>{{ item.file_name || item.id }}</span>
+              </button>
             </div>
-          </el-upload>
-        </div>
-        <div v-if="visionPreview.length" class="vision-preview">
+            <div class="photobank-actions">
+              <el-button @click="cancelPhotobankPicker">取消</el-button>
+              <el-button type="primary" @click="confirmPhotobankPicker">
+                确定（{{ photobankDraftIds.size }} 张）
+              </el-button>
+            </div>
+          </section>
+          <div
+            class="upload-drop-zone"
+            @dragover.prevent
+            @dragenter.prevent
+            @drop.prevent="onDropImageFiles"
+          >
+            <input ref="folderInput" type="file" webkitdirectory multiple accept="image/*" class="hidden-folder-input" @change="onFolderPick" />
+            <el-upload
+              v-model:file-list="docImageFiles"
+              :auto-upload="false"
+              multiple
+              accept=".jpg,.jpeg,.png,.webp,.gif"
+              drag
+              @change="onDocImageFilesChange"
+            >
+              <div class="upload-drop-inner">
+                <p>拖入商品图片（按 SKU 分文件夹更好）</p>
+              </div>
+            </el-upload>
+          </div>
+          <div class="image-setup-actions">
+            <el-button type="primary" :disabled="!pendingPlanImageCount" @click="confirmPlanImages">
+              确定选图{{ pendingPlanImageCount ? `（${pendingPlanImageCount} 张）` : "" }}
+            </el-button>
+            <el-button text @click="skipPlanImages">暂不上传图片</el-button>
+          </div>
+        </template>
+        <div v-if="visionPreview.length && imageSetupMode === 'confirmed'" class="vision-preview">
           <h4>AI 已读图摘要</h4>
           <ul>
             <li v-for="(item, index) in visionPreview" :key="index">
@@ -99,10 +127,13 @@
 
         <h3 style="margin-top: 24px">2. 选叶子类目</h3>
         <div style="margin-top: 12px">
-          <el-button type="primary" @click="openDocCategory">{{ doc.categoryName || smartPlan.category_name || "选择类目" }}</el-button>
-          <span v-if="!hasPlanImages()" class="muted" style="margin-left: 8px">建议先上传图片</span>
+          <el-button type="primary" :disabled="!canPickCategory" @click="openDocCategory">
+            {{ doc.categoryName || smartPlan.category_name || "选择类目" }}
+          </el-button>
+          <span v-if="!canPickCategory" class="muted" style="margin-left: 8px">请先完成第 1 步（确定选图或跳过）</span>
         </div>
 
+        <template v-if="canPickCategory">
         <section v-if="smartPlanShowAi" class="plan-panel plan-panel-loading">
           <section class="ai-timeline ai-timeline-vertical" aria-live="polite">
             <header class="ai-timeline-head">
@@ -176,6 +207,7 @@
             {{ parseStatus || "解析" }}
           </el-button>
         </div>
+        </template>
       </div>
 
       <section
@@ -501,6 +533,8 @@ const photobankOpen = ref(false);
 const photobankLoading = ref(false);
 const photobankImages = ref([]);
 const selectedPhotobankIds = ref(new Set());
+const photobankDraftIds = ref(new Set());
+const imageSetupMode = ref("pending"); // pending | confirmed | skipped
 const visionPreview = ref([]);
 let imageSyncTimer = null;
 const IMAGE_SUFFIXES = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]);
@@ -677,8 +711,55 @@ function selectedPhotobankList() {
   return photobankImages.value.filter((item) => selectedPhotobankIds.value.has(item.id || item.url));
 }
 
+function pendingPlanImageCountValue() {
+  return allUploadImageFiles().length + selectedPhotobankList().length;
+}
+
 function hasPlanImages() {
-  return allUploadImageFiles().length > 0 || selectedPhotobankList().length > 0;
+  return imageSetupMode.value === "confirmed" && pendingPlanImageCountValue() > 0;
+}
+
+const pendingPlanImageCount = computed(() => pendingPlanImageCountValue());
+const confirmedPlanImageCount = computed(() => (imageSetupMode.value === "confirmed" ? pendingPlanImageCountValue() : 0));
+const canPickCategory = computed(() => imageSetupMode.value === "confirmed" || imageSetupMode.value === "skipped");
+
+function invalidateImageSetupAfterChange() {
+  if (imageSetupMode.value === "confirmed") {
+    imageSetupMode.value = "pending";
+    visionPreview.value = [];
+    ElMessage.info("选图已变更，请重新点「确定选图」");
+  }
+}
+
+function confirmPlanImages() {
+  if (!pendingPlanImageCount.value) {
+    ElMessage.warning("请先选择至少一张商品图，或点「暂不上传图片」");
+    return;
+  }
+  imageSetupMode.value = "confirmed";
+  photobankOpen.value = false;
+  ElMessage.success(`已确认 ${pendingPlanImageCount.value} 张商品图，请选择类目`);
+  scheduleLocalDraft();
+  if (doc.categoryId) {
+    void loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName, refresh: true });
+  }
+}
+
+function skipPlanImages() {
+  imageSetupMode.value = "skipped";
+  photobankOpen.value = false;
+  visionPreview.value = [];
+  ElMessage.info("已跳过图片，将仅按类目生成填写表");
+  scheduleLocalDraft();
+  if (doc.categoryId) {
+    void loadSmartPlan({ categoryId: doc.categoryId, categoryName: doc.categoryName, refresh: true });
+  }
+}
+
+function resetImageSetup() {
+  imageSetupMode.value = "pending";
+  visionPreview.value = [];
+  scheduleLocalDraft();
 }
 
 function canParseDocuments() {
@@ -692,6 +773,7 @@ function syncDocFilesFromParts() {
 
 function onDocImageFilesChange() {
   syncDocFilesFromParts();
+  invalidateImageSetupAfterChange();
   scheduleLocalDraft();
 }
 
@@ -700,9 +782,10 @@ function onDocSpreadsheetChange() {
   scheduleLocalDraft();
 }
 
-async function togglePhotobank() {
-  photobankOpen.value = !photobankOpen.value;
-  if (photobankOpen.value && !photobankImages.value.length && store.shopId) {
+async function openPhotobank() {
+  photobankDraftIds.value = new Set(selectedPhotobankIds.value);
+  photobankOpen.value = true;
+  if (!photobankImages.value.length && store.shopId) {
     await loadPhotobank();
   }
 }
@@ -720,14 +803,28 @@ async function loadPhotobank() {
   }
 }
 
-function togglePhotobankImage(item) {
+function togglePhotobankDraft(item) {
   const key = item.id || item.url;
   if (!key) return;
-  const next = new Set(selectedPhotobankIds.value);
+  const next = new Set(photobankDraftIds.value);
   if (next.has(key)) next.delete(key);
   else next.add(key);
-  selectedPhotobankIds.value = next;
+  photobankDraftIds.value = next;
+}
+
+function cancelPhotobankPicker() {
+  photobankOpen.value = false;
+  photobankDraftIds.value = new Set(selectedPhotobankIds.value);
+}
+
+function confirmPhotobankPicker() {
+  selectedPhotobankIds.value = new Set(photobankDraftIds.value);
+  photobankOpen.value = false;
+  invalidateImageSetupAfterChange();
   scheduleLocalDraft();
+  if (selectedPhotobankIds.value.size) {
+    ElMessage.success(`已从图片银行选 ${selectedPhotobankIds.value.size} 张，记得点「确定选图」`);
+  }
 }
 
 function onDropImageFiles(event) {
@@ -760,6 +857,7 @@ function addDocImageFiles(files) {
   });
   if (added) {
     syncDocFilesFromParts();
+    invalidateImageSetupAfterChange();
     scheduleLocalDraft();
   }
   return added;
@@ -804,7 +902,7 @@ async function buildSmartPlanForm(categoryId, categoryName, refresh) {
     ...(refresh ? { refresh: true } : {}),
   });
 }
-const planImageCount = computed(() => allUploadImageFiles().length + selectedPhotobankList().length);
+const planImageCount = computed(() => confirmedPlanImageCount.value);
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
   if (!doc.batch?.count) return 0;
@@ -991,6 +1089,7 @@ function sessionPayload() {
       uploadImageNames: docImageFiles.value.map((item) => item.name).filter(Boolean),
       uploadSpreadsheetNames: docSpreadsheetFiles.value.map((item) => item.name).filter(Boolean),
       photobankIds: [...selectedPhotobankIds.value],
+      imageSetupMode: imageSetupMode.value,
       visionPreview: visionPreview.value,
       useEcosystemAssistant: useEcosystemAssistant.value,
     },
@@ -1523,6 +1622,8 @@ function applySession(session) {
     docImageFiles.value = [];
     docSpreadsheetFiles.value = [];
     selectedPhotobankIds.value = new Set();
+    photobankDraftIds.value = new Set();
+    imageSetupMode.value = "pending";
     visionPreview.value = [];
   }
   if (session.path === "excel" || session.path === "full") {
@@ -1902,6 +2003,14 @@ function restoreUploadNameLists(payload = {}) {
   syncDocFilesFromParts();
   if (payload.photobankIds?.length) {
     selectedPhotobankIds.value = new Set(payload.photobankIds);
+    photobankDraftIds.value = new Set(payload.photobankIds);
+  }
+  if (payload.imageSetupMode === "confirmed" || payload.imageSetupMode === "skipped") {
+    imageSetupMode.value = payload.imageSetupMode;
+  } else if (payload.uploadImageNames?.length || payload.photobankIds?.length) {
+    imageSetupMode.value = "pending";
+  } else {
+    imageSetupMode.value = "pending";
   }
   if (payload.visionPreview?.length) {
     visionPreview.value = payload.visionPreview;
@@ -2065,6 +2174,10 @@ async function refreshSmartPlan() {
 function openDocCategory() {
   if (!store.shopId) {
     ElMessage.warning("先登录一个店铺");
+    return;
+  }
+  if (!canPickCategory.value) {
+    ElMessage.warning("请先点「确定选图」，或选择「暂不上传图片」");
     return;
   }
   categoryBrowser.value = true;
@@ -3073,6 +3186,10 @@ async function downloadDocTemplate() {
 
 async function pickCategory(node) {
   await ensureFeedSession({ quiet: true });
+  if (!canPickCategory.value) {
+    ElMessage.warning("请先完成第 1 步：确定选图或跳过");
+    return;
+  }
   const categoryId = node.category_id;
   const categoryName = node.path_label || node.label || node.name || node.cn_name || "";
   categoryBrowser.value = false;
@@ -3813,6 +3930,56 @@ onUnmounted(() => {
 
 .photobank-panel {
   margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.photobank-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.photobank-actions,
+.image-setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.image-setup-badge {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+.image-setup-badge.is-confirmed {
+  background: #ecfdf3;
+  color: #067647;
+  border: 1px solid #abefc6;
+}
+
+.image-setup-badge.is-skipped {
+  background: var(--gray3);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+}
+
+.link-btn {
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
 }
 
 .photobank-grid {
