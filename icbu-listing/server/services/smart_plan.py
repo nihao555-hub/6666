@@ -818,6 +818,9 @@ def build_plan(
             }
         )
     required_attrs = [col for col in columns if str(col.get("id", "")).startswith("attr.") and col.get("required")]
+    official_required = int(schema_inventory.get("required_count") or 0)
+    download_count = len(columns)
+    ai_fill_count = len(ai_fill_attrs)
     plan = {
         "category_id": category_id,
         "category_name": category_name,
@@ -857,6 +860,20 @@ def build_plan(
         },
         "habits_fingerprint": habits_fp,
         "cached": False,
+        "efficiency": {
+            "official_required_count": official_required,
+            "download_column_count": download_count,
+            "ai_fill_attr_count": ai_fill_count,
+            "evidence_attr_count": len([col for col in columns if str(col.get("id", "")).startswith("attr.")]),
+            "shop_covered_count": len(covered_shop),
+            "template_covered_count": len(covered_template),
+            "reduction_note": (
+                f"官方必填约 {official_required} 项 → 下载表 {download_count} 列 → 审核表 AI 补 {ai_fill_count} 项"
+                if official_required
+                else f"下载表 {download_count} 列 → 审核表 AI 补 {ai_fill_count} 项"
+            ),
+            "two_stage_note": "① 下载表：你必须提供的依据  ② 审核表：全部官方字段（AI 已补，可改）",
+        },
     }
     if user is not None and habits_pre is not None:
         plan = _with_habits(plan, habits_pre)

@@ -1055,6 +1055,13 @@ async def grid_generate_images(
     if not category_id:
         raise HTTPException(status_code=400, detail="先选叶子类目")
     hint = _category_hint(db, user, shop_id, category_id, category_name)
+    shop_api_client = None
+    if shop_id:
+        try:
+            shop = shop_for(db, user, shop_id)
+            shop_api_client = shop_api(shop)
+        except ShopNotConnected:
+            shop_api_client = None
 
     def row_image_has_enough(item: Mapping[str, Any]) -> bool:
         slots = item.get("image_slots") or []
@@ -1085,6 +1092,7 @@ async def grid_generate_images(
                 item,
                 category_id=category_id,
                 category_name=hint or category_name,
+                api=shop_api_client,
             )
             item["image_job_id"] = job_id
             return grid_images.refresh_row_job(item, user.id), None

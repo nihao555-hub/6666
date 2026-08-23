@@ -39,6 +39,16 @@
       <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
       <div v-if="docStep === 0 && !awaitingReviewAssist && !docGrid.loading && !reviewAssistRunning" class="step-panel flow-shell">
+        <section v-if="doc.categoryId && smartPlanEfficiency" class="flow-efficiency-banner">
+          <p class="flow-efficiency-head">{{ smartPlanEfficiency.reduction_note || smartPlanEfficiencyLine }}</p>
+          <p class="flow-efficiency-sub">{{ smartPlanEfficiency.two_stage_note || "① 下载表：你必须提供的依据  ② 审核表：全部官方字段（AI 已补，可改）" }}</p>
+          <div v-if="smartPlanEfficiencyStats.length" class="plan-stats flow-efficiency-stats">
+            <div v-for="item in smartPlanEfficiencyStats" :key="item.label" class="plan-stat" :class="{ 'plan-stat-accent': item.accent }">
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.label }}</span>
+            </div>
+          </div>
+        </section>
         <!-- 1 商品图 -->
         <section class="flow-step" :class="{ 'is-done': imageSetupMode !== 'pending' }">
           <header class="flow-step-head">
@@ -136,6 +146,10 @@
                 <template v-if="smartPlanAiFillCount">；填完后 AI 高置信补 {{ smartPlanAiFillCount }} 个官方字段</template>
                 <template v-else-if="smartPlan.review_note">；{{ smartPlan.review_note }}</template>
               </p>
+              <p v-if="habitsSetupNudge" class="ready-meta flow-nudge-warn">{{ habitsSetupNudge }}</p>
+              <p v-if="smartPlanThinEvidence" class="ready-meta flow-nudge-warn">
+                依据列偏少：请尽量填齐表格里的类目属性列，否则 AI 推断可能留空、审核时要手补。
+              </p>
               <p v-if="habitsNeedsPick" class="ready-meta">
                 推荐运费：{{ habitsPanel.shipping_recommendation?.label || "—" }}
               </p>
@@ -162,6 +176,7 @@
             <div class="flow-step-titles">
               <h3>下载并填写表格</h3>
               <p>填你必须提供的依据（含无法推断的必填项），AI 据此补全其余官方必填</p>
+              <p v-if="smartPlanThinEvidence" class="flow-step-note flow-nudge-warn">依据列偏少：请尽量填齐类目属性，减少审核手补</p>
               <p v-if="confirmedPlanImageCount" class="flow-step-note">已选图会嵌进「图片」列</p>
             </div>
             <el-button
@@ -183,6 +198,7 @@
             <div class="flow-step-titles">
               <h3>上传表格</h3>
               <p>填好后拖入，AI 读取你的依据并高置信补全官方属性与文案</p>
+              <p class="flow-step-note muted">上传后进入审核表 — 展开全部官方字段，AI 已补的可改</p>
             </div>
           </header>
           <div v-if="doc.categoryId" class="flow-step-body">
@@ -1007,6 +1023,32 @@ const smartPlanEvidenceCount = computed(() => {
   if (ids.length) return ids.length;
   return (smartPlan.value.columns || []).filter((col) => String(col.id || "").startsWith("attr.")).length;
 });
+const smartPlanEfficiency = computed(() => smartPlan.value.efficiency || null);
+const smartPlanEfficiencyLine = computed(() => {
+  const eff = smartPlanEfficiency.value;
+  if (!eff) return "";
+  if (eff.reduction_note) return eff.reduction_note;
+  const official = eff.official_required_count || 0;
+  const download = eff.download_column_count || smartPlan.value.column_count || 0;
+  const aiFill = eff.ai_fill_attr_count || smartPlanAiFillCount.value || 0;
+  if (!official) return "";
+  return `官方必填约 ${official} 项 → 下载表 ${download} 列 → 审核表 AI 补 ${aiFill} 项`;
+});
+const smartPlanEfficiencyStats = computed(() => {
+  const eff = smartPlanEfficiency.value;
+  if (!eff?.official_required_count) return [];
+  return [
+    { label: "官方必填", value: eff.official_required_count, accent: false },
+    { label: "下载表列", value: eff.download_column_count || smartPlan.value.column_count || 0, accent: true },
+    { label: "AI 补全", value: eff.ai_fill_attr_count || smartPlanAiFillCount.value || 0, accent: false },
+  ];
+});
+const smartPlanThinEvidence = computed(() => {
+  if (!doc.categoryId || !smartPlan.value.column_count) return false;
+  const evidence = smartPlanEvidenceCount.value;
+  const aiFill = smartPlanAiFillCount.value;
+  return evidence < 2 && aiFill >= 4;
+});
 const smartColumnLabels = computed(() =>
   (smartPlan.value.columns || []).map((col) => col.label || col.header || col.id).filter(Boolean),
 );
@@ -1044,6 +1086,15 @@ const habitsSummaryLine = computed(() => {
     parts.push(`审核模板 ${doc.templateName}`);
   }
   return parts.join(" · ");
+});
+const habitsIncompleteChecks = computed(() =>
+  (habitsPanel.value?.checks || []).filter((item) => !item.ok && item.id !== "shippingTemplateId"),
+);
+const habitsSetupNudge = computed(() => {
+  if (!habitsPanel.value || habitsReady.value || habitsNeedsPick.value) return "";
+  const missing = habitsIncompleteChecks.value.map((item) => item.label).filter(Boolean);
+  if (!missing.length) return "";
+  return `店默认未配齐（${missing.join("、")}），规划时已尽量自动补；上传后审核表可改，配齐店默认后 AI 更准`;
 });
 const excelImageMode = computed(() => `${excel.photoPolicy || "complete"}_${excel.emptyPolicy || "draw"}`);
 const docPercent = computed(() => {
@@ -2458,6 +2509,7 @@ function normalizeSmartPlan(raw) {
     ai_fill_attr_count: raw.ai_fill_attr_count || (raw.ai_fill_attrs || []).length || 0,
     evidence_column_ids: raw.evidence_column_ids || [],
     review_note: raw.review_note || "",
+    efficiency: raw.efficiency || null,
     habits: raw.habits || null,
     selected_template_id: raw.selected_template_id || raw.habits?.selected_template_id || "",
     selected_template_name: raw.selected_template_name || raw.habits?.selected_template_name || "",
@@ -4170,6 +4222,31 @@ onUnmounted(() => {
 .plan-stat-accent {
   border-color: var(--accent-line);
   background: var(--accent-wash);
+}
+.flow-efficiency-banner {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: linear-gradient(180deg, var(--gray3) 0%, var(--surface) 100%);
+}
+.flow-efficiency-head {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.flow-efficiency-sub {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.flow-efficiency-stats {
+  margin-bottom: 0;
+}
+.flow-nudge-warn {
+  color: #b45309;
 }
 .plan-coverage {
   margin: 0 0 10px;

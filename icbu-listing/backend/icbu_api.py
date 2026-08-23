@@ -86,6 +86,30 @@ class IcbuApi:
             {"current_page": current_page, "page_size": page_size, "filter_type": filter_type},
         )
 
+    def search_products(
+        self,
+        *,
+        category_id: int | str | None = None,
+        subject: str = "",
+        current_page: int = 1,
+        page_size: int = 20,
+        language: str = "ENGLISH",
+        filter_type: str = "",
+    ) -> dict[str, Any]:
+        """Category/keyword product search (platform scope when gateway permits)."""
+        biz: dict[str, Any] = {
+            "current_page": current_page,
+            "page_size": min(max(1, page_size), 30),
+            "language": language,
+        }
+        if category_id not in (None, ""):
+            biz["category_id"] = int(category_id)
+        if subject:
+            biz["subject"] = subject
+        if filter_type:
+            biz["filter_type"] = filter_type
+        return self.client.execute(METHODS["product_list"], biz)
+
     def get_product(self, product_id: int | str) -> dict[str, Any]:
         return self.client.execute(
             METHODS["product_get"],

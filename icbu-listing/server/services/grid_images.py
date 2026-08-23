@@ -100,6 +100,8 @@ def start_row_job(
     *,
     category_id: str = "",
     category_name: str = "",
+    api: Any | None = None,
+    market_golden: Mapping[str, Any] | None = None,
 ) -> str:
     if not api_key():
         raise ValueError("平台还没接上出图服务")
@@ -116,6 +118,22 @@ def start_row_job(
         specs=_row_facts(row),
         reference_urls=urls,
     )
+    if category_id:
+        from . import market_golden as mg
+
+        golden = market_golden
+        if golden is None and api is not None:
+            try:
+                golden = mg.fetch_category_golden(
+                    api,
+                    category_id=category_id,
+                    category_name=category_name,
+                    product_name=name,
+                )
+            except Exception:
+                golden = None
+        if golden:
+            planned = mg.apply_to_plan(planned, golden)
     planned["product_name"] = name
     planned["category_id"] = category_id
     planned["category_hint"] = category_name
