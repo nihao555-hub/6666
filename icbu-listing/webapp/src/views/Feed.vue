@@ -2049,6 +2049,7 @@ async function inferFieldsForRows(lines, options = {}) {
     const body = new FormData();
     body.append("shop_id", store.shopId || "");
     body.append("category_id", doc.categoryId);
+    body.append("category_name", doc.categoryName || smartPlan.value.category_name || "");
     if (smartPlan.value.columns?.length) {
       body.append("plan_columns", JSON.stringify(smartPlan.value.columns));
     }

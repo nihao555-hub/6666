@@ -1,18 +1,19 @@
-"""Smart batch listing: evidence-first download sheet, then AI fills the rest.
+"""Smart batch listing: minimal required evidence sheet, AI infers the rest.
 
 Flow:
 1. Pull leaf schema (required + score-relevant optional fields).
-2. Subtract what shop defaults and category template already cover.
-3. Download sheet = redlines (price/moq/sku) + every per-SKU evidence column the seller
-   must type so AI can complete remaining official fields after upload.
-4. AI fills English copy + any official/score fields still empty but derivable from
-   what the seller typed on the sheet.
+2. Subtract shop defaults / category template coverage.
+3. Download sheet = redlines + the smallest set of required evidence columns the seller
+   actually knows per SKU (material, type, color count…).
+4. After upload, AI reads every filled cell and infers remaining official REQUIRED attrs
+   plus quality-score optionals — using exact dropdown labels, skipping when ambiguous.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Mapping, Sequence
 
 from ai import AiClient, AiUnavailable  # noqa: E402
@@ -43,59 +44,70 @@ SCORE_OPTIONAL_TOP = (
     "saleType",
 )
 
-PLANNER_VERSION = "evidence-sheet-v2"
+PLANNER_VERSION = "evidence-minimal-v3"
 
-PLANNER_PROMPT = """You plan a wholesale listing spreadsheet for Alibaba.com (ICBU).
+MAX_EVIDENCE_ATTRS = 4
+RULE_EVIDENCE_ATTRS = 2
 
-Goal: user_columns = the COMPLETE download sheet — every fact the seller must type per SKU.
-The sheet exists so sellers provide EVIDENCE upfront: official required attrs, score-relevant
-optionals, and redline fields (price/moq/sku) that AI must never invent.
+# Higher = better primary evidence anchor (seller-known facts that determine other attrs).
+_ANCHOR_PRIORITY: list[tuple[re.Pattern[str], int]] = [
+    (re.compile(r"材质|材料|material", re.I), 100),
+    (re.compile(r"类型|type|款式|style", re.I), 90),
+    (re.compile(r"色数|color count|pieces|支数", re.I), 85),
+    (re.compile(r"型号|model", re.I), 80),
+    (re.compile(r"规格|尺寸|size|capacity", re.I), 70),
+    (re.compile(r"颜色|color", re.I), 60),
+    (re.compile(r"硬度|hardness", re.I), 50),
+]
 
-After upload, AI reads every filled user column and completes ONLY:
-- English title / keywords / description (review stage)
-- official REQUIRED attrs still empty — when other user columns give evidence
-- quality-score OPTIONAL attrs still empty — when user columns give evidence
+PLANNER_PROMPT = """You plan a minimal wholesale listing spreadsheet for Alibaba.com (ICBU).
 
-Never guess price, MOQ, brand, or origin.
+Goal: user_columns = the SMALLEST set of per-SKU facts the seller must type so AI can
+infer ALL remaining official REQUIRED attributes with high accuracy after upload.
 
-Business goal: the download sheet is the seller's fact obligation; AI consumes those facts.
+Download sheet (user_columns) MUST contain:
+- sku, price, moq, name, note, images (always)
+- 2–4 official REQUIRED attribute columns (attr.*) that are PRIMARY product identity facts
+  the seller physically knows — e.g. material, product type, color count, main spec.
+  Pick anchors that together determine the other required dropdown attrs for this category.
+
+Download sheet MUST NOT contain:
+- productTitle, productKeywords, textDesc (AI review stage)
+- quality-score OPTIONAL fields (schema.* — AI fills after upload)
+- required attrs that are clearly derivable from the chosen anchors (put those in AI side)
+- logistics/trade fields already in shop defaults or template
+
+After upload AI completes (must NOT be in user_columns):
+{ai_completes}
 
 Leaf category: {category_name} ({category_id})
 
-Step 1 — full official schema inventory (every fillable field name; required list is complete):
+Official schema inventory:
 {schema_inventory}
 
-Step 2 — already covered by this shop's defaults or category listing template (seller must NOT re-type):
+Already covered by shop defaults or listing template:
 {covered}
 
-Shop/category template values summary (for your reasoning only):
+Template summary (reasoning only):
 {template_summary}
 
-Step 3 — candidate columns (pre-filtered; options shown when dropdown):
+Candidate columns (required attrs marked required=true; options truncated):
 {candidates}
 
-Fields AI will complete AFTER upload (must NOT appear in user_columns):
-{ai_completes}
-
 Hard rules:
-- user_columns MUST include every official REQUIRED attr from candidates (schema_required).
-- user_columns MUST include every quality-score OPTIONAL attr from candidates (schema_score).
-- Always include sku, price, moq, name, note, images in user_columns.
-- name/note supplement attrs; they do not replace required attr columns on the sheet.
-- Do NOT put productTitle/productKeywords/textDesc in user_columns (AI review stage).
-- Never ask for logistics/trade fields already in shop defaults or template.
-- Do NOT shrink the sheet to only sku/price/moq — attrs belong on the sheet as evidence.
-
-Title/keyword guidance (for reasoning only): Core Product + Type + Performance + Scene + OEM.
+- Prefer FEWER evidence columns — only anchors, not every required attr.
+- Anchors must be enough that a category expert could infer remaining required attrs.
+- Never include schema_score / schema.* in user_columns.
+- Never guess price, MOQ, brand, origin.
 
 Publishing skill rules:
 {skill_rules}
 
 Return JSON only:
 {{
-  "user_columns": ["sku", "price", "moq", "name", "note", "images", "attr....", "schema....", ...],
-  "reasoning": "one short Chinese paragraph: what seller fills vs what AI derives",
-  "tips": "one sentence telling the seller what facts to prepare"
+  "user_columns": ["sku", "price", "moq", "name", "note", "images", "attr....", ...],
+  "reasoning": "one short Chinese paragraph: which anchors seller fills vs what AI infers",
+  "tips": "one sentence: what to prepare per SKU"
 }}
 """
 
@@ -133,9 +145,9 @@ def _ai_completes_block(
     schema_inventory: Mapping[str, Any],
 ) -> str:
     lines = [
-        "productTitle, productKeywords, highlights, textDesc (English copy — review stage only)",
-        "official REQUIRED attrs still empty on the sheet — derive from other user columns when evidence allows",
-        "quality-score OPTIONAL attrs still empty — derive from user columns when evidence allows",
+        "productTitle, productKeywords, highlights, textDesc (English copy)",
+        "remaining official REQUIRED attrs not on the download sheet — infer from evidence columns",
+        "quality-score OPTIONAL attrs (schema.*) — infer from evidence when supported",
     ]
     if covered_shop or covered_template:
         lines.append(f"trade/logistics already from shop/template: {', '.join([*covered_shop, *covered_template][:12])}")
@@ -362,19 +374,82 @@ def candidate_columns(
     return candidates, covered_shop, covered_template
 
 
-def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Evidence sheet: redlines + every per-SKU official/score column not shop-covered."""
-    chosen: list[str] = list(CORE_IDS)
+def _is_score_column(col: Mapping[str, Any]) -> bool:
+    col_id = str(col.get("id") or "")
+    source = str(col.get("source") or "")
+    return col_id.startswith("schema.") or source == "schema_score"
+
+
+def _is_required_attr_column(col: Mapping[str, Any]) -> bool:
+    col_id = str(col.get("id") or "")
+    return bool(col.get("required")) and col_id.startswith("attr.")
+
+
+def _anchor_priority(col: Mapping[str, Any]) -> int:
+    if not _is_required_attr_column(col):
+        return -1
+    label = str(col.get("label") or col.get("header") or "")
+    score = 1
+    for pattern, pts in _ANCHOR_PRIORITY:
+        if pattern.search(label):
+            score = max(score, pts)
+    return score
+
+
+def _is_evidence_anchor(col: Mapping[str, Any]) -> bool:
+    return _anchor_priority(col) > 0
+
+
+def _evidence_anchor_ids(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = RULE_EVIDENCE_ATTRS,
+) -> list[str]:
+    """Pick top primary required attrs; remaining required attrs go to AI infer."""
+    ranked: list[tuple[int, str]] = []
     for col in candidates:
-        field_id = str(col.get("id") or "")
-        if not field_id or field_id in chosen:
+        score = _anchor_priority(col)
+        if score > 0:
+            ranked.append((score, str(col["id"])))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    anchors = [fid for _, fid in ranked[: max(1, limit)]]
+    if not anchors:
+        for col in candidates:
+            if _is_required_attr_column(col):
+                anchors.append(str(col["id"]))
+            if len(anchors) >= 2:
+                break
+    return anchors[:MAX_EVIDENCE_ATTRS]
+
+
+def _sanitize_user_column_ids(
+    candidates: Sequence[Mapping[str, Any]],
+    user_ids: Sequence[str],
+) -> list[str]:
+    """Download sheet: core + required evidence attrs only — never score optionals."""
+    allowed = {str(col["id"]) for col in candidates if col.get("id")}
+    required_attrs = {str(col["id"]) for col in candidates if _is_required_attr_column(col)}
+    score_ids = {str(col["id"]) for col in candidates if _is_score_column(col)}
+    core = set(CORE_IDS) | set(CORE_OPTIONAL)
+    ordered: list[str] = []
+    for field_id in user_ids:
+        fid = str(field_id or "").strip()
+        if not fid or fid not in allowed or fid in score_ids:
             continue
-        source = str(col.get("source") or "")
-        if field_id in CORE_OPTIONAL:
+        if fid in core or fid in required_attrs:
+            if fid not in ordered:
+                ordered.append(fid)
+    return ordered
+
+
+def _rule_based_user_columns(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Minimal sheet: redlines + name/note/images + a few required evidence anchors."""
+    chosen: list[str] = list(CORE_IDS)
+    for field_id in CORE_OPTIONAL:
+        if field_id not in chosen:
             chosen.append(field_id)
-        elif source == "schema_required" or (col.get("required") and field_id.startswith("attr.")):
-            chosen.append(field_id)
-        elif source == "schema_score" or field_id.startswith("schema."):
+    for field_id in _evidence_anchor_ids(candidates):
+        if field_id not in chosen:
             chosen.append(field_id)
     for optional in ("name", "note"):
         if optional not in chosen:
@@ -386,14 +461,14 @@ def _finalize_user_columns(
     candidates: Sequence[Mapping[str, Any]],
     user_ids: Sequence[str],
 ) -> list[str]:
-    """Download sheet = complete seller obligation. LLM cannot drop rule-based minimums."""
+    """Merge LLM picks with rule minimum; never allow score columns on the download sheet."""
+    sanitized = _sanitize_user_column_ids(candidates, user_ids)
     minimum = _rule_based_user_columns(candidates)
     allowed = {str(col["id"]) for col in candidates}
     ordered: list[str] = []
-    for field_id in user_ids:
-        fid = str(field_id or "").strip()
-        if fid in allowed and fid not in ordered:
-            ordered.append(fid)
+    for field_id in sanitized:
+        if field_id in allowed and field_id not in ordered:
+            ordered.append(field_id)
     for field_id in minimum:
         if field_id not in ordered:
             ordered.append(field_id)
@@ -451,7 +526,6 @@ def _llm_user_columns(
     reasoning = str(payload.get("reasoning") or "").strip()
     tips = str(payload.get("tips") or "").strip()
     return _finalize_user_columns(candidates, chosen), reasoning, tips
-
 
 def columns_for_ids(candidates: Sequence[Mapping[str, Any]], user_ids: Sequence[str]) -> list[dict[str, Any]]:
     by_id = {str(col["id"]): dict(col) for col in candidates}
@@ -574,10 +648,10 @@ def build_plan(
     )
     planner = "rules"
     reasoning = (
-        "填写表 = 你要填的依据：价/量/货号 + 该类目官方必填属性 + 影响信息分的选填列"
-        "（店铺/模板已覆盖的不重复）。上传后 AI 读取表中每一列，补英文文案与仍空且可推断的字段。"
+        "填写表只含最少必填依据列（价/量/货号 + 2～4 个核心属性如材质/类型/色数）。"
+        "上传后 AI 读取表中每一列，推断其余官方必填与影响信息分的选填。"
     )
-    tips = "每行一个 SKU。价/量/货号必填；官方属性与加分项按列填写——这些列就是 AI 推断的依据，不是只写在备注里。"
+    tips = "每行一个 SKU。把材质、类型、规格等你确实知道的填进属性列；其余必填和加分项交给 AI 推断。"
     template_summary = _template_summary(template_values)
     ai_completes = _ai_completes_block(
         covered_shop=covered_shop,
@@ -587,7 +661,7 @@ def build_plan(
     user_ids = _rule_based_user_columns(candidates)
     if ai is not None:
         try:
-            _, llm_reasoning, llm_tips = _llm_user_columns(
+            user_ids, llm_reasoning, llm_tips = _llm_user_columns(
                 ai,
                 category_id=category_id,
                 category_name=category_name,
@@ -598,14 +672,15 @@ def build_plan(
                 template_summary=template_summary,
                 ai_completes=ai_completes,
             )
-            planner = "rules+llm"
+            planner = "llm+rules"
             if llm_reasoning:
                 reasoning = llm_reasoning
             if llm_tips:
                 tips = llm_tips
         except AiUnavailable:
-            pass
-    user_ids = _finalize_user_columns(candidates, user_ids)
+            user_ids = _finalize_user_columns(candidates, user_ids)
+    else:
+        user_ids = _finalize_user_columns(candidates, user_ids)
     columns = columns_for_ids(candidates, user_ids)
     user_id_set = set(user_ids)
     ai_fill_attrs = ai_target_columns(candidates, user_id_set)
@@ -642,13 +717,15 @@ def build_plan(
         "shop_fills": [dict(item) for item in excel_import.SHOP_FILLS],
         "ai_fills": ai_fills,
         "ai_fill_attrs": ai_fill_attrs,
-        "user_fill_contract": "填写表 = 你要填的全部依据列（价/量/货号/官方属性/加分项 + 品名备注）。上传后 AI 读表中每一列补英文文案与仍空的官方字段。",
+        "user_fill_contract": "填写表 = 最少必填依据列；AI 推断其余官方必填与加分项",
         "guarantee": (
-            "填写表列齐官方必填与影响信息分的选填（店铺/模板已覆盖的不重复）。"
-            "上传后 AI 读取表中全部字段，补英文标题/关键词/详描，以及你留空但能从表内其它列推断出的官方字段。"
-            "价/量/品牌不代填；没依据仍留空。"
+            "下载表只有价/量/货号和 2～4 个你最该填的核心属性（材质、类型、色数等）。"
+            "上传后 AI 读取表中全部字段，高置信度推断其余官方必填与影响信息分的选填；"
+            "推断不确定则留空，价/量/品牌不代填。"
         ),
-        "review_note": "下载表含你要填的依据列；审核表会多出英文文案与 AI 从表内推断补全的字段，可改后再成稿。",
+        "review_note": "审核表会展示 AI 推断出的全部官方字段，可改后再成稿。",
+        "evidence_column_ids": [col["id"] for col in columns if str(col.get("id", "")).startswith("attr.")],
+        "ai_infer_attr_count": len(ai_fill_attrs),
         "review_checklist": checklist_for_review(),
         "publishing_skill": "aidi1723/alibaba-icbu-publishing-skill",
         "planner_input": {

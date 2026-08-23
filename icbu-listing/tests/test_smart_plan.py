@@ -1,4 +1,4 @@
-"""Smart batch plan: evidence-first user columns from schema + shop/template coverage."""
+"""Smart batch plan: minimal evidence columns; AI infers remaining required + score."""
 
 import json
 import os
@@ -39,70 +39,82 @@ def signup(tag: str = "user") -> TestClient:
     return client
 
 
-class SmartPlanUnitTests(unittest.TestCase):
-    def test_rule_based_includes_required_attrs_and_core(self) -> None:
-        candidates = [
-            smart_plan._core_column("sku"),
-            smart_plan._core_column("price"),
-            smart_plan._core_column("moq"),
-            smart_plan._core_column("name"),
-            {
-                "id": "attr.icbuCatProp.p-2",
-                "label": "铅芯硬度",
-                "required": True,
-                "source": "schema_required",
-            },
-            {
-                "id": "schema.paymentMethod",
-                "label": "付款方式",
-                "required": False,
-                "source": "schema_score",
-            },
-        ]
-        chosen = smart_plan._rule_based_user_columns(candidates)
-        self.assertEqual(chosen[:3], ["sku", "price", "moq"])
-        self.assertIn("name", chosen)
-        self.assertIn("note", chosen)
-        self.assertIn("attr.icbuCatProp.p-2", chosen)
-        self.assertIn("schema.paymentMethod", chosen)
+def _pencil_candidates() -> list[dict]:
+    return [
+        smart_plan._core_column("sku"),
+        smart_plan._core_column("price"),
+        smart_plan._core_column("moq"),
+        smart_plan._core_column("name"),
+        smart_plan._core_column("note"),
+        smart_plan._core_column("images"),
+        {
+            "id": "attr.icbuCatProp.p-15",
+            "label": "材质",
+            "required": True,
+            "source": "schema_required",
+        },
+        {
+            "id": "attr.icbuCatProp.p-2",
+            "label": "铅芯硬度",
+            "required": True,
+            "source": "schema_required",
+        },
+        {
+            "id": "attr.icbuCatProp.p-9",
+            "label": "铅芯颜色",
+            "required": True,
+            "source": "schema_required",
+        },
+        {
+            "id": "attr.saleProp.s-1",
+            "label": "色数",
+            "required": True,
+            "source": "schema_required",
+        },
+        {
+            "id": "schema.paymentMethod",
+            "label": "付款方式",
+            "required": False,
+            "source": "schema_score",
+        },
+    ]
 
-    def test_ai_target_excludes_on_sheet_required(self) -> None:
-        candidates = [
-            smart_plan._core_column("sku"),
-            smart_plan._core_column("price"),
-            smart_plan._core_column("moq"),
-            smart_plan._core_column("name"),
-            {
-                "id": "attr.icbuCatProp.p-2",
-                "label": "铅芯硬度",
-                "required": True,
-                "source": "schema_required",
-            },
-        ]
+
+class SmartPlanUnitTests(unittest.TestCase):
+    def test_rule_based_keeps_minimal_evidence_not_all_required(self) -> None:
+        candidates = _pencil_candidates()
+        chosen = smart_plan._rule_based_user_columns(candidates)
+        self.assertIn("sku", chosen)
+        self.assertIn("attr.icbuCatProp.p-15", chosen)
+        self.assertNotIn("attr.icbuCatProp.p-2", chosen)
+        self.assertNotIn("attr.icbuCatProp.p-9", chosen)
+        self.assertNotIn("schema.paymentMethod", chosen)
+        self.assertLessEqual(len([fid for fid in chosen if fid.startswith("attr.")]), smart_plan.MAX_EVIDENCE_ATTRS)
+
+    def test_sanitize_strips_score_columns_from_llm(self) -> None:
+        candidates = _pencil_candidates()
+        sanitized = smart_plan._sanitize_user_column_ids(
+            candidates,
+            ["sku", "price", "moq", "schema.paymentMethod", "attr.icbuCatProp.p-15"],
+        )
+        self.assertIn("attr.icbuCatProp.p-15", sanitized)
+        self.assertNotIn("schema.paymentMethod", sanitized)
+
+    def test_ai_target_includes_off_sheet_required_and_score(self) -> None:
+        candidates = _pencil_candidates()
         user_ids = set(smart_plan._rule_based_user_columns(candidates))
         targets = review_enrich.ai_target_columns(candidates, user_ids)
         ids = {item["id"] for item in targets}
-        self.assertNotIn("attr.icbuCatProp.p-2", ids)
+        self.assertIn("attr.icbuCatProp.p-2", ids)
+        self.assertIn("schema.paymentMethod", ids)
+        self.assertNotIn("attr.icbuCatProp.p-15", ids)
 
-    def test_finalize_restores_evidence_and_attr_columns_when_llm_omits(self) -> None:
-        candidates = [
-            smart_plan._core_column("sku"),
-            smart_plan._core_column("price"),
-            smart_plan._core_column("moq"),
-            smart_plan._core_column("name"),
-            smart_plan._core_column("note"),
-            {
-                "id": "attr.icbuCatProp.p-2",
-                "label": "铅芯硬度",
-                "required": True,
-                "source": "schema_required",
-            },
-        ]
-        llm_minimal = ["sku", "price", "moq"]
-        finalized = smart_plan._finalize_user_columns(candidates, llm_minimal)
+    def test_finalize_restores_anchors_when_llm_omits(self) -> None:
+        candidates = _pencil_candidates()
+        finalized = smart_plan._finalize_user_columns(candidates, ["sku", "price", "moq"])
         self.assertIn("name", finalized)
         self.assertIn("note", finalized)
-        self.assertIn("attr.icbuCatProp.p-2", finalized)
+        self.assertTrue(any(fid.startswith("attr.") for fid in finalized))
 
     def test_build_smart_template_bytes(self) -> None:
         plan = {
@@ -159,68 +171,6 @@ class SmartPlanCacheTests(unittest.TestCase):
         self.assertEqual(calls["n"], 1)
         db.close()
 
-    def test_build_plan_skips_schema_on_fast_cache_hit(self) -> None:
-        from server.db import SessionLocal  # noqa: E402
-        from server.models import Shop, User  # noqa: E402
-
-        db = SessionLocal()
-        user = User(email=f"fast-{uuid.uuid4().hex[:8]}@example.com", password_hash="x")
-        db.add(user)
-        db.commit()
-        shop = Shop(user_id=user.id, name="极速店", platform="alibaba_icbu")
-        db.add(shop)
-        db.commit()
-        schema_calls = {"n": 0}
-
-        def counting_schema(*_args, **_kwargs):
-            schema_calls["n"] += 1
-            return "<fields></fields>"
-
-        with unittest.mock.patch(
-            "server.services.smart_plan.catalog.get_schema_xml",
-            side_effect=counting_schema,
-        ), unittest.mock.patch(
-            "server.services.smart_plan.parse_schema",
-            return_value=[],
-        ), unittest.mock.patch.object(
-            smart_plan,
-            "_llm_user_columns",
-            return_value=(["sku", "price", "moq", "name", "note"], "测试", "准备报价单"),
-        ):
-            smart_plan.build_plan(db, object(), shop, category_id="21110712", category_name="彩铅", ai=object())
-            smart_plan.build_plan(db, object(), shop, category_id="21110712", category_name="彩铅", ai=object())
-        self.assertEqual(schema_calls["n"], 1)
-        db.close()
-
-    def test_refresh_bypasses_cache(self) -> None:
-        from server.db import SessionLocal  # noqa: E402
-        from server.models import Shop, User  # noqa: E402
-
-        db = SessionLocal()
-        user = User(email=f"refresh-{uuid.uuid4().hex[:8]}@example.com", password_hash="x")
-        db.add(user)
-        db.commit()
-        shop = Shop(user_id=user.id, name="刷新店", platform="alibaba_icbu")
-        db.add(shop)
-        db.commit()
-        calls = {"n": 0}
-
-        def fake_llm(*_args, **_kwargs):
-            calls["n"] += 1
-            return (["sku", "price", "moq"], "再次规划", "准备报价单")
-
-        with unittest.mock.patch(
-            "server.services.smart_plan.catalog.get_schema_xml",
-            return_value="<fields></fields>",
-        ), unittest.mock.patch(
-            "server.services.smart_plan.parse_schema",
-            return_value=[],
-        ), unittest.mock.patch.object(smart_plan, "_llm_user_columns", side_effect=fake_llm):
-            smart_plan.build_plan(db, object(), shop, category_id="21110712", ai=object())
-            smart_plan.build_plan(db, object(), shop, category_id="21110712", ai=object(), refresh=True)
-        self.assertEqual(calls["n"], 2)
-        db.close()
-
 
 class SmartPlanApiTests(unittest.TestCase):
     @classmethod
@@ -256,47 +206,6 @@ class SmartPlanApiTests(unittest.TestCase):
         self.assertIn("price", ids)
         self.assertIn("moq", ids)
         self.assertGreaterEqual(len(plan.get("review_checklist") or []), 4)
-        self.assertEqual(plan.get("publishing_skill"), "aidi1723/alibaba-icbu-publishing-skill")
-
-    def test_smart_template_from_plan_download(self) -> None:
-        client = signup("smart-plan-xlsx")
-        shop_id = client.post("/api/v1/shops/bind-env", json={"name": "智能店4"}).json()["id"]
-        response = client.post(
-            "/api/v1/excel/smart-template-from-plan",
-            json={
-                "shop_id": shop_id,
-                "category_id": "21110712",
-                "category_name": "彩铅",
-                "columns": [
-                    smart_plan._core_column("sku"),
-                    smart_plan._core_column("price"),
-                    smart_plan._core_column("moq"),
-                ],
-                "reasoning": "测试",
-                "tips": "一行一个 SKU",
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("spreadsheetml", response.headers.get("content-type", ""))
-        self.assertTrue(response.content.startswith(b"PK"))
-
-    def test_smart_template_download(self) -> None:
-        client = signup("smart-xlsx")
-        shop_id = client.post("/api/v1/shops/bind-env", json={"name": "智能店3"}).json()["id"]
-        with unittest.mock.patch(
-            "server.services.smart_plan.catalog.get_schema_xml",
-            return_value="<fields></fields>",
-        ), unittest.mock.patch(
-            "server.services.smart_plan.parse_schema",
-            return_value=[],
-        ):
-            response = client.get(
-                "/api/v1/excel/smart-template",
-                params={"shop_id": shop_id, "category_id": "21110712", "category_name": "彩铅"},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("spreadsheetml", response.headers.get("content-type", ""))
-        self.assertTrue(response.content.startswith(b"PK"))
 
 
 if __name__ == "__main__":

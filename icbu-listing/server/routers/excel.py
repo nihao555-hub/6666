@@ -729,6 +729,7 @@ async def grid_regen_copy(
 async def grid_infer_fields(
     shop_id: str = Form(""),
     category_id: str = Form(""),
+    category_name: str = Form(""),
     rows: str = Form("[]"),
     lines: str = Form("[]"),
     columns: str = Form(""),
@@ -776,6 +777,7 @@ async def grid_infer_fields(
         ai=ai,
         shop_defaults=shop_defaults_payload,
         user_column_ids=user_column_ids,
+        category_name=category_name,
     )
     return {
         "rows": updated,

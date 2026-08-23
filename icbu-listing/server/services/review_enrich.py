@@ -356,6 +356,7 @@ def _ai_fill_empty_columns(
     already: Mapping[str, str],
     *,
     user_column_ids: set[str] | None = None,
+    category_name: str = "",
 ) -> tuple[dict[str, str], list[str]]:
     facts = _facts_from_user_columns(row, columns, user_column_ids=user_column_ids)
     by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
@@ -375,17 +376,23 @@ def _ai_fill_empty_columns(
         }
     if not question:
         return {}, []
+    category_line = f"Leaf category: {category_name}\n" if category_name else ""
     prompt = (
-        "You complete an Alibaba.com (ICBU) wholesale listing after the seller uploaded a smart spreadsheet.\n"
-        "user_facts = every column the seller typed on the download sheet.\n"
-        "title/keywords/highlights may already be AI-generated — treat them as evidence too.\n"
-        "Fill fields_to_fill when user_facts or AI copy support a value: official REQUIRED attrs and "
-        "quality-score OPTIONAL attrs that are not on the download sheet.\n"
-        "Use exact dropdown option labels. Leave empty only when there is no reasonable evidence.\n"
-        "Never guess price, MOQ, brand, origin, or certifications. Never pick Other/其他.\n\n"
+        "You are an Alibaba.com (ICBU) wholesale listing attribute specialist.\n"
+        "The seller filled a MINIMAL evidence sheet. Infer empty fields in fields_to_fill.\n\n"
+        f"{category_line}"
+        "Rules (follow strictly for high accuracy):\n"
+        "1. user_facts = every cell the seller typed on the download sheet (including name, note, filled attrs).\n"
+        "2. Use EXACT option label from fields_to_fill.options — copy character-for-character.\n"
+        "3. REQUIRED empty fields: fill ONLY when user_facts uniquely support ONE option.\n"
+        "4. If two or more options are plausible, return empty string for that field.\n"
+        "5. Score optional fields: fill only with strong, unambiguous evidence.\n"
+        "6. Values must be logically consistent across fields (e.g. 12-color set ↔ color count 12).\n"
+        "7. Never guess price, MOQ, brand, origin, or certifications.\n"
+        "8. Never pick Other/其他/Custom unless user_facts explicitly say custom/OEM.\n\n"
         f"user_facts: {json.dumps(facts, ensure_ascii=False)}\n"
         f"fields_to_fill: {json.dumps(question, ensure_ascii=False)}\n"
-        'Return JSON only: {"column_id": "value or empty string"}'
+        'Return JSON only: {"column_id": "exact option label or empty string"}'
     )
     try:
         payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
@@ -429,6 +436,7 @@ def infer_fields_for_row(
     ai: AiClient | None = None,
     shop_defaults: Mapping[str, Any] | None = None,
     user_column_ids: set[str] | None = None,
+    category_name: str = "",
 ) -> tuple[dict[str, str], list[str]]:
     """Fill empty required/score columns from shop defaults, user row corpus, then AI."""
     filled: dict[str, str] = {}
@@ -461,6 +469,7 @@ def infer_fields_for_row(
             columns,
             filled,
             user_column_ids=user_column_ids,
+            category_name=category_name,
         )
         for key, value in ai_patch.items():
             if key not in filled:
@@ -495,6 +504,7 @@ def infer_fields_for_rows(
     ai: AiClient | None = None,
     shop_defaults: Mapping[str, Any] | None = None,
     user_column_ids: set[str] | None = None,
+    category_name: str = "",
 ) -> tuple[list[dict[str, Any]], list[str], int, dict[str, Any]]:
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -512,6 +522,7 @@ def infer_fields_for_rows(
             ai=ai,
             shop_defaults=shop_defaults,
             user_column_ids=user_column_ids,
+            category_name=category_name,
         )
         if patch:
             item.update(patch)
