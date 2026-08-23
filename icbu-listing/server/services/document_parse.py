@@ -321,13 +321,18 @@ def _mapping_covers_core(mapping: Mapping[str, str]) -> bool:
     return sum(1 for field_id in ("sku", "price", "moq") if field_id in mapped) >= 2
 
 
-def _parse_spreadsheet(name: str, content: bytes, extra_columns: list[dict[str, Any]] | None) -> tuple[list[ExcelRow], str]:
-    """Rule-based spreadsheet parse. Returns rows and a short diagnostic tag."""
+def _parse_spreadsheet(
+    name: str,
+    content: bytes,
+    extra_columns: list[dict[str, Any]] | None,
+) -> tuple[list[ExcelRow], str, dict[str, bytes]]:
+    """Rule-based spreadsheet parse. Returns rows, diagnostic tag, embedded uploads."""
     suffix = _suffix(name)
+    embedded_uploads: dict[str, bytes] = {}
     if suffix == ".csv":
         sheet_rows = _read_csv(content)
         if len(sheet_rows) < 1:
-            return [], "empty_csv"
+            return [], "empty_csv", embedded_uploads
         header_index = excel_import.find_header_row(sheet_rows, "detect")
         for trial in range(min(8, len(sheet_rows))):
             headers = sheet_rows[trial]
@@ -338,22 +343,22 @@ def _parse_spreadsheet(name: str, content: bytes, extra_columns: list[dict[str, 
         headers = sheet_rows[header_index]
         mapping = excel_import.mapping_from_headers(headers, "detect", extra_columns)
         if not _mapping_covers_core(mapping):
-            return [], "header_unmapped"
+            return [], "header_unmapped", embedded_uploads
         parsed, skipped = excel_import.drop_samples(
             excel_import.parse_rows(sheet_rows, mapping, header_index, extra_columns)
         )
         if not parsed and skipped:
-            return [], "only_sample_rows"
+            return [], "only_sample_rows", embedded_uploads
         if not parsed:
-            return [], "no_data_rows"
-        return parsed, "ok"
+            return [], "no_data_rows", embedded_uploads
+        return parsed, "ok", embedded_uploads
 
     try:
         sheet_rows = read_sheet(content)
     except Exception:
-        return [], "unreadable_xlsx"
+        return [], "unreadable_xlsx", embedded_uploads
     if not sheet_rows:
-        return [], "empty_xlsx"
+        return [], "empty_xlsx", embedded_uploads
 
     header_index = excel_import.find_header_row(sheet_rows, "detect")
     mapping: dict[str, str] = {}
@@ -372,16 +377,21 @@ def _parse_spreadsheet(name: str, content: bytes, extra_columns: list[dict[str, 
         preview_data = preview(content, "detect", extra_columns)
         mapping = preview_data.get("mapping") or mapping
         if not _mapping_covers_core(mapping):
-            return [], "header_unmapped"
+            return [], "header_unmapped", embedded_uploads
 
     parsed, skipped = excel_import.drop_samples(
         excel_import.parse_rows(sheet_rows, mapping, header_index, extra_columns)
     )
+    if suffix in {".xlsx", ".xlsm"}:
+        embedded_uploads = excel_import.merge_embedded_images_into_rows(
+            parsed,
+            excel_import.extract_embedded_images(content),
+        )
     if not parsed and skipped:
-        return [], "only_sample_rows"
+        return [], "only_sample_rows", embedded_uploads
     if not parsed:
-        return [], "no_data_rows"
-    return parsed, "ok"
+        return [], "no_data_rows", embedded_uploads
+    return parsed, "ok", embedded_uploads
 
 
 def _llm_extract(
@@ -483,6 +493,7 @@ def parse_documents(
     unstructured: list[tuple[str, bytes]] = []
     sources: list[str] = []
     sheet_diagnostics: dict[str, str] = {}
+    embedded_uploads: dict[str, bytes] = {}
     llm_tried = False
     llm_row_count = 0
 
@@ -491,8 +502,9 @@ def parse_documents(
             continue
         suffix = _suffix(name)
         if suffix in SPREADSHEET_SUFFIXES:
-            rows, tag = _parse_spreadsheet(name, content, extras)
+            rows, tag, sheet_embedded = _parse_spreadsheet(name, content, extras)
             sheet_diagnostics[name] = tag
+            embedded_uploads.update(sheet_embedded)
             if rows:
                 structured.extend(rows)
                 sources.append(f"表格 {name}")
@@ -544,13 +556,17 @@ def parse_documents(
         )
 
     image_files = _image_uploads(files)
+    image_files.update(embedded_uploads)
     if image_files:
         grid_items = attach_uploaded_images(grid_items, image_files)
         if not any(str(item.get("images") or "").strip() for item in grid_items):
             warnings.append("已收到图片文件，但没和表格货号对上。请把图片命名为 SKU.jpg 或 SKU_1.jpg。")
         else:
             matched_rows = sum(1 for item in grid_items if str(item.get("images") or "").strip())
-            warnings.append(f"已按货号/文件名自动配对 {matched_rows} 行的图片。")
+            note = f"已按货号/文件名自动配对 {matched_rows} 行的图片。"
+            if embedded_uploads:
+                note += "（含表格内嵌图片）"
+            warnings.append(note)
 
     grid_items = [attach_row_images(item) for item in grid_items]
     check = check_grid(grid_items, columns, category_id=category_id, image_mode=image_mode)

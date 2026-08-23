@@ -16,8 +16,8 @@
 | 图片上传 | `/alibaba/icbu/photobank/upload` | `file_name` `image_bytes` | 已通，返回 `file_id` + `photobank_url` |
 | 图片列表 | `/icbu/product/photobank/list` | `groupId` `currentPage` `pageSize` | 已通 |
 | 商品分组 | `/alibaba/icbu/product/group/get` | `group_id=-1` 拿根分组 | 已通 |
-| 正式发布 | `/icbu/product/schema/add` | `publish_request` | 路径有效（参数校验已触发），尚未发真品 |
-| 发官方草稿 | `/icbu/product/schema/add/draft` | `param_product_top_publish_request` | 路径有效，尚未发真品 |
+| 正式发布 | `/icbu/product/schema/add` | `publish_request` | 路径有效；2026-08-23 克隆在线品 raw 调用成功 |
+| 发官方草稿 | `/icbu/product/schema/add/draft` | `param_product_top_publish_request` | 路径有效；2026-08-23 实测 product_id=11000037689425 |
 
 ## 这个应用没有开通的接口
 

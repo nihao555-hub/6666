@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import quote, urlparse
 
 import requests
@@ -461,8 +461,8 @@ def download_smart_template_from_plan(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _smart_template_response(plan: Mapping[str, Any], name_hint: str) -> Response:
-    payload = smart_plan.build_smart_template_bytes(plan)
+def _smart_template_response(plan: Mapping[str, Any], name_hint: str, *, embed_files: Sequence[tuple[str, bytes]] | None = None) -> Response:
+    payload = smart_plan.build_smart_template_bytes(plan, embed_image_files=embed_files)
     category_id = str(plan.get("category_id") or "")
     ascii_name = f"auto-shoper-smart-{category_id}.xlsx"
     utf_name = f"智能批量上品-{name_hint or category_id}.xlsx"
@@ -473,6 +473,114 @@ def _smart_template_response(plan: Mapping[str, Any], name_hint: str) -> Respons
             "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(utf_name)}"
         },
     )
+
+
+async def _collect_template_image_uploads(
+    files: list[UploadFile],
+    photobank_images: str,
+) -> list[tuple[str, bytes]]:
+    uploads: list[tuple[str, bytes]] = []
+    for item in files:
+        raw = await item.read()
+        if raw:
+            uploads.append((item.filename or "photo.jpg", raw))
+    bank = _parse_photobank_json(photobank_images)
+    if bank:
+        for item in bank:
+            url = str(item.get("url") or "").strip()
+            if not url:
+                continue
+            if url.startswith("//"):
+                url = f"https:{url}"
+            name = str(item.get("file_name") or item.get("name") or "bank.jpg")
+            try:
+                response = requests.get(url, timeout=FETCH_TIMEOUT)
+                if response.status_code == 200 and response.content:
+                    uploads.append((name, response.content))
+            except Exception:
+                continue
+    return uploads
+
+
+def _plan_body_from_form(
+    *,
+    category_id: str,
+    category_name: str,
+    columns: str,
+    reasoning: str = "",
+    tips: str = "",
+    guarantee: str = "",
+    covered_by_shop: str = "[]",
+    covered_by_template: str = "[]",
+    ai_fills: str = "[]",
+) -> dict[str, Any]:
+    try:
+        parsed_columns = json.loads(columns or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="columns 不是合法 JSON") from exc
+    if not isinstance(parsed_columns, list) or not parsed_columns:
+        raise HTTPException(status_code=400, detail="缺少填写列，请先选类目并等待规划完成")
+
+    def _json_list(raw: str) -> list[Any]:
+        try:
+            payload = json.loads(raw or "[]")
+        except json.JSONDecodeError:
+            return []
+        return payload if isinstance(payload, list) else []
+
+    return {
+        "category_id": category_id,
+        "category_name": category_name,
+        "columns": parsed_columns,
+        "reasoning": reasoning,
+        "tips": tips,
+        "guarantee": guarantee,
+        "covered_by_shop": _json_list(covered_by_shop),
+        "covered_by_template": _json_list(covered_by_template),
+        "ai_fills": _json_list(ai_fills),
+    }
+
+
+@router.post("/smart-template-from-plan-files")
+async def download_smart_template_from_plan_files(
+    shop_id: str = Form(""),
+    category_id: str = Form(""),
+    category_name: str = Form(""),
+    columns: str = Form("[]"),
+    reasoning: str = Form(""),
+    tips: str = Form(""),
+    guarantee: str = Form(""),
+    covered_by_shop: str = Form("[]"),
+    covered_by_template: str = Form("[]"),
+    ai_fills: str = Form("[]"),
+    photobank_images: str = Form("[]"),
+    files: list[UploadFile] = File(default_factory=list),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Response:
+    """Build XLSX with embedded product images in the images column."""
+    reload_db_from_blob_throttled(min_interval_seconds=3.0)
+    if not shop_id or not category_id:
+        raise HTTPException(status_code=400, detail="先选店铺和叶子类目")
+    shop_for(db, user, shop_id)
+    plan = _plan_body_from_form(
+        category_id=category_id,
+        category_name=category_name,
+        columns=columns,
+        reasoning=reasoning,
+        tips=tips,
+        guarantee=guarantee,
+        covered_by_shop=covered_by_shop,
+        covered_by_template=covered_by_template,
+        ai_fills=ai_fills,
+    )
+    embed_files = await _collect_template_image_uploads(files, photobank_images)
+    if not embed_files:
+        raise HTTPException(status_code=400, detail="没有可嵌入的商品图，请先选图或上传图片")
+    try:
+        return _smart_template_response(plan, plan["category_name"] or category_id, embed_files=embed_files)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/official-attrs")

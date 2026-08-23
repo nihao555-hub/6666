@@ -156,6 +156,7 @@
             <div class="flow-step-titles">
               <h3>下载并填写表格</h3>
               <p>只需填价、量、货号和少量属性，其余 AI 补</p>
+              <p v-if="confirmedPlanImageCount" class="flow-step-note">已选图会嵌进「图片」列</p>
             </div>
             <el-button
               type="primary"
@@ -3320,7 +3321,7 @@ async function downloadDocTemplate() {
       throw new Error("还没有生成填写列，请稍候或点「重新生成」");
     }
     const categoryName = doc.categoryName || smartPlan.value.category_name || "";
-    const blob = await api.excelSmartTemplateFromPlan({
+    const planPayload = {
       shop_id: store.shopId,
       category_id: doc.categoryId,
       category_name: categoryName,
@@ -3331,7 +3332,22 @@ async function downloadDocTemplate() {
       covered_by_shop: smartPlan.value.covered_by_shop,
       covered_by_template: smartPlan.value.covered_by_template,
       ai_fills: smartPlan.value.ai_fills,
-    });
+    };
+    let blob;
+    if (hasUploadablePlanImages() || selectedPhotobankList().length) {
+      const form = new FormData();
+      Object.entries(planPayload).forEach(([key, value]) => {
+        form.append(key, typeof value === "string" ? value : JSON.stringify(value ?? []));
+      });
+      allUploadImageFiles().forEach((item) => {
+        if (item.raw) form.append("files", item.raw, item.name);
+      });
+      const bank = selectedPhotobankList();
+      if (bank.length) form.append("photobank_images", JSON.stringify(bank));
+      blob = await api.excelSmartTemplateFromPlanFiles(form);
+    } else {
+      blob = await api.excelSmartTemplateFromPlan(planPayload);
+    }
     const safeName = (categoryName || doc.categoryId).replace(/[/\\?%*:|"<>]/g, "-");
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -3339,7 +3355,11 @@ async function downloadDocTemplate() {
     anchor.download = `智能批量上品-${safeName}.xlsx`;
     anchor.click();
     URL.revokeObjectURL(url);
-    ElMessage.success(`填写表已开始下载（${smartPlan.value.column_count || smartPlan.value.columns.length} 列）`);
+    ElMessage.success(
+      hasUploadablePlanImages() || selectedPhotobankList().length
+        ? `填写表已开始下载（${smartPlan.value.column_count || smartPlan.value.columns.length} 列，已嵌入商品图）`
+        : `填写表已开始下载（${smartPlan.value.column_count || smartPlan.value.columns.length} 列）`,
+    );
   } catch (error) {
     ElMessage.error(error.message || "下载失败");
   } finally {

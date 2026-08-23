@@ -812,6 +812,12 @@ a {
   line-height: 1.4;
 }
 
+.flow-step-note {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--accent-text);
+}
+
 .flow-step-body {
   padding: 0 16px 16px;
   border-top: 1px solid var(--line);

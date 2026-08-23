@@ -18,11 +18,13 @@ from server.services.excel_import import (  # noqa: E402
     build_template,
     category_attr_columns,
     decide_image_action,
+    extract_embedded_images,
     fill_policy,
     find_header_row,
     flatten_schema_fields,
     guess_field,
     guess_style,
+    merge_embedded_images_into_rows,
     mapping_from_headers,
     match_uploads,
     parse_rows,
@@ -493,6 +495,35 @@ class FullSchemaTests(unittest.TestCase):
         parsed = parse_rows(rows, mapping, 0, extras)
         self.assertEqual(parsed[0].sku, "SKU-1")
         self.assertEqual(parsed[0].attributes["icbuCatProp"]["p-type"], "1")
+
+    def test_smart_template_embeds_and_extracts_images(self) -> None:
+        from openpyxl import load_workbook
+        from server.services import smart_plan
+
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+            b"\x01\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        plan = {
+            "category_id": "21110712",
+            "category_name": "彩铅",
+            "columns": [
+                {"id": "sku", "label": "货号", "header": "货号"},
+                {"id": "price", "label": "单价 USD", "header": "单价 USD"},
+                {"id": "moq", "label": "起订量", "header": "起订量"},
+                {"id": "images", "label": "图片", "header": "图片"},
+            ],
+        }
+        payload = smart_plan.build_smart_template_bytes(plan, embed_image_files=[("SKU-1001.jpg", png)])
+        book = load_workbook(io.BytesIO(payload))
+        sheet = book.active
+        self.assertGreaterEqual(len(sheet._images), 1)
+        embedded = extract_embedded_images(payload)
+        self.assertIn(3, embedded)
+        row = ExcelRow(sku="SKU-1001", images=["SKU-1001.jpg"], line=3)
+        uploads = merge_embedded_images_into_rows([row], embedded)
+        self.assertIn("sku-1001.jpg", uploads)
 
 
 if __name__ == "__main__":

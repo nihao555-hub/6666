@@ -141,6 +141,13 @@ export const api = {
     });
     return parseXlsxBlob(response);
   },
+  excelSmartTemplateFromPlanFiles: async (form) => {
+    const response = await http.post("/excel/smart-template-from-plan-files", form, {
+      responseType: "blob",
+      timeout: 120000,
+    });
+    return parseXlsxBlob(response);
+  },
   officialExcelAttrs: (shopId, categoryId) =>
     http.get("/excel/official-attrs", { params: { shop_id: shopId, category_id: categoryId } }),
   excelDocParse: (form) => http.post("/excel/doc-parse", form),

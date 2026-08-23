@@ -1605,15 +1605,116 @@ def build_template(
     return buffer.getvalue()
 
 
+def _guess_sku_from_filename(name: str) -> str:
+    stem = _stem_of(name)
+    trimmed = re.sub(r"[_-]\d+$", "", stem, flags=re.I)
+    return trimmed or stem
+
+
+def _prepare_image_for_xlsx(content: bytes, *, max_side: int = 480) -> io.BytesIO:
+    try:
+        from PIL import Image as PILImage
+
+        image = PILImage.open(io.BytesIO(content))
+        image.thumbnail((max_side, max_side))
+        out = io.BytesIO()
+        if image.mode in {"RGBA", "P"}:
+            image.save(out, format="PNG")
+        else:
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            image.save(out, format="JPEG", quality=85)
+        out.seek(0)
+        return out
+    except Exception:
+        return io.BytesIO(content)
+
+
+def plan_embedded_image_rows(files: Sequence[tuple[str, bytes]]) -> list[dict[str, Any]]:
+    """Group confirmed uploads into starter rows for an embed-image template."""
+    grouped: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    seen: set[str] = set()
+    for name, content in files:
+        if not content:
+            continue
+        suffix = _image_suffix(name)
+        if suffix not in _IMAGE_SUFFIXES:
+            continue
+        base = name.replace("\\", "/").rsplit("/", 1)[-1]
+        key = base.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        sku = _guess_sku_from_filename(base)
+        bucket = normalize_sku(sku) or key
+        if bucket not in grouped:
+            grouped[bucket] = {"sku": sku or base, "images": [], "image_bytes": []}
+            order.append(bucket)
+        grouped[bucket]["images"].append(base)
+        grouped[bucket]["image_bytes"].append((base, content))
+    return [grouped[key] for key in order]
+
+
+def extract_embedded_images(content: bytes) -> dict[int, list[tuple[str, bytes]]]:
+    """Map 1-based spreadsheet row -> embedded image files in that row."""
+    try:
+        book = load_workbook(io.BytesIO(content))
+    except Exception:
+        return {}
+    sheet = book.active
+    by_row: dict[int, list[tuple[str, bytes]]] = {}
+    for img in getattr(sheet, "_images", []) or []:
+        anchor = getattr(img, "anchor", None)
+        if anchor is None or not hasattr(anchor, "_from"):
+            continue
+        row = int(anchor._from.row) + 1
+        col = int(anchor._from.col) + 1
+        try:
+            data = img._data()
+        except Exception:
+            continue
+        if not isinstance(data, bytes) or not data:
+            continue
+        cell_text = str(sheet.cell(row, col).value or "").strip()
+        names = [part.strip() for part in cell_text.split(";") if part.strip()]
+        filename = names[0] if names else f"embedded-{row}.jpg"
+        by_row.setdefault(row, []).append((filename, data))
+    book.close()
+    return by_row
+
+
+def merge_embedded_images_into_rows(
+    rows: Sequence[ExcelRow],
+    embedded: Mapping[int, Sequence[tuple[str, bytes]]],
+) -> dict[str, bytes]:
+    """Attach embedded images to parsed rows and return an upload index."""
+    uploads: dict[str, bytes] = {}
+    for row in rows:
+        items = embedded.get(row.line, [])
+        if not items:
+            continue
+        names = list(row.images)
+        for filename, data in items:
+            lower = filename.lower()
+            uploads[lower] = data
+            if filename not in names:
+                names.append(filename)
+        row.images = names
+    return uploads
+
+
 def build_smart_template(
     columns: list[dict[str, Any]],
     *,
     category_id: str = "",
     category_name: str = "",
     plan_summary: dict[str, Any] | None = None,
+    embed_rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> bytes:
     """Download sheet with LLM-planned columns only."""
     from openpyxl.comments import Comment
+    from openpyxl.drawing.image import Image as XLImage
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
@@ -1669,6 +1770,36 @@ def build_smart_template(
         "智能批量上品：一行 = 一个商品。第 2 行是示例，导入时自动跳过。",
         "Auto Shoper",
     )
+
+    images_col_index = next((index for index, (field_id, _, _) in enumerate(headers, start=1) if field_id == "images"), None)
+    starter_rows = list(embed_rows or [])
+    if starter_rows:
+        for offset, row_data in enumerate(starter_rows):
+            row_num = 3 + offset
+            names = [str(item) for item in (row_data.get("images") or []) if str(item).strip()]
+            image_bytes = [(str(name), raw) for name, raw in (row_data.get("image_bytes") or []) if raw]
+            for col_index, (field_id, _label, _hint) in enumerate(headers, start=1):
+                if field_id == "sku":
+                    sheet.cell(row_num, col_index, str(row_data.get("sku") or ""))
+                elif field_id == "images" and names:
+                    sheet.cell(row_num, col_index, ";".join(names))
+            if images_col_index and image_bytes:
+                filename, raw = image_bytes[0]
+                try:
+                    xl_image = XLImage(_prepare_image_for_xlsx(raw))
+                    xl_image.width = 72
+                    xl_image.height = 72
+                    col_letter = get_column_letter(images_col_index)
+                    sheet.add_image(xl_image, f"{col_letter}{row_num}")
+                    sheet.row_dimensions[row_num].height = 56
+                    current = sheet.column_dimensions[col_letter].width or 18
+                    sheet.column_dimensions[col_letter].width = max(current, 14)
+                except Exception:
+                    sheet.cell(row_num, images_col_index, ";".join(names))
+        sheet.cell(1, 1).comment = Comment(
+            "已预填商品图（嵌在「图片」列）。从第 3 行起补价、起订量、货号即可；第 2 行仍是示例。",
+            "Auto Shoper",
+        )
 
     help_sheet = book.create_sheet("说明")
     help_sheet["A1"] = f"智能填写表 · {category_name or category_id or '叶子类目'}"

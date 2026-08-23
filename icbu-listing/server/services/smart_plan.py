@@ -847,14 +847,20 @@ def expand_audit_columns(
         return review_enrich.order_review_columns(plan_columns)
 
 
-def build_smart_template_bytes(plan: Mapping[str, Any]) -> bytes:
+def build_smart_template_bytes(
+    plan: Mapping[str, Any],
+    *,
+    embed_image_files: Sequence[tuple[str, bytes]] | None = None,
+) -> bytes:
     columns = list(plan.get("columns") or [])
     category_id = str(plan.get("category_id") or "")
     category_name = str(plan.get("category_name") or category_id)
+    embed_rows = excel_import.plan_embedded_image_rows(embed_image_files or []) if embed_image_files else []
     return excel_import.build_smart_template(
         columns,
         category_id=category_id,
         category_name=category_name,
+        embed_rows=embed_rows,
         plan_summary={
             "reasoning": plan.get("reasoning") or "",
             "tips": plan.get("tips") or "",
