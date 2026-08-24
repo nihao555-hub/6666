@@ -25,7 +25,9 @@
 
 | Secret | 说明 |
 |--------|------|
-| `VERCEL_TOKEN` | Vercel 账号 Token（与本地 `vercel deploy --prod` 相同） |
+| `VERCEL_TOKEN` | Vercel 账号 Token（[vercel.com/account/tokens](https://vercel.com/account/tokens) 创建） |
+
+未配置时 **Deploy Production** CI 会红（`VERCEL_TOKEN secret is missing`），需用手动部署；配置后 push `videos-dataset` 会自动部署并校验 `git_sha`。
 
 ## 手动部署
 

@@ -46,11 +46,12 @@ jobs:
             fi
             sleep 15
           done
-          echo "::warning::Health OK but git_sha not yet ${{ github.sha }} — Vercel may still be propagating."
+          echo "::error::Production git_sha did not match ${{ github.sha }} within 3 minutes."
+          exit 1
 
       - name: Verify Feed bundle marker
         run: |
-          feed=$(curl -fsS "https://icbu-listing.vercel.app/" | grep -oE 'Feed-[^"]+\.js' | head -1)
-          test -n "$feed"
-          curl -fsS "https://icbu-listing.vercel.app/assets/$feed" | grep -q 'useEcosystemAssistant'
-          echo "Feed bundle OK: $feed"
+          index=$(curl -fsS "https://icbu-listing.vercel.app/" | grep -oE 'assets/index-[^"]+\.js' | head -1)
+          test -n "$index"
+          curl -fsS "https://icbu-listing.vercel.app/$index" | grep -q 'Feed-'
+          echo "Feed lazy chunk referenced in $index"
