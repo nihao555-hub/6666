@@ -32,7 +32,7 @@ class SaveIn(BaseModel):
 
 @router.get("")
 def list_sessions(shop_id: str = "", db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    reload_db_from_blob_throttled(min_interval_seconds=2.0)
+    reload_db_from_blob_throttled(min_interval_seconds=5.0)
     db.expire_all()
     rows = sessions.list_open(db, user.id, shop_id)
     return {"sessions": [sessions.public_view(row) for row in rows]}
@@ -40,8 +40,7 @@ def list_sessions(shop_id: str = "", db: Session = Depends(get_db), user: User =
 
 @router.post("")
 def create_session(payload: CreateIn, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    reload_db_from_blob_throttled(min_interval_seconds=2.0)
-    db.expire_all()
+    # New sessions do not need a full blob hydrate before insert.
     row = sessions.create(db, user.id, payload.path, payload.shop_id)
     return sessions.public_view(row)
 

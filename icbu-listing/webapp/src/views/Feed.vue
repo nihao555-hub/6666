@@ -13,8 +13,13 @@
       style="margin-bottom: 14px"
     />
 
-    <div v-if="!sessionId" class="boot-panel">
-      <p class="muted">{{ sessionBooting ? "加载中…" : "正在准备批量任务…" }}</p>
+    <div v-if="sessionBooting" class="boot-panel">
+      <p class="muted">正在进入批量上品…</p>
+    </div>
+
+    <div v-else-if="!sessionId" class="boot-panel">
+      <p class="muted">任务加载失败</p>
+      <el-button type="primary" :loading="sessionBooting" @click="retryBoot">重试</el-button>
     </div>
 
     <template v-else>
@@ -575,6 +580,7 @@ let localDraftTimer = null;
 let serverSyncTimer = null;
 const sessionApiRetryDelaysFresh = [300, 700, 1200];
 const sessionApiRetryDelaysBoot = [0, 80, 160];
+const BOOT_LIST_WAIT_MS = 350;
 const sessionBooting = ref(true);
 const openSessions = ref([]);
 const currentTitle = ref("");
@@ -2254,35 +2260,38 @@ async function bootSession() {
           ? localDraft
           : null;
 
+    void store.ensureShops();
+
     if (matchingDraft?.sessionId) {
       sessionId.value = matchingDraft.sessionId;
       applyDraftPayload(matchingDraft);
       verifySession(matchingDraft.sessionId);
       router.replace({ query: { session: matchingDraft.sessionId } });
+      void loadOpenSessions();
       void hydrateSessionFromServer(matchingDraft.sessionId);
       return;
     }
 
     if (wanted && !deadSessionIds.has(wanted)) {
       sessionId.value = wanted;
+      void loadOpenSessions();
       await resumeSession(wanted, { deferHeavy: true, skipListReload: true });
       return;
     }
 
-    const shopsReady = store.shops.length ? Promise.resolve() : store.ensureShops();
-    const [, sessionsResult] = await Promise.allSettled([shopsReady, loadOpenSessions()]);
-    if (sessionsResult.status === "rejected") {
-      /* list optional — still create a fresh session */
-    }
+    const listTask = loadOpenSessions();
+    await Promise.race([listTask, sleep(BOOT_LIST_WAIT_MS)]);
     const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
     if (latest) {
       applySession(latest);
       verifySession(latest.id);
       router.replace({ query: { session: latest.id } });
       void finishResumeSession();
+      void listTask;
       return;
     }
     if (!sessionId.value) await startPath();
+    void listTask;
   } catch (error) {
     if (!sessionId.value) {
       try {
@@ -2294,6 +2303,10 @@ async function bootSession() {
   } finally {
     sessionBooting.value = false;
   }
+}
+
+async function retryBoot() {
+  await bootSession();
 }
 
 onMounted(() => {

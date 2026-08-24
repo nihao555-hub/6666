@@ -194,7 +194,6 @@ def create(db: Session, user_id: str, path: str, shop_id: str = "") -> FeedSessi
     db.add(row)
     db.commit()
     db.refresh(row)
-    persist_database()
     return row
 
 
