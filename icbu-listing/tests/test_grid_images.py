@@ -34,6 +34,21 @@ class GridImageTests(unittest.TestCase):
         self.assertEqual(len(item["image_slots"]), 6)
         self.assertTrue(all(slot["status"] == "empty" for slot in item["image_slots"]))
 
+    def test_attach_row_images_replaces_empty_placeholder_slots(self) -> None:
+        item = attach_row_images(
+            {
+                "images": "https://img.example.com/a.jpg",
+                "image_slots": empty_slots(),
+            }
+        )
+        self.assertIn("example.com", item["image_slots"][0]["url"])
+
+    def test_attach_row_images_keeps_generated_slots(self) -> None:
+        generated = empty_slots()
+        generated[0] = {**generated[0], "status": "done", "url": "/api/v1/image-templates/jobs/j1/files/1.png"}
+        item = attach_row_images({"images": "local.jpg", "image_slots": generated})
+        self.assertEqual(item["image_slots"][0]["url"], "/api/v1/image-templates/jobs/j1/files/1.png")
+
     def test_start_row_job_requires_name(self) -> None:
         from server.services import grid_images
 

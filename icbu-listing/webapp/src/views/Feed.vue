@@ -2053,6 +2053,7 @@ function applySession(session) {
   mergeLocalDraftIfNewer();
   if (docGrid.rows.length > 0 && (docReached.value >= 1 || docGrid.source)) {
     docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
+    ensureGridPolling();
     if (auditGateReady.value) {
       goToAuditStep();
     } else if (docStep.value === 0) {
@@ -2381,6 +2382,9 @@ function applyLocalImageMatches(rows, files) {
   const uploads = buildUploadMap(files);
   if (!Object.keys(uploads).length) return rows;
   return rows.map((row) => {
+    if ((row.image_slots || []).some((slot) => isPersistedImageUrl(slot.url))) {
+      return row;
+    }
     const names = String(row.images || "")
       .split(";")
       .map((part) => part.trim())
@@ -2740,6 +2744,10 @@ function advanceDoc(index) {
 }
 
 function rowSlots(row) {
+  const slots = row?.image_slots?.length ? row.image_slots : [];
+  if (slots.some((slot) => isPersistedImageUrl(slot.url))) {
+    return slots.map((slot) => ({ ...slot }));
+  }
   const imageNames = String(row?.images || "")
     .split(";")
     .map((part) => part.trim())
@@ -2755,8 +2763,8 @@ function rowSlots(row) {
       return slotsFromLocalUrls(matched.map(([, raw]) => URL.createObjectURL(raw)));
     }
   }
-  if (row?.image_slots?.length && row.image_slots.some((slot) => slot.url)) {
-    return row.image_slots;
+  if (slots.some((slot) => slot.url)) {
+    return slots.map((slot) => ({ ...slot }));
   }
   return DEFAULT_IMAGE_SLOTS.map((slot) => ({ ...slot }));
 }

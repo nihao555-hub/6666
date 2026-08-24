@@ -35,9 +35,18 @@ def slots_from_urls(urls: Sequence[str]) -> list[dict[str, Any]]:
     return slots
 
 
+def _slot_has_real_url(slots: Sequence[Mapping[str, Any]]) -> bool:
+    for slot in slots:
+        url = str(slot.get("url") or "").strip()
+        if url and not url.startswith("blob:"):
+            return True
+    return False
+
+
 def attach_row_images(item: dict[str, Any]) -> dict[str, Any]:
     row = dict(item)
-    if row.get("image_slots"):
+    slots = row.get("image_slots") or []
+    if slots and _slot_has_real_url(slots):
         return row
     images = [part.strip() for part in str(row.get("images") or "").split(";") if part.strip()]
     urls, _ = split_images(images)
