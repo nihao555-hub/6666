@@ -38,7 +38,7 @@
 
       <FishboneSteps v-if="docStep !== 1" v-model="docStep" :steps="docSteps" :reached="docReached" />
 
-      <div v-if="docStep === 0 && !awaitingReviewAssist && !docGrid.loading && !reviewAssistRunning" class="step-panel flow-shell">
+      <div v-if="docStep === 0 && !showReviewPipeline && !docGrid.loading && !reviewAssistRunning" class="step-panel flow-shell">
         <section v-if="doc.categoryId && smartPlanEfficiency" class="flow-efficiency-banner">
           <p class="flow-efficiency-head">{{ smartPlanEfficiency.reduction_note || smartPlanEfficiencyLine }}</p>
           <p class="flow-efficiency-sub">{{ smartPlanEfficiency.two_stage_note || "① 下载表：你必须提供的依据  ② 审核表：全部官方字段（AI 已补，可改）" }}</p>
@@ -230,33 +230,31 @@
       </div>
 
       <section
-        v-if="docStep === 0 && awaitingReviewAssist"
+        v-if="showReviewPipeline"
         class="ai-timeline ai-timeline-vertical audit-ai-timeline audit-prep-panel"
         aria-live="polite"
       >
         <header class="audit-prep-head">
-          <h2 class="audit-page-title">AI 补全中</h2>
-          <p class="audit-subtitle">补标题与属性后进入审核；出图会等到任务真正提交并跑完，下方实时显示输出 token</p>
-          <span v-if="reviewOutputTokens" class="ai-timeline-badge is-live">输出 {{ reviewOutputTokens }} tokens</span>
+          <div class="audit-prep-head-main">
+            <h2 class="audit-page-title">AI 处理中</h2>
+            <p class="audit-subtitle">
+              {{ reviewPipelineProgress.current?.label || "准备中" }}
+              · {{ reviewPipelineProgress.done }}/{{ reviewPipelineProgress.total }} 步
+              <template v-if="reviewOutputTokens"> · 输出 {{ reviewOutputTokens }} tokens</template>
+            </p>
+          </div>
+          <div class="audit-prep-progress" role="progressbar" :aria-valuenow="reviewPipelineProgress.done" :aria-valuemax="reviewPipelineProgress.total">
+            <span class="audit-prep-progress-fill" :style="{ width: `${Math.round((reviewPipelineProgress.done / Math.max(reviewPipelineProgress.total, 1)) * 100)}%` }" />
+          </div>
           <span v-if="docGrid.loading || reviewAssistRunning" class="ai-timeline-badge is-live">进行中</span>
-          <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
-          <el-button
-            v-if="reviewAssistRunning && docGrid.rows.length"
-            size="small"
-            type="primary"
-            plain
-            style="margin-left: 12px"
-            @click="skipToAuditWhileImagesRun"
-          >
-            先进入审核
-          </el-button>
+          <span v-else-if="auditGateReady" class="ai-timeline-badge is-done">可进入审核</span>
         </header>
-        <ol class="ai-timeline-track">
+        <ol class="ai-timeline-track audit-prep-track">
           <li
             v-for="(step, index) in reviewAiSteps"
             :key="step.id"
             class="ai-timeline-item"
-            :class="`is-${step.status}`"
+            :class="[`is-${step.status}`, { 'is-current': step.status === 'running' }]"
           >
             <div class="ai-timeline-rail" aria-hidden="true">
               <span class="ai-timeline-dot" />
@@ -268,12 +266,20 @@
                 <span class="ai-timeline-status">{{ reviewStepStatusLabel(step.status) }}</span>
               </div>
               <p v-if="step.detail" class="ai-timeline-detail">{{ step.detail }}</p>
+              <button
+                v-if="step.id === 'images' && step.status === 'error'"
+                type="button"
+                class="link-btn audit-prep-retry"
+                @click="retryFailedImages()"
+              >
+                重试出图
+              </button>
             </div>
           </li>
         </ol>
       </section>
 
-      <div v-if="docStep === 1 && reviewAiAllDone" class="step-panel audit-shell">
+      <div v-if="docStep === 1" class="step-panel audit-shell">
         <header class="audit-page-head">
           <button type="button" class="audit-back" @click="docStep = 0; docReached = 1">← 返回</button>
           <div class="audit-page-head-main">
@@ -659,6 +665,9 @@ const aiServiceReady = ref(null);
 const imageServiceReady = ref(null);
 const reviewAssistRunning = ref(false);
 const reviewOutputTokens = ref(0);
+const reviewPipelineActive = ref(false);
+const AUDIT_GATE_STEP_IDS = new Set(["parse", "service", "template", "copy", "attrs", "check"]);
+const IMAGE_GEN_MAX_ATTEMPTS = 3;
 let reviewAssistPromise = null;
 const reviewAiSteps = ref(createReviewAiSteps());
 const smartPlanAiSteps = ref(createSmartPlanAiSteps());
@@ -773,6 +782,7 @@ function finishSmartPlanStepAnimation() {
 
 function createReviewAiSteps() {
   return [
+    { id: "parse", label: "读表解析", status: "pending", detail: "" },
     { id: "service", label: "检查 AI 服务", status: "pending", detail: "" },
     { id: "template", label: "匹配刊登模板", status: "pending", detail: "" },
     { id: "copy", label: "写标题和关键词", status: "pending", detail: "" },
@@ -824,13 +834,26 @@ function reviewStepStatusLabel(status) {
   return "等待";
 }
 
-const showReviewAiTimeline = computed(() => awaitingReviewAssist.value);
-
-const awaitingReviewAssist = computed(() => {
-  if (docStep.value !== 0 || !docGrid.rows.length) return false;
-  if (docGrid.loading || reviewAssistRunning.value) return true;
-  if (docReached.value >= 1 && !reviewAiAllDone.value) return true;
+const showReviewPipeline = computed(() => {
+  if (docStep.value !== 0) return false;
+  if (reviewPipelineActive.value || docGrid.loading || reviewAssistRunning.value) return true;
+  if (docGrid.rows.length && docReached.value >= 1 && !auditGateReady.value) return true;
   return false;
+});
+
+const reviewPipelineProgress = computed(() => {
+  const steps = reviewAiSteps.value;
+  const done = steps.filter((step) => ["done", "skip"].includes(step.status)).length;
+  const current = steps.find((step) => step.status === "running") || null;
+  return { done, total: steps.length, current };
+});
+
+const auditGateReady = computed(() => {
+  if (docGrid.loading || reviewAssistRunning.value) return false;
+  if (!docGrid.rows.length) return false;
+  return reviewAiSteps.value
+    .filter((step) => AUDIT_GATE_STEP_IDS.has(step.id))
+    .every((step) => ["done", "skip"].includes(step.status));
 });
 
 const reviewAiAllDone = computed(() => {
@@ -841,9 +864,12 @@ const reviewAiAllDone = computed(() => {
   });
 });
 
+const awaitingReviewAssist = computed(() => showReviewPipeline.value);
+
 function maybeEnterAuditStep() {
-  if (!docGrid.rows.length || !reviewAiAllDone.value) return;
+  if (!docGrid.rows.length || !auditGateReady.value) return;
   if (docStep.value === 0 && docReached.value >= 1) {
+    reviewPipelineActive.value = false;
     goToAuditStep();
   }
 }
@@ -2027,7 +2053,7 @@ function applySession(session) {
   mergeLocalDraftIfNewer();
   if (docGrid.rows.length > 0 && (docReached.value >= 1 || docGrid.source)) {
     docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
-    if (reviewAiAllDone.value) {
+    if (auditGateReady.value) {
       goToAuditStep();
     } else if (docStep.value === 0) {
       void runReviewAssist(true);
@@ -2086,7 +2112,7 @@ async function finishResumeSession() {
   }
   if (docGrid.rows.length > 0 && (docReached.value >= 1 || docGrid.source)) {
     docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
-    if (reviewAiAllDone.value) {
+    if (auditGateReady.value) {
       goToAuditStep();
     } else if (docStep.value === 0) {
       void runReviewAssist(true);
@@ -2219,74 +2245,72 @@ async function bootSession() {
   sessionBooting.value = true;
   try {
     const wanted = route.query.session ? String(route.query.session) : "";
-    const localDraft = !wanted ? loadLocalDraft() : null;
-    if (localDraft?.sessionId && !deadSessionIds.has(localDraft.sessionId)) {
-      sessionId.value = localDraft.sessionId;
-      applyDraftPayload(localDraft);
-      verifySession(localDraft.sessionId);
-      router.replace({ query: { session: localDraft.sessionId } });
+    const localDraft = loadLocalDraft();
+    const matchingDraft =
+      localDraft?.sessionId && !deadSessionIds.has(localDraft.sessionId)
+        ? localDraft
+        : wanted && localDraft?.sessionId === wanted
+          ? localDraft
+          : null;
+
+    if (matchingDraft?.sessionId) {
+      sessionId.value = matchingDraft.sessionId;
+      applyDraftPayload(matchingDraft);
+      verifySession(matchingDraft.sessionId);
+      router.replace({ query: { session: matchingDraft.sessionId } });
       sessionBooting.value = false;
-      void hydrateSessionFromServer(localDraft.sessionId);
+      void hydrateSessionFromServer(matchingDraft.sessionId);
       return;
     }
 
-    const shopsReady = store.shops.length ? Promise.resolve() : store.ensureShops();
-
-    if (wanted && deadSessionIds.has(wanted)) {
-      router.replace({ query: {} });
-    } else if (wanted && !deadSessionIds.has(wanted)) {
+    if (wanted && !deadSessionIds.has(wanted)) {
       sessionId.value = wanted;
-      const draft = loadLocalDraft();
-      if (draft?.sessionId === wanted) {
-        applyDraftPayload(draft);
-        verifySession(wanted);
-        router.replace({ query: { session: wanted } });
-        sessionBooting.value = false;
-        void hydrateSessionFromServer(wanted);
-        return;
-      }
-      const [, remote] = await Promise.all([
-        shopsReady,
-        resolveSessionById(wanted, { boot: true }),
-      ]);
-      void loadOpenSessions();
-      if (remote) {
-        applySession(remote);
-        verifySession(wanted);
-        router.replace({ query: { session: wanted } });
-        void finishResumeSession();
-        return;
-      }
-      forgetSession(wanted);
-      router.replace({ query: {} });
-    }
-
-    await Promise.all([shopsReady, loadOpenSessions()]);
-    const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
-    if (latest) {
-      applySession(latest);
-      verifySession(latest.id);
-      router.replace({ query: { session: latest.id } });
-      void finishResumeSession();
+      sessionBooting.value = false;
+      void resumeSession(wanted, { deferHeavy: true, skipListReload: true });
       return;
     }
-    await startPath();
+
+    sessionBooting.value = false;
+    void (async () => {
+      try {
+        await store.ensureShops();
+        await loadOpenSessions();
+        const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
+        if (latest) {
+          applySession(latest);
+          verifySession(latest.id);
+          router.replace({ query: { session: latest.id } });
+          void finishResumeSession();
+          return;
+        }
+        if (!sessionId.value) await startPath();
+      } catch (error) {
+        if (!sessionId.value) {
+          try {
+            await startPath();
+          } catch {
+            ElMessage.error(error.message || "加载失败");
+          }
+        }
+      }
+    })();
   } finally {
     sessionBooting.value = false;
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   void api.health().then((health) => {
     aiServiceReady.value = health.ai_enabled !== false;
+    imageServiceReady.value = health.image_enabled !== false;
   }).catch(() => {
     aiServiceReady.value = null;
+    imageServiceReady.value = null;
   });
-  const shopsReady = store.shops.length ? Promise.resolve() : store.ensureShops();
-  void shopsReady.then(() => {
+  void store.ensureShops().then(() => {
     if (store.shopId) void prefetchCategoryPicker(store.shopId);
   });
-  await Promise.all([bootSession(), shopsReady]);
+  void bootSession();
 });
 
 let saveTimer = null;
@@ -2324,9 +2348,9 @@ watch(
   { deep: true },
 );
 watch(
-  () => reviewAiAllDone.value,
-  (done) => {
-    if (!done || !docGrid.rows.length) return;
+  () => auditGateReady.value,
+  (ready) => {
+    if (!ready || !docGrid.rows.length) return;
     maybeEnterAuditStep();
   },
 );
@@ -2695,7 +2719,19 @@ function goToAuditStep() {
   docStep.value = 1;
   reviewPage.value = 1;
   doc.reviewAiDone = true;
-  markReviewAiDone();
+  reviewPipelineActive.value = false;
+  reviewAiSteps.value = reviewAiSteps.value.map((step) => {
+    if (step.id === "images") {
+      if (["queued", "running", "pending"].includes(String(step.status || "")) || hasPendingImageJobs()) {
+        return { ...step, status: "running", detail: step.detail || "后台出图中，审核表自动刷新" };
+      }
+      return step;
+    }
+    if (step.status === "pending") {
+      return { ...step, status: "done", detail: step.detail || "已完成" };
+    }
+    return step;
+  });
   void persistSession({ server: true });
   void autoStartReviewImages();
 }
@@ -2754,17 +2790,6 @@ function ensureGridPolling() {
   pollGridImages();
 }
 
-async function waitForGridImagesDone() {
-  while (hasPendingImageJobs()) {
-    await pollGridImages();
-    patchReviewStep("images", {
-      status: "running",
-      detail: reviewStepDetail(docImageGenSummary.value || "后台生成中…"),
-    });
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-}
-
 async function pollGridImages() {
   if (!docGrid.rows.length) return;
   try {
@@ -2772,19 +2797,37 @@ async function pollGridImages() {
     body.append("rows", JSON.stringify(docGrid.rows));
     const result = await api.excelGridPollImages(body);
     docGrid.rows = normalizeDocRows(result.rows || []);
+    const failedRetryable = docGrid.rows.filter(
+      (row) => String(row.image_job_status || "") === "failed" && rowImageGenAttempts(row) < IMAGE_GEN_MAX_ATTEMPTS && !row._image_retry_scheduled,
+    );
+    if (failedRetryable.length) {
+      failedRetryable.forEach((row) => {
+        row._image_retry_scheduled = true;
+      });
+      const lines = failedRetryable.map((row) => row.line);
+      void generateImagesForRows(lines, { silent: true, countAttempt: true });
+    }
     if (!result.pending) {
       clearInterval(gridPollTimer);
       gridPollTimer = null;
-      patchReviewStep("images", {
-        status: "done",
-        detail: `六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`,
-      });
+      const stillNeed = rowsNeedingImageJobs().length;
+      const failedFinal = docGrid.rows.filter((row) => String(row.image_job_status || "") === "failed").length;
+      if (stillNeed && failedFinal) {
+        patchReviewStep("images", {
+          status: "error",
+          detail: reviewStepDetail(`${failedFinal} 行出图失败`, "可点重试出图"),
+        });
+      } else {
+        patchReviewStep("images", {
+          status: "done",
+          detail: reviewStepDetail(`六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`),
+        });
+      }
       await recheckDocGrid({ silent: true });
-      maybeEnterAuditStep();
     } else {
       patchReviewStep("images", {
         status: "running",
-        detail: docImageGenSummary.value || "后台生成中…",
+        detail: reviewStepDetail(docImageGenSummary.value || "后台生成中…"),
       });
     }
     await persistSession();
@@ -3171,8 +3214,18 @@ async function batchSetField(field) {
 }
 
 async function generateImagesForRows(lines, options = {}) {
-  const { silent = false } = options;
+  const { silent = false, countAttempt = false } = options;
   if (!docGrid.rows.length) return { ok: true, skipped: true };
+  const targetLines = Array.isArray(lines) && lines.length ? new Set(lines.map((line) => Number(line))) : null;
+  if (countAttempt || targetLines) {
+    const needLines = new Set(rowsNeedingImageJobs().map((row) => Number(row.line || 0)));
+    docGrid.rows = docGrid.rows.map((row) => {
+      const line = Number(row.line || 0);
+      const inTarget = targetLines ? targetLines.has(line) : needLines.has(line);
+      if (!inTarget) return row;
+      return { ...row, image_gen_attempts: rowImageGenAttempts(row) + 1 };
+    });
+  }
   docGrid.generating = true;
   try {
     const body = new FormData();
@@ -3211,14 +3264,54 @@ async function generateImagesForRows(lines, options = {}) {
   }
 }
 
+function rowImageGenAttempts(row) {
+  return Number(row?.image_gen_attempts || 0);
+}
+
 function rowsNeedingImageJobs() {
   if (excel.emptyPolicy === "skip") return [];
   return docGrid.rows.filter((row) => {
     if (rowPersistedImageCount(row) >= 6) return false;
     const status = String(row.image_job_status || "");
     if (row.image_job_id && ["queued", "running"].includes(status)) return false;
+    if (status === "failed") return rowImageGenAttempts(row) < IMAGE_GEN_MAX_ATTEMPTS;
     return true;
   });
+}
+
+async function kickoffReviewImages(expectedCount = 0) {
+  const imageResult = await generateImagesForRows([], { silent: true, countAttempt: true });
+  const started = imageResult?.jobs_started || 0;
+  if (imageResult?.ok && started > 0) {
+    patchReviewStep("images", {
+      status: "running",
+      detail: reviewStepDetail(`已启动 ${started} 行出图`, "审核表内自动刷新，无需等待"),
+    });
+    ensureGridPolling();
+    return imageResult;
+  }
+  if (imageResult?.error) {
+    patchReviewStep("images", { status: "error", detail: imageResult.error });
+  } else if (imageResult?.image_service_ready === false) {
+    patchReviewStep("images", { status: "error", detail: "出图服务未配置，后台没有接到 GRSAI" });
+  } else {
+    const err = imageResult?.errors?.[0] || `出图未启动（0 个任务，需 ${expectedCount || rowsNeedingImageJobs().length} 行）`;
+    patchReviewStep("images", { status: "error", detail: err });
+  }
+  return imageResult;
+}
+
+async function retryFailedImages() {
+  const targets = docGrid.rows.filter((row) => {
+    const status = String(row.image_job_status || "");
+    return status === "failed" && rowImageGenAttempts(row) < IMAGE_GEN_MAX_ATTEMPTS;
+  });
+  if (!targets.length) {
+    ElMessage.info("没有可重试的出图任务");
+    return;
+  }
+  patchReviewStep("images", { status: "running", detail: reviewStepDetail(`重试 ${targets.length} 行出图…`) });
+  await kickoffReviewImages(targets.length);
 }
 
 async function autoStartReviewImages() {
@@ -3407,7 +3500,9 @@ async function runReviewAssist(force = false) {
 async function runReviewAssistImpl(force = false) {
   if (!docGrid.rows.length || !doc.categoryId) return;
   reviewAssistRunning.value = true;
-  resetReviewAiSteps();
+  reviewPipelineActive.value = true;
+  const parseDone = reviewAiSteps.value.some((step) => step.id === "parse" && step.status === "done");
+  if (!parseDone) resetReviewAiSteps();
   try {
     patchReviewStep("service", { status: "running", detail: "检查文案与出图服务…" });
     try {
@@ -3495,27 +3590,7 @@ async function runReviewAssistImpl(force = false) {
         patchReviewStep("images", { status: "error", detail: "未配置 GRSAI 出图服务（GRSAI_API_KEY）" });
       } else if (imageNeed) {
         patchReviewStep("images", { status: "running", detail: reviewStepDetail(`提交 ${imageNeed} 行出图任务…`) });
-        const imageResult = await generateImagesForRows([], { silent: true });
-        const started = imageResult?.jobs_started || 0;
-        if (imageResult?.ok && started > 0) {
-          patchReviewStep("images", {
-            status: "running",
-            detail: reviewStepDetail(`已启动 ${started} 行出图`, docImageGenSummary.value),
-          });
-          ensureGridPolling();
-          await waitForGridImagesDone();
-          patchReviewStep("images", {
-            status: "done",
-            detail: reviewStepDetail(`六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`),
-          });
-        } else if (imageResult?.error) {
-          patchReviewStep("images", { status: "error", detail: imageResult.error });
-        } else if (imageResult?.image_service_ready === false) {
-          patchReviewStep("images", { status: "error", detail: "出图服务未配置，后台没有接到 GRSAI" });
-        } else {
-          const err = imageResult?.errors?.[0] || `出图未启动（0 个任务，需 ${imageNeed} 行）`;
-          patchReviewStep("images", { status: "error", detail: err });
-        }
+        void kickoffReviewImages(imageNeed);
       } else {
         const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
         if (matchedPhotos) {
@@ -3580,9 +3655,10 @@ async function parseDocuments() {
   }
   uploadables.forEach((item) => body.append("files", item.raw));
   docGrid.loading = true;
-  parseStatus.value = "AI 正在读表…";
+  parseStatus.value = "解析中…";
+  reviewPipelineActive.value = true;
   resetReviewAiSteps();
-  patchReviewStep("service", { status: "running", detail: "AI 正在读表…" });
+  patchReviewStep("parse", { status: "running", detail: "AI 正在读表…" });
   try {
     const result = await api.excelDocParse(body);
     docGrid.columns = result.columns || smartPlan.value.columns || [];
@@ -3597,14 +3673,16 @@ async function parseDocuments() {
     docGrid.ready_count = result.ready_count || 0;
     docGrid.source = result.source || "";
     docReached.value = Math.max(docReached.value, 1);
-    patchReviewStep("service", { status: "done", detail: "解析完成" });
+    patchReviewStep("parse", { status: "done", detail: `识别 ${docGrid.row_count} 行` });
     void persistSession({ server: true });
     scheduleDocImageSync();
     await runReviewAssist(true);
     maybeEnterAuditStep();
-    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，AI 补全完成后进入审核`);
+    ElMessage.success(`识别到 ${docGrid.row_count} 个商品，已进入审核流程`);
   } catch (error) {
+    reviewPipelineActive.value = false;
     resetReviewAiSteps();
+    patchReviewStep("parse", { status: "error", detail: error.message });
     ElMessage.error(error.message);
   } finally {
     docGrid.loading = false;
@@ -5733,13 +5811,44 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin-bottom: 16px;
+  gap: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.audit-prep-head-main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.audit-prep-progress {
+  flex: 1 1 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: #f0f0f0;
+  overflow: hidden;
+}
+
+.audit-prep-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1677ff, #69b1ff);
+  transition: width 0.35s ease;
+}
+
+.audit-prep-track .ai-timeline-item.is-current .ai-timeline-label {
+  color: #1677ff;
+  font-weight: 600;
+}
+
+.audit-prep-retry {
+  margin-top: 4px;
+  font-size: 12px;
 }
 
 .audit-prep-head .audit-page-title,
 .audit-prep-head .audit-subtitle {
-  width: 100%;
+  width: auto;
   margin: 0;
 }
 
