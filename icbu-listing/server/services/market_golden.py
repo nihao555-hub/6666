@@ -26,7 +26,48 @@ logger = logging.getLogger(__name__)
 _CACHE_SECONDS = 30 * 60
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
-_BEST_GROUP = re.compile(r"best\s*seller|hot|top|爆款|热销", re.I)
+_BEST_GROUP = re.compile(r"best\s*seller|hot|top|爆款|热销|好评", re.I)
+_RATING_KEYS = (
+    "review_score",
+    "product_score",
+    "feedback_score",
+    "score",
+    "rating",
+    "star",
+    "review_count",
+    "feedback_count",
+)
+_SALES_KEYS = (
+    "sold_quantity",
+    "sale_count",
+    "sales_count",
+    "order_count",
+    "transaction_count",
+    "gmv_rank",
+    "sales_volume",
+    "month_sold",
+)
+
+
+def _numeric_signal(item: Mapping[str, Any], keys: tuple[str, ...]) -> float:
+    for key in keys:
+        raw = item.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0.0
+
+
+def _rank_signals(item: Mapping[str, Any]) -> dict[str, float]:
+    return {
+        "rating": _numeric_signal(item, _RATING_KEYS),
+        "sales": _numeric_signal(item, _SALES_KEYS),
+    }
 
 
 def _listing_products(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
@@ -56,6 +97,11 @@ def _score_listing_summary(item: Mapping[str, Any], *, category_id: str) -> int:
         score += 8
     if item.get("is_rts"):
         score += 4
+    signals = _rank_signals(item)
+    if signals["rating"] > 0:
+        score += min(24, int(signals["rating"] * 4))
+    if signals["sales"] > 0:
+        score += min(20, int(signals["sales"] ** 0.5))
     lower = subject.lower()
     if any(term in lower for term in INQUIRY_TERMS):
         score += 10
@@ -111,7 +157,9 @@ def search_category_listings(
     if not category_id:
         return []
     queries: list[dict[str, Any]] = [
+        {"category_id": int(category_id), "subject": subject or "", "language": "ENGLISH", "filter_type": "onSelling"},
         {"category_id": int(category_id), "subject": subject or "", "language": "ENGLISH"},
+        {"category_id": int(category_id), "language": "ENGLISH", "filter_type": "onSelling"},
         {"category_id": int(category_id), "language": "ENGLISH"},
     ]
     if subject:
@@ -126,6 +174,7 @@ def search_category_listings(
                 current_page=1,
                 page_size=page_size,
                 language=str(params.get("language") or "ENGLISH"),
+                filter_type=str(params.get("filter_type") or ""),
             )
         except Exception as exc:
             logger.debug("market golden search skipped: %s", exc)
@@ -140,6 +189,7 @@ def search_category_listings(
                 continue
             seen.add(pid)
             score = _score_listing_summary(item, category_id=category_id)
+            signals = _rank_signals(item)
             ranked.append(
                 (
                     score,
@@ -150,6 +200,7 @@ def search_category_listings(
                         "pc_detail_url": str(item.get("pc_detail_url") or ""),
                         "group_name": str(item.get("group_name") or ""),
                         "pref_score": score,
+                        "rank_signals": signals,
                         "source": "platform_search",
                     },
                 )
@@ -158,6 +209,58 @@ def search_category_listings(
             break
     ranked.sort(key=lambda row: (-row[0], row[1].get("title") or ""))
     return [item for _, item in ranked[:page_size]]
+
+
+def _shop_category_golden(
+    api: IcbuApi,
+    shop: Any,
+    *,
+    category_id: str,
+    limit: int = 3,
+    language: str = "en_US",
+) -> list[dict[str, Any]]:
+    """Same-category on-selling products from the connected shop (best proxy for 好评/热销)."""
+    if shop is None:
+        return []
+    try:
+        from .ecosystem_brief import _sample_golden_listings
+    except Exception:
+        return []
+    try:
+        rows = _sample_golden_listings(
+            api,
+            shop,
+            category_id=category_id,
+            limit=limit,
+            scan_pages=4,
+            render_candidates=max(limit * 2, 6),
+        )
+    except Exception:
+        return []
+    enriched: list[dict[str, Any]] = []
+    for item in rows:
+        urls: list[str] = []
+        pid = str(item.get("product_id") or "")
+        if pid:
+            detail = _try_render_listing(
+                api,
+                category_id=category_id,
+                product_id=pid,
+                subject=str(item.get("title") or ""),
+                language=language,
+            )
+            if detail:
+                urls = detail.get("image_urls") or []
+        enriched.append(
+            {
+                **item,
+                "image_urls": urls,
+                "quality_score": int(item.get("quality_score") or 0),
+                "source": "shop_category_top",
+            }
+        )
+    enriched.sort(key=lambda row: int(row.get("quality_score") or 0), reverse=True)
+    return enriched[:limit]
 
 
 def fetch_category_golden(
@@ -169,6 +272,7 @@ def fetch_category_golden(
     language: str = "en_US",
     limit: int = 3,
     render_limit: int = 6,
+    shop: Any | None = None,
 ) -> dict[str, Any]:
     """Live golden listings for a leaf category + conversion slot DNA."""
     cache_key = f"{category_id}:{product_name[:40]}"
@@ -207,6 +311,13 @@ def fetch_category_golden(
 
     enriched.sort(key=lambda row: int(row.get("quality_score") or row.get("pref_score") or 0), reverse=True)
     top = enriched[:limit]
+    if len(top) < limit:
+        for item in _shop_category_golden(api, shop, category_id=category_id, limit=limit, language=language):
+            if any(str(existing.get("product_id") or "") == str(item.get("product_id") or "") for existing in top):
+                continue
+            top.append(item)
+            if len(top) >= limit:
+                break
     style_urls: list[str] = []
     for item in top:
         for url in item.get("image_urls") or []:
@@ -220,13 +331,17 @@ def fetch_category_golden(
     payload = {
         "category_id": category_id,
         "category_name": category_name,
-        "source": "platform_category_search" if top else "category_conversion_dna",
+        "source": "platform_category_search" if any(item.get("source") == "platform_search" for item in top) else (
+            "shop_category_top" if top else "category_conversion_dna"
+        ),
         "listings": top,
         "style_reference_urls": clean_reference_urls(style_urls),
         "slot_priorities": [slot.name for slot in family.slots[:6]],
         "family": family.as_dict(),
         "note": (
-            "Ranked by on-platform listing quality signals (title, completeness, active display). "
+            "Ranked by on-platform listing quality signals (title, Best Seller/Hot group, active display, "
+            "and any rating/sales fields the gateway returns). Official productQuality_score is often unreadable; "
+            "when platform search is blocked we fall back to this shop's same-category on-selling listings. "
             "Style/composition reference only — never copy SKU identity."
         ),
     }

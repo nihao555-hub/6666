@@ -236,7 +236,8 @@
       >
         <header class="audit-prep-head">
           <h2 class="audit-page-title">AI 补全中</h2>
-          <p class="audit-subtitle">补标题与属性后自动进入审核；出图在审核表内异步刷新，无需等待</p>
+          <p class="audit-subtitle">补标题与属性后进入审核；出图会等到任务真正提交并跑完，下方实时显示输出 token</p>
+          <span v-if="reviewOutputTokens" class="ai-timeline-badge is-live">输出 {{ reviewOutputTokens }} tokens</span>
           <span v-if="docGrid.loading || reviewAssistRunning" class="ai-timeline-badge is-live">进行中</span>
           <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
           <el-button
@@ -655,7 +656,9 @@ const categoryTemplates = ref([]);
 const templateLoading = ref(false);
 const templateSuggesting = ref(false);
 const aiServiceReady = ref(null);
+const imageServiceReady = ref(null);
 const reviewAssistRunning = ref(false);
+const reviewOutputTokens = ref(0);
 let reviewAssistPromise = null;
 const reviewAiSteps = ref(createReviewAiSteps());
 const smartPlanAiSteps = ref(createSmartPlanAiSteps());
@@ -781,6 +784,32 @@ function createReviewAiSteps() {
 
 function resetReviewAiSteps() {
   reviewAiSteps.value = createReviewAiSteps();
+  reviewOutputTokens.value = 0;
+}
+
+function addReviewOutputTokens(result) {
+  const usage = result?.token_usage || {};
+  const delta = Number(usage.output_tokens || usage.completion_tokens || 0);
+  if (Number.isFinite(delta) && delta > 0) {
+    reviewOutputTokens.value += delta;
+  }
+}
+
+function reviewStepDetail(base, extra = "") {
+  const tokenHint = reviewOutputTokens.value ? ` · 输出 ${reviewOutputTokens.value} tokens` : "";
+  const suffix = extra ? ` · ${extra}` : "";
+  return `${base}${suffix}${tokenHint}`;
+}
+
+function isPersistedImageUrl(url) {
+  const value = String(url || "").trim();
+  if (!value || value.startsWith("blob:")) return false;
+  return value.startsWith("http") || value.startsWith("/api/");
+}
+
+function rowPersistedImageCount(row) {
+  const slots = row?.image_slots?.length ? row.image_slots : [];
+  return slots.filter((slot) => isPersistedImageUrl(slot.url)).length;
 }
 
 function patchReviewStep(id, patch) {
@@ -806,7 +835,10 @@ const awaitingReviewAssist = computed(() => {
 
 const reviewAiAllDone = computed(() => {
   if (docGrid.loading || reviewAssistRunning.value) return false;
-  return reviewAiSteps.value.every((step) => ["done", "skip"].includes(step.status));
+  return reviewAiSteps.value.every((step) => {
+    if (step.id === "images" && step.status === "error") return true;
+    return ["done", "skip"].includes(step.status);
+  });
 });
 
 function maybeEnterAuditStep() {
@@ -2722,6 +2754,17 @@ function ensureGridPolling() {
   pollGridImages();
 }
 
+async function waitForGridImagesDone() {
+  while (hasPendingImageJobs()) {
+    await pollGridImages();
+    patchReviewStep("images", {
+      status: "running",
+      detail: reviewStepDetail(docImageGenSummary.value || "后台生成中…"),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+}
+
 async function pollGridImages() {
   if (!docGrid.rows.length) return;
   try {
@@ -2963,11 +3006,13 @@ async function inferFieldsForRows(lines, options = {}) {
         ElMessage.info("属性已齐");
       }
     }
+    addReviewOutputTokens(result);
     return {
       ok: true,
       filled_count: result.filled_count || 0,
       fillable_columns: result.fillable_columns || 0,
       missing_required_cells: result.missing_required_cells || 0,
+      token_usage: result.token_usage || {},
     };
   } catch (error) {
     if (!silent) ElMessage.error(error.message);
@@ -3140,7 +3185,12 @@ async function generateImagesForRows(lines, options = {}) {
     docGrid.rows = normalizeDocRows(result.rows || []);
     if (result.errors?.length) {
       if (!silent) ElMessage.warning(result.errors[0]);
-      return { ok: false, error: result.errors[0], jobs_started: result.jobs_started || 0 };
+      return {
+        ok: false,
+        error: result.errors[0],
+        jobs_started: result.jobs_started || 0,
+        image_service_ready: result.image_service_ready,
+      };
     }
     ensureGridPolling();
     await persistSession();
@@ -3148,7 +3198,11 @@ async function generateImagesForRows(lines, options = {}) {
       const n = result.jobs_started || 0;
       ElMessage.success(lines?.length ? `已开始为选中行出图` : `已并发提交 ${n} 行出图`);
     }
-    return { ok: true, jobs_started: result.jobs_started || 0 };
+    return {
+      ok: true,
+      jobs_started: result.jobs_started || 0,
+      image_service_ready: result.image_service_ready,
+    };
   } catch (error) {
     if (!silent) ElMessage.error(error.message);
     return { ok: false, error: error.message };
@@ -3158,9 +3212,9 @@ async function generateImagesForRows(lines, options = {}) {
 }
 
 function rowsNeedingImageJobs() {
+  if (excel.emptyPolicy === "skip") return [];
   return docGrid.rows.filter((row) => {
-    const filled = rowSlots(row).filter((slot) => slot.url).length;
-    if (filled >= 6) return false;
+    if (rowPersistedImageCount(row) >= 6) return false;
     const status = String(row.image_job_status || "");
     if (row.image_job_id && ["queued", "running"].includes(status)) return false;
     return true;
@@ -3215,6 +3269,7 @@ async function regenCopyForRows(lines, options = {}) {
       docGrid.rows = normalizeDocRows(result.rows);
     }
     const copyOk = docGrid.rows.filter((row) => !rowMissingCopy(row)).length;
+    addReviewOutputTokens(result);
     if (result.errors?.length) {
       if (!silent) ElMessage.warning(result.errors[0]);
       return { ok: false, error: result.errors[0], copyOk };
@@ -3242,7 +3297,7 @@ async function autoStartReviewCopy() {
     return { ok: true, skipped: true, reason: "has_copy", copyOk: docGrid.rows.length };
   }
   const need = rowsNeedingCopy().length;
-  patchReviewStep("copy", { status: "running", detail: `共 ${need} 行` });
+  patchReviewStep("copy", { status: "running", detail: reviewStepDetail(`共 ${need} 行`) });
   return regenCopyForRows([], { silent: true });
 }
 
@@ -3355,13 +3410,13 @@ async function runReviewAssistImpl(force = false) {
   resetReviewAiSteps();
   try {
     patchReviewStep("service", { status: "running", detail: "检查文案与出图服务…" });
-    if (aiServiceReady.value === null) {
-      try {
-        const health = await api.health();
-        aiServiceReady.value = health.ai_enabled !== false;
-      } catch {
-        aiServiceReady.value = null;
-      }
+    try {
+      const health = await api.health();
+      aiServiceReady.value = health.ai_enabled !== false;
+      imageServiceReady.value = health.image_enabled !== false;
+    } catch {
+      aiServiceReady.value = aiServiceReady.value ?? null;
+      imageServiceReady.value = imageServiceReady.value ?? null;
     }
 
     patchReviewStep("template", { status: "running", detail: "匹配本店刊登习惯…" });
@@ -3387,65 +3442,87 @@ async function runReviewAssistImpl(force = false) {
       patchReviewStep("attrs", { status: "skip", detail: "需要 AI 服务" });
       patchReviewStep("images", { status: "skip", detail: "需要 AI 服务" });
     } else {
-      patchReviewStep("service", { status: "done", detail: "服务可用" });
+      const serviceBits = ["AI 可用"];
+      if (imageServiceReady.value === false) serviceBits.push("出图未配置");
+      else if (imageServiceReady.value) serviceBits.push("出图可用");
+      patchReviewStep("service", { status: "done", detail: serviceBits.join(" · ") });
 
       const copyResult = await autoStartReviewCopy();
       if (copyResult.skipped) {
         if (copyResult.reason === "no_rows") {
           patchReviewStep("copy", { status: "error", detail: "无商品行" });
         } else {
-          patchReviewStep("copy", { status: "done", detail: "已有文案" });
+          patchReviewStep("copy", { status: "done", detail: reviewStepDetail("已有文案") });
         }
       } else if (copyResult.ok) {
         patchReviewStep("copy", {
           status: "done",
-          detail: `已完成 ${copyResult.copyOk || 0}/${docGrid.rows.length} 行`,
+          detail: reviewStepDetail(`已完成 ${copyResult.copyOk || 0}/${docGrid.rows.length} 行`),
         });
       } else {
         patchReviewStep("copy", { status: "error", detail: copyResult.error || "文案生成失败" });
       }
 
-      patchReviewStep("attrs", { status: "running", detail: "从填写表与文案补全官方属性…" });
+      patchReviewStep("attrs", { status: "running", detail: reviewStepDetail("从填写表与文案补全官方属性…") });
       docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
       const imageNeed = rowsNeedingImageJobs().length;
       const inferResult = await inferFieldsForRows([], { silent: true });
-      if (imageNeed) {
-        void generateImagesForRows([], { silent: true }).then((imageResult) => {
-          if (imageResult?.ok) ensureGridPolling();
-          void persistSession({ server: true });
-        });
-        patchReviewStep("images", {
-          status: "done",
-          detail: `已提交 ${imageNeed} 行出图，审核表内占位图自动刷新`,
-        });
-      } else {
-        const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
-        if (matchedPhotos) {
-          patchReviewStep("images", { status: "done", detail: `已配对 ${matchedPhotos}/${docGrid.rows.length} 行图片` });
-        } else {
-          patchReviewStep("images", { status: "done", detail: "图片已齐" });
-        }
-      }
       if (inferResult.skipped) {
         if (inferResult.reason === "no_rows") {
           patchReviewStep("attrs", { status: "error", detail: "无商品行" });
         } else if (inferResult.reason === "no_ai") {
           patchReviewStep("attrs", { status: "error", detail: "需要 AI 服务" });
         } else {
-          patchReviewStep("attrs", { status: "done", detail: "无可补属性列" });
+          patchReviewStep("attrs", { status: "done", detail: reviewStepDetail("无可补属性列") });
         }
       } else if (inferResult.ok) {
         const filled = inferResult.filled_count || 0;
         const missing = inferResult.missing_required_cells || 0;
         if (missing) {
-          patchReviewStep("attrs", { status: "error", detail: `已补 ${filled} 项，仍缺 ${missing} 个必填` });
+          patchReviewStep("attrs", { status: "error", detail: reviewStepDetail(`已补 ${filled} 项，仍缺 ${missing} 个必填`) });
         } else if (filled) {
-          patchReviewStep("attrs", { status: "done", detail: `已补 ${filled} 项属性` });
+          patchReviewStep("attrs", { status: "done", detail: reviewStepDetail(`已补 ${filled} 项属性`) });
         } else {
-          patchReviewStep("attrs", { status: "done", detail: "属性已齐" });
+          patchReviewStep("attrs", { status: "done", detail: reviewStepDetail("属性已齐") });
         }
       } else {
         patchReviewStep("attrs", { status: "error", detail: inferResult.error || "推断失败" });
+      }
+
+      if (excel.emptyPolicy === "skip") {
+        patchReviewStep("images", { status: "skip", detail: "已选仅保留实拍，不 AI 出图" });
+      } else if (imageServiceReady.value === false) {
+        patchReviewStep("images", { status: "error", detail: "未配置 GRSAI 出图服务（GRSAI_API_KEY）" });
+      } else if (imageNeed) {
+        patchReviewStep("images", { status: "running", detail: reviewStepDetail(`提交 ${imageNeed} 行出图任务…`) });
+        const imageResult = await generateImagesForRows([], { silent: true });
+        const started = imageResult?.jobs_started || 0;
+        if (imageResult?.ok && started > 0) {
+          patchReviewStep("images", {
+            status: "running",
+            detail: reviewStepDetail(`已启动 ${started} 行出图`, docImageGenSummary.value),
+          });
+          ensureGridPolling();
+          await waitForGridImagesDone();
+          patchReviewStep("images", {
+            status: "done",
+            detail: reviewStepDetail(`六图 ${reviewStats.value.imagesOk}/${reviewStats.value.total}`),
+          });
+        } else if (imageResult?.error) {
+          patchReviewStep("images", { status: "error", detail: imageResult.error });
+        } else if (imageResult?.image_service_ready === false) {
+          patchReviewStep("images", { status: "error", detail: "出图服务未配置，后台没有接到 GRSAI" });
+        } else {
+          const err = imageResult?.errors?.[0] || `出图未启动（0 个任务，需 ${imageNeed} 行）`;
+          patchReviewStep("images", { status: "error", detail: err });
+        }
+      } else {
+        const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
+        if (matchedPhotos) {
+          patchReviewStep("images", { status: "done", detail: reviewStepDetail(`已配对 ${matchedPhotos}/${docGrid.rows.length} 行图片`) });
+        } else {
+          patchReviewStep("images", { status: "done", detail: reviewStepDetail("图片已齐") });
+        }
       }
 
       ensureGridPolling();

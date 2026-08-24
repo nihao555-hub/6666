@@ -11,7 +11,7 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
-from ai import AiClient, AiUnavailable, Understanding  # noqa: E402
+from ai import AiClient, AiUnavailable, TokenUsage, Understanding  # noqa: E402
 
 from .ecosystem_brief import build_brief, prompt_block as ecosystem_prompt_block, score_copy_row
 from .icbu_publishing_skill import KEYWORD_RULES, TITLE_RULES, skill_prompt_block
@@ -89,7 +89,7 @@ def suggest_copy_for_row(
     category_name: str = "",
     ecosystem_brief: Mapping[str, Any] | None = None,
     timeout: float | None = None,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], TokenUsage]:
     understanding = _understanding_from_row(row, category_name=category_name)
     publishing_rules = skill_prompt_block()
     if ecosystem_brief:
@@ -106,7 +106,7 @@ def suggest_copy_for_row(
         "shop_golden_title_examples": (ecosystem_brief or {}).get("golden_titles") or [],
         "shop_golden_listing_examples": (ecosystem_brief or {}).get("golden_listings") or [],
     }
-    copy = ai.write_copy(understanding, extra_facts=extra, timeout=timeout)
+    copy, usage = ai.write_copy_with_usage(understanding, extra_facts=extra, timeout=timeout)
     result = {
         "title": copy.title,
         "keywords": ", ".join(copy.keywords[:3]),
@@ -115,7 +115,7 @@ def suggest_copy_for_row(
     limits = (ecosystem_brief or {}).get("schema_limits") or {}
     title_limit = int((limits.get("productTitle") or {}).get("max_length") or 128)
     result["_copy_score"] = score_copy_row(result, title_byte_limit=title_limit)
-    return result
+    return result, usage
 
 
 def enrich_rows(
@@ -142,7 +142,7 @@ def enrich_rows(
             row.setdefault("highlights", str(row.get("highlights") or ""))
             continue
         try:
-            suggested = suggest_copy_for_row(
+            suggested, _usage = suggest_copy_for_row(
                 ai,
                 row,
                 category_name=category_name,
@@ -369,7 +369,7 @@ def _ai_fill_empty_columns(
     *,
     user_column_ids: set[str] | None = None,
     category_name: str = "",
-) -> tuple[dict[str, str], list[str]]:
+) -> tuple[dict[str, str], list[str], TokenUsage]:
     facts = _facts_from_user_columns(row, columns, user_column_ids=user_column_ids)
     by_id = {str(col.get("id") or ""): col for col in columns if col.get("id")}
     question: dict[str, Any] = {}
@@ -387,7 +387,7 @@ def _ai_fill_empty_columns(
             "options": [str(item.get("label") or item.get("value") or "") for item in options[:40] if item],
         }
     if not question:
-        return {}, []
+        return {}, [], TokenUsage()
     category_line = f"Leaf category: {category_name}\n" if category_name else ""
     prompt = (
         "You are an Alibaba.com (ICBU) wholesale listing attribute specialist.\n"
@@ -407,11 +407,11 @@ def _ai_fill_empty_columns(
         'Return JSON only: {"column_id": "exact option label or empty string"}'
     )
     try:
-        payload = ai.chat_json([{"role": "user", "content": prompt}], temperature=0.0)
+        payload, usage = ai.chat_json_with_usage([{"role": "user", "content": prompt}], temperature=0.0)
     except (AiUnavailable, ValueError, TypeError):
-        return {}, []
+        return {}, [], TokenUsage()
     if not isinstance(payload, dict):
-        return {}, []
+        return {}, [], usage
     filled: dict[str, str] = {}
     hints: list[str] = []
     for col_id, answer in payload.items():
@@ -422,7 +422,7 @@ def _ai_fill_empty_columns(
         if applied:
             filled[str(col_id)] = applied
             hints.append(f"{col.get('label') or col_id} ← AI")
-    return filled, hints
+    return filled, hints, usage
 
 
 def _apply_shop_defaults(row: Mapping[str, Any], columns: Sequence[Mapping[str, Any]], shop_defaults: Mapping[str, Any]) -> tuple[dict[str, str], list[str]]:
@@ -449,10 +449,11 @@ def infer_fields_for_row(
     shop_defaults: Mapping[str, Any] | None = None,
     user_column_ids: set[str] | None = None,
     category_name: str = "",
-) -> tuple[dict[str, str], list[str]]:
+) -> tuple[dict[str, str], list[str], TokenUsage]:
     """Fill empty required/score columns from shop defaults, user row corpus, then AI."""
     filled: dict[str, str] = {}
     hints: list[str] = []
+    usage = TokenUsage()
 
     if shop_defaults:
         shop_patch, shop_hints = _apply_shop_defaults(row, columns, shop_defaults)
@@ -475,7 +476,7 @@ def infer_fields_for_row(
             hints.append(f"{col.get('label') or col_id} ← {match}")
 
     if ai is not None:
-        ai_patch, ai_hints = _ai_fill_empty_columns(
+        ai_patch, ai_hints, ai_usage = _ai_fill_empty_columns(
             ai,
             row,
             columns,
@@ -483,12 +484,13 @@ def infer_fields_for_row(
             user_column_ids=user_column_ids,
             category_name=category_name,
         )
+        usage.add(ai_usage)
         for key, value in ai_patch.items():
             if key not in filled:
                 filled[key] = value
         hints.extend(ai_hints)
 
-    return filled, hints
+    return filled, hints, usage
 
 
 def count_missing_required_cells(rows: Sequence[Mapping[str, Any]], columns: Sequence[Mapping[str, Any]]) -> int:
@@ -522,13 +524,14 @@ def infer_fields_for_rows(
     errors: list[str] = []
     filled_count = 0
     fillable = len(fillable_infer_columns(columns))
+    usage = TokenUsage()
     for row in rows:
         item = dict(row)
         line = int(item.get("line") or 0)
         if lines and line not in lines:
             updated.append(item)
             continue
-        patch, hints = infer_fields_for_row(
+        patch, hints, row_usage = infer_fields_for_row(
             item,
             columns,
             ai=ai,
@@ -536,6 +539,7 @@ def infer_fields_for_rows(
             user_column_ids=user_column_ids,
             category_name=category_name,
         )
+        usage.add(row_usage)
         if patch:
             item.update(patch)
             item["_infer_fields"] = patch
@@ -546,6 +550,7 @@ def infer_fields_for_rows(
     meta = {
         "fillable_columns": fillable,
         "missing_required_cells": count_missing_required_cells(updated, columns),
+        "token_usage": usage.as_dict(),
     }
     return updated, errors, filled_count, meta
 

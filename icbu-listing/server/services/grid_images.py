@@ -101,6 +101,7 @@ def start_row_job(
     category_id: str = "",
     category_name: str = "",
     api: Any | None = None,
+    shop: Any | None = None,
     market_golden: Mapping[str, Any] | None = None,
 ) -> str:
     if not api_key():
@@ -129,6 +130,7 @@ def start_row_job(
                     category_id=category_id,
                     category_name=category_name,
                     product_name=name,
+                    shop=shop,
                 )
             except Exception:
                 golden = None

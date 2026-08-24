@@ -25,6 +25,34 @@ class AiUnavailable(RuntimeError):
 
 
 @dataclass
+class TokenUsage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    def add(self, other: "TokenUsage | Mapping[str, Any] | None") -> "TokenUsage":
+        if other is None:
+            return self
+        if isinstance(other, TokenUsage):
+            self.prompt_tokens += other.prompt_tokens
+            self.completion_tokens += other.completion_tokens
+            self.total_tokens += other.total_tokens
+            return self
+        self.prompt_tokens += int(other.get("prompt_tokens") or 0)
+        self.completion_tokens += int(other.get("completion_tokens") or 0)
+        self.total_tokens += int(other.get("total_tokens") or 0)
+        return self
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "output_tokens": self.completion_tokens,
+        }
+
+
+@dataclass
 class ImageInput:
     filename: str
     content: bytes | None = None
@@ -304,7 +332,7 @@ class AiClient:
         api_key: str,
         base_url: str,
         text_model: str,
-        timeout: float = 120.0,
+        timeout: float = 600.0,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -320,7 +348,7 @@ class AiClient:
             api_key=api_key,
             base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             text_model=os.environ.get("TEXT_MODEL", "gpt-4o-mini"),
-            timeout=float(os.environ.get("AI_TIMEOUT_SECONDS", "120")),
+            timeout=float(os.environ.get("AI_TIMEOUT_SECONDS", "600")),
         )
 
     @classmethod
@@ -330,13 +358,13 @@ class AiClient:
         except AiUnavailable:
             return None
 
-    def chat(
+    def _complete(
         self,
         messages: list[dict[str, Any]],
         temperature: float = 0.2,
         *,
         timeout: float | None = None,
-    ) -> str:
+    ) -> tuple[str, TokenUsage]:
         response = requests.post(
             f"{self.base_url}/chat/completions",
             headers={
@@ -352,7 +380,24 @@ class AiClient:
         choices = payload.get("choices") or []
         if not choices:
             raise AiUnavailable("模型没有返回内容")
-        return choices[0].get("message", {}).get("content") or ""
+        usage_raw = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        usage = TokenUsage(
+            prompt_tokens=int(usage_raw.get("prompt_tokens") or 0),
+            completion_tokens=int(usage_raw.get("completion_tokens") or 0),
+            total_tokens=int(usage_raw.get("total_tokens") or 0),
+        )
+        text = choices[0].get("message", {}).get("content") or ""
+        return text, usage
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout: float | None = None,
+    ) -> str:
+        text, _usage = self._complete(messages, temperature, timeout=timeout)
+        return text
 
     def chat_json(
         self,
@@ -361,15 +406,27 @@ class AiClient:
         *,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        text = self.chat(messages, temperature, timeout=timeout)
+        payload, _usage = self.chat_json_with_usage(messages, temperature, timeout=timeout)
+        return payload
+
+    def chat_json_with_usage(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        *,
+        timeout: float | None = None,
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        text, usage = self._complete(messages, temperature, timeout=timeout)
         try:
-            return extract_json(text)
+            return extract_json(text), usage
         except (json.JSONDecodeError, ValueError):
             repair = messages + [
                 {"role": "assistant", "content": text[:2000]},
                 {"role": "user", "content": "Return the same answer as valid JSON only, no markdown fence."},
             ]
-            return extract_json(self.chat(repair, 0.0, timeout=timeout))
+            repaired, repair_usage = self._complete(repair, 0.0, timeout=timeout)
+            usage.add(repair_usage)
+            return extract_json(repaired), usage
 
     def understand(
         self,
@@ -398,6 +455,26 @@ class AiClient:
         angle: str = "",
         timeout: float | None = None,
     ) -> Copy:
+        copy, _usage = self.write_copy_with_usage(
+            understanding,
+            title_limit=title_limit,
+            keyword_count=keyword_count,
+            extra_facts=extra_facts,
+            angle=angle,
+            timeout=timeout,
+        )
+        return copy
+
+    def write_copy_with_usage(
+        self,
+        understanding: Understanding,
+        *,
+        title_limit: int = 128,
+        keyword_count: int = 3,
+        extra_facts: Mapping[str, Any] | None = None,
+        angle: str = "",
+        timeout: float | None = None,
+    ) -> tuple[Copy, TokenUsage]:
         facts = {
             "product_name": understanding.product_name,
             "material": understanding.material,
@@ -423,7 +500,7 @@ class AiClient:
                 f"\n\nThis listing must not read like a reworded copy of another one. "
                 f"Lead with this angle and pick different keywords accordingly: {angle}"
             )
-        payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.2, timeout=timeout)
+        payload, usage = self.chat_json_with_usage([{"role": "user", "content": prompt}], temperature=0.2, timeout=timeout)
         faqs = []
         for item in payload.get("faqs") or []:
             if isinstance(item, Mapping) and item.get("question") and item.get("answer"):
@@ -437,7 +514,7 @@ class AiClient:
             confidence=_confidence(payload.get("confidence")),
         )
         brand = str((extra_facts or {}).get("brand") or "").strip()
-        return sanitize_copy(raw, title_limit=title_limit, keyword_count=keyword_count, brand=brand)
+        return sanitize_copy(raw, title_limit=title_limit, keyword_count=keyword_count, brand=brand), usage
 
     def map_attributes(
         self,

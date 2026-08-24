@@ -13,7 +13,21 @@ from server.services import market_golden  # noqa: E402
 
 
 class MarketGoldenTests(unittest.TestCase):
-    def test_score_listing_summary_boosts_best_seller_group(self) -> None:
+    def test_score_listing_summary_boosts_rating_and_sales(self) -> None:
+        low = market_golden._score_listing_summary(
+            {"subject": "Wholesale Paint Brush Set", "category_id": "123"},
+            category_id="123",
+        )
+        high = market_golden._score_listing_summary(
+            {
+                "subject": "Wholesale Paint Brush Set",
+                "category_id": "123",
+                "review_score": 4.9,
+                "sold_quantity": 1200,
+            },
+            category_id="123",
+        )
+        self.assertGreater(high, low)
         low = market_golden._score_listing_summary(
             {"subject": "Wholesale Paint Brush Set", "category_id": "123"},
             category_id="123",

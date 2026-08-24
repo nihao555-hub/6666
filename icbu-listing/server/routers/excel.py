@@ -15,13 +15,13 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from ai import AiClient, AiUnavailable, ImageInput  # noqa: E402
+from ai import AiClient, AiUnavailable, ImageInput, TokenUsage  # noqa: E402
 from gop_client import GopError  # noqa: E402
 
 from ..db import SessionLocal, reload_db_from_blob, reload_db_from_blob_throttled
 from ..deps import current_user, get_db, shop_for
 from ..models import Product, Shop, Template, User, new_id
-from ..services import catalog, distribution, document_parse, ecosystem_brief, excel_import, excel_images, feed_sessions, grid_images, habits_ready, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
+from ..services import catalog, distribution, document_parse, ecosystem_brief, excel_import, excel_images, feed_sessions, grid_images, grsai_images, habits_ready, pipeline, products as catalogue, public_refs, review_enrich, smart_plan, template_suggest, templates
 from ..services.fact_bundle import from_excel_row
 from ..services.shop_client import ShopNotConnected, shop_api, shop_defaults
 
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = 15
-COPY_ROW_TIMEOUT = float(os.environ.get("COPY_ROW_TIMEOUT", "55"))
+COPY_ROW_TIMEOUT = float(os.environ.get("COPY_ROW_TIMEOUT", "600"))
 
 
 def _attr_columns(
@@ -948,14 +948,15 @@ async def grid_regen_copy(
             )
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
+    usage = TokenUsage()
 
-    def _regen_row(row: Mapping[str, Any]) -> tuple[dict[str, Any], str | None]:
+    def _regen_row(row: Mapping[str, Any]) -> tuple[dict[str, Any], str | None, TokenUsage]:
         item = dict(row)
         line = int(item.get("line") or 0)
         if targets and line not in targets:
-            return item, None
+            return item, None, TokenUsage()
         try:
-            suggested = review_enrich.suggest_copy_for_row(
+            suggested, row_usage = review_enrich.suggest_copy_for_row(
                 ai,
                 item,
                 category_name=hint or category_name,
@@ -964,24 +965,25 @@ async def grid_regen_copy(
             )
             item.update(suggested)
             item["_copy_source"] = "ai"
-            return item, None
+            return item, None, row_usage
         except Exception as exc:
-            return item, f"第 {line or '?'} 行：{exc}"
+            return item, f"第 {line or '?'} 行：{exc}", TokenUsage()
 
     rows_in = [row for row in payload if isinstance(row, Mapping)]
     if not rows_in:
-        return {"rows": [], "errors": []}
+        return {"rows": [], "errors": [], "token_usage": usage.as_dict()}
     workers = min(8, max(1, len(rows_in)))
     by_line: dict[int, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_regen_row, row): row for row in rows_in}
         for future in as_completed(futures):
-            item, err = future.result()
+            item, err, row_usage = future.result()
+            usage.add(row_usage)
             by_line[int(item.get("line") or 0)] = item
             if err:
                 errors.append(err)
     updated = [by_line[int(dict(row).get("line") or 0)] for row in rows_in if int(dict(row).get("line") or 0) in by_line]
-    return {"rows": updated, "errors": errors}
+    return {"rows": updated, "errors": errors, "token_usage": usage.as_dict()}
 
 
 @router.post("/grid-infer-fields")
@@ -1045,6 +1047,7 @@ async def grid_infer_fields(
         "fillable_columns": meta.get("fillable_columns", 0),
         "missing_required_cells": meta.get("missing_required_cells", 0),
         "columns": grid_columns,
+        "token_usage": meta.get("token_usage") or {},
     }
 
 
@@ -1053,6 +1056,13 @@ def _safe_line(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _is_real_image_url(url: str) -> bool:
+    value = str(url or "").strip()
+    if not value or value.startswith("blob:"):
+        return False
+    return value.startswith(("http://", "https://", "/api/"))
 
 
 @router.post("/grid-generate-images")
@@ -1078,16 +1088,18 @@ async def grid_generate_images(
         raise HTTPException(status_code=400, detail="先选叶子类目")
     hint = _category_hint(db, user, shop_id, category_id, category_name)
     shop_api_client = None
+    shop_row = None
     if shop_id:
         try:
-            shop = shop_for(db, user, shop_id)
-            shop_api_client = shop_api(shop)
+            shop_row = shop_for(db, user, shop_id)
+            shop_api_client = shop_api(shop_row)
         except ShopNotConnected:
             shop_api_client = None
+            shop_row = None
 
     def row_image_has_enough(item: Mapping[str, Any]) -> bool:
         slots = item.get("image_slots") or []
-        return sum(1 for slot in slots if str(slot.get("url") or "").strip()) >= 6
+        return sum(1 for slot in slots if _is_real_image_url(str(slot.get("url") or ""))) >= 6
 
     targets: set[int] = set()
     if isinstance(selected, list) and selected:
@@ -1115,6 +1127,7 @@ async def grid_generate_images(
                 category_id=category_id,
                 category_name=hint or category_name,
                 api=shop_api_client,
+                shop=shop_row,
             )
             item["image_job_id"] = job_id
             return grid_images.refresh_row_job(item, user.id), None
@@ -1143,7 +1156,13 @@ async def grid_generate_images(
                 jobs_started += 1
             updated.append(item)
     updated.sort(key=lambda item: _safe_line(item.get("line")) or 0)
-    return {"rows": updated, "errors": errors, "jobs_started": jobs_started}
+    return {
+        "rows": updated,
+        "errors": errors,
+        "jobs_started": jobs_started,
+        "image_service_ready": bool(grsai_images.api_key()),
+        "rows_requested": len(targets) if targets else len(rows_in),
+    }
 
 
 @router.post("/grid-poll-images")

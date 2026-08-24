@@ -43,11 +43,14 @@ class ReviewEnrichTests(unittest.TestCase):
 
     def test_enrich_rows_with_mock_ai(self) -> None:
         ai = MagicMock()
-        ai.write_copy.return_value = MagicMock(
-            title="Wholesale Cosmetic Puff Set OEM",
-            keywords=["cosmetic puff", "makeup sponge", "beauty blender"],
-            highlights="Soft latex-free puff",
-            selling_points=["OEM welcome"],
+        ai.write_copy_with_usage.return_value = (
+            MagicMock(
+                title="Wholesale Cosmetic Puff Set OEM",
+                keywords=["cosmetic puff", "makeup sponge", "beauty blender"],
+                highlights="Soft latex-free puff",
+                selling_points=["OEM welcome"],
+            ),
+            MagicMock(completion_tokens=42, prompt_tokens=10, total_tokens=52, as_dict=lambda: {"output_tokens": 42}),
         )
         cols, rows, _warnings = review_enrich.enrich_rows(
             [{"line": 2, "sku": "PUFF-1", "name": "化妆粉扑", "price": "2", "moq": "500"}],
@@ -68,7 +71,7 @@ class ReviewEnrichTests(unittest.TestCase):
                 "options": [{"label": "HB", "value": "HB"}, {"label": "2B", "value": "2B"}],
             }
         ]
-        patch, hints = review_enrich.infer_fields_for_row(
+        patch, hints, _usage = review_enrich.infer_fields_for_row(
             {"name": "铅笔", "note": "HB 硬度，适合素描", "sku": "P-1"},
             columns,
         )
@@ -89,7 +92,7 @@ class ReviewEnrichTests(unittest.TestCase):
 
     def test_infer_fields_with_mock_ai(self) -> None:
         ai = MagicMock()
-        ai.chat_json.return_value = {"attr.icbuCatProp.p-hard": "HB"}
+        ai.chat_json_with_usage.return_value = ({"attr.icbuCatProp.p-hard": "HB"}, MagicMock(completion_tokens=15, prompt_tokens=100, total_tokens=115, as_dict=lambda: {"output_tokens": 15}))
         columns = [
             {
                 "id": "attr.icbuCatProp.p-hard",
@@ -116,7 +119,7 @@ class ReviewEnrichTests(unittest.TestCase):
                 "options": [{"label": "HB", "value": "HB"}, {"label": "2B", "value": "2B"}],
             }
         ]
-        patch, _hints = review_enrich.infer_fields_for_row(
+        patch, _hints, _usage = review_enrich.infer_fields_for_row(
             {"name": "铅笔", "note": "HB 和 2B 混装", "sku": "P-2"},
             columns,
         )
@@ -124,7 +127,7 @@ class ReviewEnrichTests(unittest.TestCase):
 
     def test_infer_facts_include_ai_copy(self) -> None:
         ai = MagicMock()
-        ai.chat_json.return_value = {"attr.icbuCatProp.p-hard": "HB"}
+        ai.chat_json_with_usage.return_value = ({"attr.icbuCatProp.p-hard": "HB"}, MagicMock(completion_tokens=15, prompt_tokens=100, total_tokens=115, as_dict=lambda: {"output_tokens": 15}))
         columns = [
             {
                 "id": "attr.icbuCatProp.p-hard",
@@ -146,7 +149,7 @@ class ReviewEnrichTests(unittest.TestCase):
             ai=ai,
             user_column_ids={"sku", "name", "note"},
         )
-        prompt = ai.chat_json.call_args[0][0][0]["content"]
+        prompt = ai.chat_json_with_usage.call_args[0][0][0]["content"]
         self.assertIn("HB Graphite Pencil Wholesale", prompt)
         self.assertIn("graphite pencil", prompt)
 
