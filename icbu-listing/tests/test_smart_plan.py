@@ -246,6 +246,29 @@ class SmartPlanApiTests(unittest.TestCase):
         self.assertIn("moq", ids)
         self.assertGreaterEqual(len(plan.get("review_checklist") or []), 4)
 
+    def test_template_covered_required_attrs_stay_in_candidates(self) -> None:
+        from schema import parse_schema  # noqa: E402
+
+        fields = parse_schema(
+            """<?xml version="1.0"?><itemSchema>
+              <field id="icbuCatProp" type="complex"><fields>
+                <field id="p-15" name="Material" type="singleCheck"><rules><rule name="requiredRule" value="true"/></rules></field>
+              </fields></field>
+            </itemSchema>"""
+        )
+        template = {"icbuCatProp": {"p-15": "Wood"}}
+        candidates, _covered_shop, covered_template = smart_plan.candidate_columns(
+            fields,
+            shop_defaults={},
+            template_values=template,
+        )
+        ids = [col["id"] for col in candidates]
+        self.assertIn("attr.icbuCatProp.p-15", ids)
+        self.assertTrue(any("Material" in item for item in covered_template))
+        chosen = smart_plan._rule_based_user_columns(candidates)
+        self.assertIn("attr.icbuCatProp.p-15", chosen)
+        self.assertFalse(smart_plan._is_core_only_plan({"columns": smart_plan.columns_for_ids(candidates, chosen)}))
+
 
 if __name__ == "__main__":
     unittest.main()

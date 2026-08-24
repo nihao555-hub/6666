@@ -521,9 +521,10 @@ class FullSchemaTests(unittest.TestCase):
         self.assertGreaterEqual(len(sheet._images), 1)
         embedded = extract_embedded_images(payload)
         self.assertIn(3, embedded)
-        row = ExcelRow(sku="SKU-1001", images=["SKU-1001.jpg"], line=3)
+        row = ExcelRow(sku="", images=[], line=3)
         uploads = merge_embedded_images_into_rows([row], embedded)
-        self.assertIn("sku-1001.jpg", uploads)
+        self.assertTrue(uploads)
+        self.assertGreaterEqual(len(row.images), 1)
 
 
 if __name__ == "__main__":

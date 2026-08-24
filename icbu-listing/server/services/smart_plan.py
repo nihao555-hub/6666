@@ -48,7 +48,7 @@ SCORE_OPTIONAL_TOP = (
     "saleType",
 )
 
-PLANNER_VERSION = "evidence-sufficient-v4"
+PLANNER_VERSION = "evidence-sufficient-v5"
 PLANNER_LLM_TIMEOUT = float(os.environ.get("PLANNER_LLM_TIMEOUT", "28"))
 
 logger = logging.getLogger(__name__)
@@ -176,6 +176,8 @@ def _cached_plan_payload(row: CategorySmartPlan, *, category_name: str = "") -> 
     except json.JSONDecodeError:
         return None
     if not isinstance(payload, dict) or not payload.get("columns"):
+        return None
+    if _is_core_only_plan(payload):
         return None
     payload["cached"] = True
     payload["planner"] = row.planner or payload.get("planner") or "rules"
@@ -381,11 +383,13 @@ def candidate_columns(
                 continue
             if _template_covers_attr(template_values, group_id, child.id):
                 covered_template.append(f"{group_name}/{child.name or child.id}")
-                continue
-            if _shop_covers_attr(shop_defaults, group_id, child.id):
+            elif _shop_covers_attr(shop_defaults, group_id, child.id):
                 covered_shop.append(f"{group_name}/{child.name or child.id}")
                 continue
-            candidates.append(_attr_column(group_id, group_name, child, required=True))
+            col = _attr_column(group_id, group_name, child, required=True)
+            if _template_covers_attr(template_values, group_id, child.id):
+                col["template_covered"] = True
+            candidates.append(col)
 
     for field_id in SCORE_OPTIONAL_TOP:
         spec = specs.get(field_id)
@@ -487,7 +491,7 @@ def _sanitize_user_column_ids(
     candidates: Sequence[Mapping[str, Any]],
     user_ids: Sequence[str],
 ) -> list[str]:
-    """Download sheet: core + required evidence attrs only — never score optionals."""
+    """Download sheet: core + category evidence attrs — never score optionals."""
     allowed = {str(col["id"]) for col in candidates if col.get("id")}
     required_attrs = {str(col["id"]) for col in candidates if _is_required_attr_column(col)}
     score_ids = {str(col["id"]) for col in candidates if _is_score_column(col)}
@@ -497,7 +501,7 @@ def _sanitize_user_column_ids(
         fid = str(field_id or "").strip()
         if not fid or fid not in allowed or fid in score_ids:
             continue
-        if fid in core or fid in required_attrs:
+        if fid in core or fid in required_attrs or fid.startswith("attr."):
             if fid not in ordered:
                 ordered.append(fid)
     return ordered
@@ -650,6 +654,8 @@ def _save_cached_plan(
     plan: Mapping[str, Any],
 ) -> None:
     stored = {key: value for key, value in plan.items() if key != "cached"}
+    if _is_core_only_plan(stored):
+        return
     row = db.get(CategorySmartPlan, {"shop_id": shop_id, "category_id": category_id})
     payload = json.dumps(stored, ensure_ascii=False)
     if row is None:
@@ -800,6 +806,11 @@ def build_plan(
     else:
         user_ids = _finalize_user_columns(candidates, user_ids, vision_samples=vision_samples)
     columns = columns_for_ids(candidates, user_ids)
+    if _is_core_only_plan({"columns": columns}) and any(_is_required_attr_column(col) for col in candidates):
+        user_ids = _rule_based_user_columns(candidates, vision_samples=vision_samples)
+        columns = columns_for_ids(candidates, user_ids)
+        if planner == "llm+rules":
+            reasoning = (reasoning + " " if reasoning else "") + "已补全类目依据列（避免只剩基础列）。"
     user_id_set = set(user_ids)
     ai_fill_attrs = ai_target_columns(candidates, user_id_set)
     ai_fills: list[dict[str, Any]] = [

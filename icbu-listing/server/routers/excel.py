@@ -554,6 +554,7 @@ async def download_smart_template_from_plan_files(
     covered_by_template: str = Form("[]"),
     ai_fills: str = Form("[]"),
     photobank_images: str = Form("[]"),
+    session_id: str = Form(""),
     files: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
@@ -575,6 +576,11 @@ async def download_smart_template_from_plan_files(
         ai_fills=ai_fills,
     )
     embed_files = await _collect_template_image_uploads(files, photobank_images)
+    sid = str(session_id or "").strip()
+    if sid:
+        session = feed_sessions.get_owned(db, user.id, sid)
+        if session is not None:
+            embed_files.extend(feed_sessions.file_bytes(session, "excel_images"))
     if not embed_files:
         raise HTTPException(status_code=400, detail="没有可嵌入的商品图，请先选图或上传图片")
     try:

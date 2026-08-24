@@ -142,9 +142,13 @@
               </div>
               <p class="ready-meta plan-flow-note">
                 下载表 {{ smartPlan.column_count }} 列 — 你必须提供的依据
+                <template v-if="planSourceLabel">（{{ planSourceLabel }}）</template>
                 <template v-if="smartPlanEvidenceCount">（含 {{ smartPlanEvidenceCount }} 个类目属性）</template>
                 <template v-if="smartPlanAiFillCount">；填完后 AI 高置信补 {{ smartPlanAiFillCount }} 个官方字段</template>
                 <template v-else-if="smartPlan.review_note">；{{ smartPlan.review_note }}</template>
+              </p>
+              <p v-if="isCoreOnlySmartPlan(smartPlan)" class="ready-meta flow-nudge-warn">
+                只有基础 7 列，缺少类目依据。正在重新规划…
               </p>
               <p v-if="habitsSetupNudge" class="ready-meta flow-nudge-warn">{{ habitsSetupNudge }}</p>
               <p v-if="smartPlanThinEvidence" class="ready-meta flow-nudge-warn">
@@ -177,7 +181,7 @@
               <h3>下载并填写表格</h3>
               <p>填你必须提供的依据（含无法推断的必填项），AI 据此补全其余官方必填</p>
               <p v-if="smartPlanThinEvidence" class="flow-step-note flow-nudge-warn">依据列偏少：请尽量填齐类目属性，减少审核手补</p>
-              <p v-if="confirmedPlanImageCount" class="flow-step-note">已选图会嵌进「图片」列</p>
+              <p v-if="confirmedPlanImageCount" class="flow-step-note">已选图会嵌入「图片」列单元格（不是只写文件名）</p>
             </div>
             <el-button
               type="primary"
@@ -1009,7 +1013,7 @@ async function fetchSmartPlanFallback(categoryId, categoryName) {
     shop_id: store.shopId,
     category_id: categoryId,
     category_name: categoryName,
-    refresh: false,
+    refresh: true,
   });
 }
 const planImageCount = computed(() => confirmedPlanImageCount.value);
@@ -1441,8 +1445,22 @@ function hasSmartPlanForCategory(categoryId) {
   );
 }
 
-function applySmartPlan(raw, categoryId = "") {
+let smartPlanRefreshGuard = "";
+
+function applySmartPlan(raw, categoryId = "", options = {}) {
   const plan = normalizeSmartPlan({ ...raw, category_id: raw?.category_id || categoryId });
+  if (
+    !options.allowCoreOnly
+    && isCoreOnlySmartPlan(plan)
+    && categoryId
+    && smartPlanRefreshGuard !== `${categoryId}:refresh`
+  ) {
+    smartPlanRefreshGuard = `${categoryId}:refresh`;
+    void loadSmartPlan({ categoryId, categoryName: doc.categoryName, refresh: true }).finally(() => {
+      smartPlanRefreshGuard = "";
+    });
+    return plan;
+  }
   smartPlan.value = plan;
   if (!docGrid.rows.length) {
     docGrid.columns = plan.columns || [];
@@ -3643,11 +3661,12 @@ async function downloadDocTemplate() {
       ai_fills: smartPlan.value.ai_fills,
     };
     let blob;
-    if (hasUploadablePlanImages() || selectedPhotobankList().length) {
+    if (hasPlanImages()) {
       const form = new FormData();
       Object.entries(planPayload).forEach(([key, value]) => {
         form.append(key, typeof value === "string" ? value : JSON.stringify(value ?? []));
       });
+      if (sessionId.value) form.append("session_id", sessionId.value);
       allUploadImageFiles().forEach((item) => {
         if (item.raw) form.append("files", item.raw, item.name);
       });
@@ -3665,8 +3684,8 @@ async function downloadDocTemplate() {
     anchor.click();
     URL.revokeObjectURL(url);
     ElMessage.success(
-      hasUploadablePlanImages() || selectedPhotobankList().length
-        ? `填写表已开始下载（${smartPlan.value.column_count || smartPlan.value.columns.length} 列，已嵌入商品图）`
+      hasPlanImages()
+        ? `填写表已开始下载（${smartPlan.value.column_count || smartPlan.value.columns.length} 列，图片已嵌入单元格）`
         : `填写表已开始下载（${smartPlan.value.column_count || smartPlan.value.columns.length} 列）`,
     );
   } catch (error) {

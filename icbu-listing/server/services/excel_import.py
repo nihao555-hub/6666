@@ -111,7 +111,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
 # User fills a short sheet. When a leaf category is chosen, required official
 # attributes from schema.get become columns on 填写 — one sheet shape per leaf.
 USER_FILLS: list[dict[str, Any]] = [
-    {"id": "sku", "label": "货号", "required": True, "hint": "你自己的编码"},
+    {"id": "sku", "label": "货号", "required": False, "hint": "可选；有图时可先留空，系统按图片匹配行"},
     {"id": "price", "label": "单价 USD", "required": True, "hint": "红线，AI 不准定价"},
     {"id": "moq", "label": "起订量", "required": True, "hint": "红线，AI 不准编"},
     {"id": "images", "label": "图片", "required": False, "hint": "选填。有图写链接或文件名；没图留空。导入时再选原图上架、补转化位或重画"},
@@ -1649,7 +1649,7 @@ def plan_embedded_image_rows(files: Sequence[tuple[str, bytes]]) -> list[dict[st
         sku = _guess_sku_from_filename(base)
         bucket = normalize_sku(sku) or key
         if bucket not in grouped:
-            grouped[bucket] = {"sku": sku or base, "images": [], "image_bytes": []}
+            grouped[bucket] = {"sku": "", "images": [], "image_bytes": []}
             order.append(bucket)
         grouped[bucket]["images"].append(base)
         grouped[bucket]["image_bytes"].append((base, content))
@@ -1779,25 +1779,29 @@ def build_smart_template(
             names = [str(item) for item in (row_data.get("images") or []) if str(item).strip()]
             image_bytes = [(str(name), raw) for name, raw in (row_data.get("image_bytes") or []) if raw]
             for col_index, (field_id, _label, _hint) in enumerate(headers, start=1):
+                if field_id == "images":
+                    continue
                 if field_id == "sku":
-                    sheet.cell(row_num, col_index, str(row_data.get("sku") or ""))
-                elif field_id == "images" and names:
-                    sheet.cell(row_num, col_index, ";".join(names))
+                    sku_val = str(row_data.get("sku") or "").strip()
+                    if sku_val:
+                        sheet.cell(row_num, col_index, sku_val)
             if images_col_index and image_bytes:
-                filename, raw = image_bytes[0]
-                try:
-                    xl_image = XLImage(_prepare_image_for_xlsx(raw))
-                    xl_image.width = 72
-                    xl_image.height = 72
-                    col_letter = get_column_letter(images_col_index)
-                    sheet.add_image(xl_image, f"{col_letter}{row_num}")
-                    sheet.row_dimensions[row_num].height = 56
-                    current = sheet.column_dimensions[col_letter].width or 18
-                    sheet.column_dimensions[col_letter].width = max(current, 14)
-                except Exception:
-                    sheet.cell(row_num, images_col_index, ";".join(names))
+                sheet.row_dimensions[row_num].height = max(56, sheet.row_dimensions[row_num].height or 0)
+                col_letter = get_column_letter(images_col_index)
+                current = sheet.column_dimensions[col_letter].width or 18
+                sheet.column_dimensions[col_letter].width = max(current, 14 + min(len(image_bytes), 3) * 10)
+                for img_index, (filename, raw) in enumerate(image_bytes[:3]):
+                    try:
+                        xl_image = XLImage(_prepare_image_for_xlsx(raw))
+                        xl_image.width = 68
+                        xl_image.height = 68
+                        anchor_col = get_column_letter(images_col_index + img_index)
+                        sheet.add_image(xl_image, f"{anchor_col}{row_num}")
+                    except Exception:
+                        if img_index == 0 and names:
+                            sheet.cell(row_num, images_col_index, ";".join(names))
         sheet.cell(1, 1).comment = Comment(
-            "已预填商品图（嵌在「图片」列）。从第 3 行起补价、起订量、货号即可；第 2 行仍是示例。",
+            "已预填商品图（嵌在「图片」列对应单元格）。从第 3 行起补价、起订量；货号可选填。第 2 行仍是示例。",
             "Auto Shoper",
         )
 
