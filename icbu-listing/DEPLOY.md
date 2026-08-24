@@ -27,7 +27,7 @@
 |--------|------|
 | `VERCEL_TOKEN` | Vercel 账号 Token（[vercel.com/account/tokens](https://vercel.com/account/tokens) 创建） |
 
-未配置时 **Deploy Production** CI 会红（`VERCEL_TOKEN secret is missing`），需用手动部署；配置后 push `videos-dataset` 会自动部署并校验 `git_sha`。
+未配置时 **Deploy Production** 会跳过自动部署（CI 仍会通过健康检查）。配置后 push `videos-dataset` 会自动部署并校验 `git_sha` 与 commit 一致。
 
 ## 手动部署
 
