@@ -13,11 +13,11 @@
       style="margin-bottom: 14px"
     />
 
-    <div v-if="sessionBooting" class="boot-panel">
-      <p class="muted">加载中…</p>
+    <div v-if="!sessionId" class="boot-panel">
+      <p class="muted">{{ sessionBooting ? "加载中…" : "正在准备批量任务…" }}</p>
     </div>
 
-    <template v-else-if="sessionId">
+    <template v-else>
       <div v-if="otherSessions.length && docStep !== 1" class="resume-inline">
         <button
           v-for="item in otherSessions"
@@ -2258,42 +2258,38 @@ async function bootSession() {
       applyDraftPayload(matchingDraft);
       verifySession(matchingDraft.sessionId);
       router.replace({ query: { session: matchingDraft.sessionId } });
-      sessionBooting.value = false;
       void hydrateSessionFromServer(matchingDraft.sessionId);
       return;
     }
 
     if (wanted && !deadSessionIds.has(wanted)) {
       sessionId.value = wanted;
-      sessionBooting.value = false;
-      void resumeSession(wanted, { deferHeavy: true, skipListReload: true });
+      await resumeSession(wanted, { deferHeavy: true, skipListReload: true });
       return;
     }
 
-    sessionBooting.value = false;
-    void (async () => {
+    const shopsReady = store.shops.length ? Promise.resolve() : store.ensureShops();
+    const [, sessionsResult] = await Promise.allSettled([shopsReady, loadOpenSessions()]);
+    if (sessionsResult.status === "rejected") {
+      /* list optional — still create a fresh session */
+    }
+    const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
+    if (latest) {
+      applySession(latest);
+      verifySession(latest.id);
+      router.replace({ query: { session: latest.id } });
+      void finishResumeSession();
+      return;
+    }
+    if (!sessionId.value) await startPath();
+  } catch (error) {
+    if (!sessionId.value) {
       try {
-        await store.ensureShops();
-        await loadOpenSessions();
-        const latest = openSessions.value.find((item) => !deadSessionIds.has(item.id));
-        if (latest) {
-          applySession(latest);
-          verifySession(latest.id);
-          router.replace({ query: { session: latest.id } });
-          void finishResumeSession();
-          return;
-        }
-        if (!sessionId.value) await startPath();
-      } catch (error) {
-        if (!sessionId.value) {
-          try {
-            await startPath();
-          } catch {
-            ElMessage.error(error.message || "加载失败");
-          }
-        }
+        await startPath();
+      } catch (inner) {
+        ElMessage.error(inner?.message || error?.message || "加载失败");
       }
-    })();
+    }
   } finally {
     sessionBooting.value = false;
   }
