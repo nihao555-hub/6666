@@ -396,6 +396,7 @@ class AiClient:
         keyword_count: int = 3,
         extra_facts: Mapping[str, Any] | None = None,
         angle: str = "",
+        timeout: float | None = None,
     ) -> Copy:
         facts = {
             "product_name": understanding.product_name,
@@ -422,7 +423,7 @@ class AiClient:
                 f"\n\nThis listing must not read like a reworded copy of another one. "
                 f"Lead with this angle and pick different keywords accordingly: {angle}"
             )
-        payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.2)
+        payload = self.chat_json([{"role": "user", "content": prompt}], temperature=0.2, timeout=timeout)
         faqs = []
         for item in payload.get("faqs") or []:
             if isinstance(item, Mapping) and item.get("question") and item.get("answer"):

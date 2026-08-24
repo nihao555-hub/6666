@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Mapping, Sequence
 from urllib.parse import quote, urlparse
 
@@ -27,6 +29,7 @@ router = APIRouter(prefix="/api/v1/excel", tags=["excel"])
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = 15
+COPY_ROW_TIMEOUT = float(os.environ.get("COPY_ROW_TIMEOUT", "55"))
 
 
 def _attr_columns(
@@ -945,26 +948,39 @@ async def grid_regen_copy(
             )
     updated: list[dict[str, Any]] = []
     errors: list[str] = []
-    for row in payload:
-        if not isinstance(row, Mapping):
-            continue
+
+    def _regen_row(row: Mapping[str, Any]) -> tuple[dict[str, Any], str | None]:
         item = dict(row)
         line = int(item.get("line") or 0)
         if targets and line not in targets:
-            updated.append(item)
-            continue
+            return item, None
         try:
             suggested = review_enrich.suggest_copy_for_row(
                 ai,
                 item,
                 category_name=hint or category_name,
                 ecosystem_brief=eco,
+                timeout=COPY_ROW_TIMEOUT,
             )
             item.update(suggested)
             item["_copy_source"] = "ai"
+            return item, None
         except Exception as exc:
-            errors.append(f"第 {line or '?'} 行：{exc}")
-        updated.append(item)
+            return item, f"第 {line or '?'} 行：{exc}"
+
+    rows_in = [row for row in payload if isinstance(row, Mapping)]
+    if not rows_in:
+        return {"rows": [], "errors": []}
+    workers = min(8, max(1, len(rows_in)))
+    by_line: dict[int, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_regen_row, row): row for row in rows_in}
+        for future in as_completed(futures):
+            item, err = future.result()
+            by_line[int(item.get("line") or 0)] = item
+            if err:
+                errors.append(err)
+    updated = [by_line[int(dict(row).get("line") or 0)] for row in rows_in if int(dict(row).get("line") or 0) in by_line]
     return {"rows": updated, "errors": errors}
 
 

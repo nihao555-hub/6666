@@ -88,6 +88,7 @@ def suggest_copy_for_row(
     *,
     category_name: str = "",
     ecosystem_brief: Mapping[str, Any] | None = None,
+    timeout: float | None = None,
 ) -> dict[str, str]:
     understanding = _understanding_from_row(row, category_name=category_name)
     publishing_rules = skill_prompt_block()
@@ -105,7 +106,7 @@ def suggest_copy_for_row(
         "shop_golden_title_examples": (ecosystem_brief or {}).get("golden_titles") or [],
         "shop_golden_listing_examples": (ecosystem_brief or {}).get("golden_listings") or [],
     }
-    copy = ai.write_copy(understanding, extra_facts=extra)
+    copy = ai.write_copy(understanding, extra_facts=extra, timeout=timeout)
     result = {
         "title": copy.title,
         "keywords": ", ".join(copy.keywords[:3]),

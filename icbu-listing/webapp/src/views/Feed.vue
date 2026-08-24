@@ -236,9 +236,19 @@
       >
         <header class="audit-prep-head">
           <h2 class="audit-page-title">AI 补全中</h2>
-          <p class="audit-subtitle">补标题、属性和图片，完成后自动进入审核</p>
-          <span v-if="docGrid.loading || reviewAssistRunning || hasPendingImageJobs()" class="ai-timeline-badge is-live">进行中</span>
+          <p class="audit-subtitle">补标题与属性后自动进入审核；出图在审核表内异步刷新，无需等待</p>
+          <span v-if="docGrid.loading || reviewAssistRunning" class="ai-timeline-badge is-live">进行中</span>
           <span v-else-if="reviewAiAllDone" class="ai-timeline-badge is-done">已完成</span>
+          <el-button
+            v-if="reviewAssistRunning && docGrid.rows.length"
+            size="small"
+            type="primary"
+            plain
+            style="margin-left: 12px"
+            @click="skipToAuditWhileImagesRun"
+          >
+            先进入审核
+          </el-button>
         </header>
         <ol class="ai-timeline-track">
           <li
@@ -498,19 +508,22 @@
               </div>
             </div>
             <div class="audit-drawer-section">
-              <h4>图片</h4>
+              <h4>图片（6 槽位：白底主图 / 细节 / 尺寸 / 场景 / 外箱 / OEM）</h4>
               <div class="slot-strip">
                 <div
                   v-for="slot in rowSlots(rowDetailRow)"
                   :key="slot.index"
                   class="slot-thumb"
                   :class="`is-${slot.status || 'empty'}`"
+                  :title="slot.name || `图${slot.index}`"
                 >
                   <img v-if="slot.url" :src="slot.url" :alt="slot.name" />
                   <span v-else>{{ slot.index }}</span>
+                  <small class="slot-label">{{ slot.name || `图${slot.index}` }}</small>
                 </div>
               </div>
               <div class="audit-drawer-actions">
+                <el-button @click="generateImagesForRow(rowDetailRow)">重新生成套图</el-button>
                 <el-button type="primary" @click="approveRow(rowDetailRow); rowDetailOpen = false">通过</el-button>
                 <el-button @click="rejectRow(rowDetailRow); rowDetailOpen = false">不通过</el-button>
               </div>
@@ -786,7 +799,7 @@ const showReviewAiTimeline = computed(() => awaitingReviewAssist.value);
 
 const awaitingReviewAssist = computed(() => {
   if (docStep.value !== 0 || !docGrid.rows.length) return false;
-  if (docGrid.loading || reviewAssistRunning.value || hasPendingImageJobs()) return true;
+  if (docGrid.loading || reviewAssistRunning.value) return true;
   if (docReached.value >= 1 && !reviewAiAllDone.value) return true;
   return false;
 });
@@ -3160,7 +3173,12 @@ async function autoStartReviewImages() {
     ensureGridPolling();
     return;
   }
-  await generateImagesForRows([], { silent: true });
+  void generateImagesForRows([], { silent: true });
+}
+
+function skipToAuditWhileImagesRun() {
+  markReviewAiDone();
+  goToAuditStep();
 }
 
 function generateImagesForSelection() {
@@ -3390,11 +3408,24 @@ async function runReviewAssistImpl(force = false) {
       patchReviewStep("attrs", { status: "running", detail: "从填写表与文案补全官方属性…" });
       docGrid.rows = normalizeDocRows(applyLocalImageMatches(docGrid.rows, allUploadImageFiles()));
       const imageNeed = rowsNeedingImageJobs().length;
-      const imagePromise = imageNeed
-        ? generateImagesForRows([], { silent: true })
-        : Promise.resolve({ ok: true, skipped: true });
-      const inferPromise = inferFieldsForRows([], { silent: true });
-      const [inferResult, imageResult] = await Promise.all([inferPromise, imagePromise]);
+      const inferResult = await inferFieldsForRows([], { silent: true });
+      if (imageNeed) {
+        void generateImagesForRows([], { silent: true }).then((imageResult) => {
+          if (imageResult?.ok) ensureGridPolling();
+          void persistSession({ server: true });
+        });
+        patchReviewStep("images", {
+          status: "done",
+          detail: `已提交 ${imageNeed} 行出图，审核表内占位图自动刷新`,
+        });
+      } else {
+        const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
+        if (matchedPhotos) {
+          patchReviewStep("images", { status: "done", detail: `已配对 ${matchedPhotos}/${docGrid.rows.length} 行图片` });
+        } else {
+          patchReviewStep("images", { status: "done", detail: "图片已齐" });
+        }
+      }
       if (inferResult.skipped) {
         if (inferResult.reason === "no_rows") {
           patchReviewStep("attrs", { status: "error", detail: "无商品行" });
@@ -3417,23 +3448,7 @@ async function runReviewAssistImpl(force = false) {
         patchReviewStep("attrs", { status: "error", detail: inferResult.error || "推断失败" });
       }
 
-      const matchedPhotos = docGrid.rows.filter((row) => rowImageCount(row) > 0).length;
-      if (imageNeed) {
-        if (imageResult.ok) {
-          ensureGridPolling();
-          const started = imageResult.jobs_started || rowsNeedingImageJobs().length;
-          patchReviewStep("images", {
-            status: "done",
-            detail: `已并发提交 ${started} 行出图，审核时可继续操作`,
-          });
-        } else {
-          patchReviewStep("images", { status: "error", detail: imageResult.error || "出图失败" });
-        }
-      } else if (matchedPhotos) {
-        patchReviewStep("images", { status: "done", detail: `已配对 ${matchedPhotos}/${docGrid.rows.length} 行图片` });
-      } else {
-        patchReviewStep("images", { status: "done", detail: "图片已齐" });
-      }
+      ensureGridPolling();
     }
 
     patchReviewStep("check", { status: "running", detail: "校验…" });
@@ -5258,11 +5273,26 @@ onUnmounted(() => {
   border: 1px dashed var(--line);
   background: var(--gray3);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   font-size: 11px;
   color: var(--muted);
+  position: relative;
+}
+
+.slot-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 3px;
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
 }
 
 .slot-thumb img {
