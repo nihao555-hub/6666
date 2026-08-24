@@ -63,20 +63,42 @@ def get_node(db: Session, api: IcbuApi, category_id: str | int, *, fetch: bool =
     if not fetch:
         return node
     last_node = node
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             raw = _unwrap(api.get_category(category_id))
         except Exception:
-            if attempt == 0 and category_id == ROOT_ID:
+            if attempt < 2 and category_id == ROOT_ID:
                 import time
-                time.sleep(0.15)
+
+                time.sleep(0.12 * (attempt + 1))
                 continue
+            if category_id == ROOT_ID:
+                return None
             return last_node
         if not raw.get("category_id") and category_id != ROOT_ID:
+            if category_id == ROOT_ID:
+                return None
             return last_node
+        child_list = raw.get("child_ids") or []
+        if category_id == ROOT_ID and fetch and not child_list and attempt < 2:
+            import time
+
+            time.sleep(0.12 * (attempt + 1))
+            continue
         node = _store_node(db, {**raw, "category_id": raw.get("category_id", category_id)})
         db.commit()
+        if category_id == ROOT_ID and fetch and not child_ids(node):
+            db.delete(node)
+            db.commit()
+            if attempt < 2:
+                import time
+
+                time.sleep(0.12 * (attempt + 1))
+                continue
+            return None
         return node
+    if category_id == ROOT_ID:
+        return None
     return last_node
 
 

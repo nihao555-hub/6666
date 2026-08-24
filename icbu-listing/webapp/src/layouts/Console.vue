@@ -64,11 +64,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import Brand from "../components/Brand.vue";
 import { api } from "../api";
+import { prefetchCategoryPicker } from "../categoryPickerCache";
 import { store } from "../store";
 
 const route = useRoute();
@@ -81,10 +82,19 @@ onMounted(async () => {
     if (!store.user) await store.loadUser();
     await store.ensureShops();
     shopId.value = store.shopId;
+    if (store.shopId) void prefetchCategoryPicker(store.shopId);
   } catch (error) {
     ElMessage.error(error.message);
   }
 });
+
+watch(
+  () => store.shopId,
+  (value) => {
+    shopId.value = value;
+    if (value) void prefetchCategoryPicker(value);
+  },
+);
 
 function on(path) {
   return route.path === path || route.path.startsWith(`${path}/`);

@@ -1,7 +1,8 @@
 import { api } from "./api";
 
 const CACHE_MS = 30 * 60 * 1000;
-const PREFETCH_RETRIES = 2;
+const PREFETCH_RETRIES = 3;
+const inflight = new Map();
 
 export function sidebarCacheKey(shopId) {
   return `category-sidebar:${shopId}`;
@@ -62,20 +63,19 @@ async function fetchRootTree(shopId) {
       if (children.length) {
         return { children, path: data.path || [] };
       }
-      lastError = new Error("empty");
+      lastError = new Error("类目树为空");
     } catch (error) {
       lastError = error;
     }
     if (attempt + 1 < PREFETCH_RETRIES) {
-      await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, 180 * (attempt + 1)));
     }
   }
   if (lastError) throw lastError;
   return null;
 }
 
-export async function prefetchCategoryPicker(shopId) {
-  if (!shopId) return;
+async function runPrefetch(shopId) {
   const sidebarKey = sidebarCacheKey(shopId);
   const treeKey = treeCacheKey(shopId, "0");
   await Promise.allSettled([
@@ -99,4 +99,20 @@ export async function prefetchCategoryPicker(shopId) {
       }
     })(),
   ]);
+}
+
+export function awaitCategoryPrefetch(shopId) {
+  if (!shopId) return Promise.resolve();
+  return inflight.get(shopId) || Promise.resolve();
+}
+
+export function prefetchCategoryPicker(shopId) {
+  if (!shopId) return Promise.resolve();
+  const existing = inflight.get(shopId);
+  if (existing) return existing;
+  const job = runPrefetch(shopId).finally(() => {
+    if (inflight.get(shopId) === job) inflight.delete(shopId);
+  });
+  inflight.set(shopId, job);
+  return job;
 }

@@ -12,8 +12,11 @@
           </span>
           <el-link v-if="path.length" type="info" style="margin-left: 8px" @click="openNode('0')">回到顶层</el-link>
         </p>
-        <div v-if="!loading && !children.length" class="tree-empty">
-          <p class="muted">还没有拉到类目树。请确认店铺已登录，或点右侧常用类目。</p>
+        <div v-if="shopMissing" class="tree-empty">
+          <p class="muted">还没有绑定店铺。请先在左侧栏选择店铺，或去「店铺」页完成授权。</p>
+        </div>
+        <div v-else-if="!loading && !children.length" class="tree-empty">
+          <p class="muted">{{ treeError || "还没有拉到类目树。请确认店铺已登录，或点右侧常用类目。" }}</p>
           <el-button size="small" type="primary" :loading="loading" @click="retryRoot">重试拉取</el-button>
         </div>
         <el-table
@@ -77,7 +80,8 @@
           </div>
         </div>
 
-        <p v-if="!loadingSide && !recent.length && !used.length" class="muted side-empty">
+        <p v-if="sidebarError" class="muted side-empty side-error">{{ sidebarError }}</p>
+        <p v-else-if="!loadingSide && !recent.length && !used.length" class="muted side-empty">
           还没有常用类目。先在线发几个货，或从左侧树里选一次，之后就会出现在这里。
         </p>
         <p v-if="loadingSide && !recent.length && !used.length" class="muted side-empty">正在拉常用类目…</p>
@@ -92,7 +96,9 @@ import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { store } from "../store";
 import {
+  awaitCategoryPrefetch,
   invalidateCategoryCache,
+  prefetchCategoryPicker,
   readCategoryCache,
   sidebarCacheKey,
   treeCacheKey,
@@ -111,6 +117,9 @@ const children = ref([]);
 const path = ref([]);
 const recent = ref([]);
 const used = ref([]);
+const shopMissing = ref(false);
+const treeError = ref("");
+const sidebarError = ref("");
 
 watch(
   () => props.modelValue,
@@ -152,21 +161,27 @@ function chooseUsed(item) {
 }
 
 async function loadSidebar(options = {}) {
-  const { silent = false } = options;
+  const { silent = false, force = false } = options;
+  sidebarError.value = "";
   if (!store.shopId) return;
-  const cached = readCategoryCache(sidebarCacheKey(store.shopId));
+  if (force) invalidateCategoryCache(sidebarCacheKey(store.shopId));
+  const cached = force ? null : readCategoryCache(sidebarCacheKey(store.shopId));
   if (cached) applySidebar(cached);
   if (cached && !silent) loadingSide.value = false;
   else if (!cached) loadingSide.value = true;
   try {
-    const data = await api.categorySidebar(store.shopId);
+    const data = await api.categorySidebar(store.shopId, force ? { refresh: true } : {});
     applySidebar(data);
+    sidebarError.value = "";
     if ((data.used || []).length || (data.recent || []).length) {
       writeCategoryCache(sidebarCacheKey(store.shopId), data);
     }
   } catch (error) {
-    if (!cached && !String(error.message || "").includes("登录")) {
-      ElMessage.error(error.message);
+    if (!cached) {
+      sidebarError.value = String(error.message || "常用类目拉取失败");
+      if (!String(error.message || "").includes("登录") && !String(error.message || "").includes("授权")) {
+        ElMessage.error(error.message);
+      }
     }
   } finally {
     loadingSide.value = false;
@@ -175,10 +190,13 @@ async function loadSidebar(options = {}) {
 
 async function openNode(parent, options = {}) {
   const { force = false } = options;
+  treeError.value = "";
   if (!store.shopId) {
+    shopMissing.value = true;
     ElMessage.warning("先登录一个店铺");
     return;
   }
+  shopMissing.value = false;
   const cacheKey = treeCacheKey(store.shopId, parent);
   if (force) invalidateCategoryCache(cacheKey);
   const cached = force ? null : readCategoryCache(cacheKey);
@@ -188,15 +206,18 @@ async function openNode(parent, options = {}) {
     const data = await api.categories(store.shopId, parent);
     children.value = data.children || [];
     path.value = data.path || [];
+    treeError.value = "";
     if (children.value.length) {
       writeCategoryCache(cacheKey, { children: children.value, path: path.value });
     } else {
       invalidateCategoryCache(cacheKey);
+      treeError.value = parent === "0" ? "类目树暂时拉不到，请确认店铺已授权后重试" : "这个类目节点暂时没有子类目";
     }
   } catch (error) {
     invalidateCategoryCache(cacheKey);
     if (!cached) {
       children.value = [];
+      treeError.value = String(error.message || "类目树拉取失败");
       ElMessage.error(error.message);
     }
   } finally {
@@ -206,19 +227,46 @@ async function openNode(parent, options = {}) {
 
 function retryRoot() {
   void openNode("0", { force: true });
+  void loadSidebar({ force: true });
 }
 
 async function onOpen() {
+  shopMissing.value = false;
+  treeError.value = "";
+  sidebarError.value = "";
   if (store.user) {
     try {
       await store.ensureShops();
-    } catch {
-      /* shop binding happens on Feed mount */
+    } catch (error) {
+      ElMessage.error(error.message || "店铺加载失败");
     }
+  }
+  if (!store.shopId) {
+    shopMissing.value = true;
+    children.value = [];
+    recent.value = [];
+    used.value = [];
+    return;
   }
   applySidebar(readCategoryCache(sidebarCacheKey(store.shopId)));
   applyTree(readCategoryCache(treeCacheKey(store.shopId, "0")));
-  await Promise.all([openNode("0"), loadSidebar({ silent: Boolean(recent.value.length || used.value.length) })]);
+  const hadCache = children.value.length > 0;
+  if (!hadCache) loading.value = true;
+  if (!recent.value.length && !used.value.length) loadingSide.value = true;
+  try {
+    await awaitCategoryPrefetch(store.shopId);
+    applySidebar(readCategoryCache(sidebarCacheKey(store.shopId)));
+    applyTree(readCategoryCache(treeCacheKey(store.shopId, "0")));
+  } catch {
+    /* prefetch is best-effort */
+  }
+  await Promise.all([
+    openNode("0", { force: false }),
+    loadSidebar({ silent: Boolean(recent.value.length || used.value.length) }),
+  ]);
+  if (!children.value.length && !loading.value) {
+    void prefetchCategoryPicker(store.shopId);
+  }
 }
 
 function pathLabel(node) {
@@ -245,7 +293,7 @@ async function recordPick(payload) {
       category_id: payload.category_id,
       category_name: payload.path_label || payload.label || payload.name || "",
     });
-    sessionStorage.removeItem(sidebarCacheKey(store.shopId));
+    invalidateCategoryCache(sidebarCacheKey(store.shopId));
   } catch {
     /* remembering recent picks is optional */
   }
@@ -305,6 +353,9 @@ async function recordPick(payload) {
 .side-empty {
   margin: 0;
   font-size: 12px;
+}
+.side-error {
+  color: #b45309;
 }
 .side-block small {
   display: block;

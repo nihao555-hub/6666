@@ -899,7 +899,10 @@ def browse_categories(
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     shop = shop_for(db, user, shop_id)
-    api = shop_api(shop)
+    try:
+        api = shop_api(shop)
+    except ShopNotConnected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     parent = str(parent or "0")
     db_children = catalog.children_from_db(db, parent)
     if db_children:
@@ -941,7 +944,7 @@ def browse_categories(
     node = catalog.get_node(db, api, parent)
     if node is None:
         if parent == "0":
-            raise HTTPException(status_code=404, detail="类目树暂时拉不到，请稍后重试")
+            raise HTTPException(status_code=503, detail="类目树暂时拉不到，请确认店铺已授权后重试")
         stale = db.get(CategoryNode, parent)
         return {
             "origin": "official_icbu_tree",
@@ -965,12 +968,15 @@ def browse_categories(
     if parent == "0" and sidebar:
         recent = shop_categories.recent_picks(db, shop, user)
         used = shop_categories.used_leaves(db, shop, api=api, include_online=True, online_pages=1)
+    children = catalog.summarise(catalog.get_children(db, api, node))
+    if parent == "0" and not children:
+        raise HTTPException(status_code=503, detail="类目树暂时拉不到，请确认店铺已授权后重试")
     return {
         "origin": "official_icbu_tree",
         "note": "这是国际站官方类目树，和后台选类目是同一棵。上面「最近选过」是你在这家店点过的叶子；「已经上过的」来自在线商品和本地草稿。",
         "node": catalog.as_dict(node),
         "path": catalog.summarise(catalog.path_of(db, api, parent)) if parent != "0" else [],
-        "children": catalog.summarise(catalog.get_children(db, api, node)),
+        "children": children,
         "recent": recent,
         "used": used,
         "cached": False,
@@ -985,7 +991,10 @@ def category_sidebar(
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     shop = shop_for(db, user, shop_id)
-    api = shop_api(shop)
+    try:
+        api = shop_api(shop)
+    except ShopNotConnected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return shop_categories.sidebar(db, api, shop, user, refresh_online=refresh)
 
 

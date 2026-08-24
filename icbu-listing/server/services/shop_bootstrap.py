@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..crypto import encrypt_secret
 from ..models import Shop, User
-from ..services import defaults as defaults_service
+from ..services import catalog, defaults as defaults_service
 from ..services.shop_client import ShopNotConnected, shop_api
 
 DEMO_SHOP_ID = "00000000000000000000000000000002"
@@ -96,6 +96,10 @@ def ensure_env_shop(db: Session, user: User, *, name: str = "测试店铺") -> S
         shop.online_count = total
         db.commit()
         defaults_service.pull_from_shop(db, shop_api(shop), shop)
+        try:
+            catalog.get_node(db, shop_api(shop), catalog.ROOT_ID)
+        except (GopError, ShopNotConnected, RuntimeError, TypeError, ValueError):
+            pass
     except (GopError, ShopNotConnected, RuntimeError, TypeError, ValueError):
         pass
 

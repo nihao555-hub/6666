@@ -64,6 +64,7 @@ def _online_counts(
     if cache_only or max_pages <= 0:
         return cached[1] if cached else Counter()
     counts: Counter[str] = Counter()
+    fetched = False
     try:
         for page in range(1, max(1, max_pages) + 1):
             payload = api.list_products(page, _LIST_PAGE_SIZE, "onSelling")
@@ -72,11 +73,13 @@ def _online_counts(
                 cid = str(item.get("category_id") or "").strip()
                 if cid:
                     counts[cid] += 1
+            fetched = True
             if not products or page * _LIST_PAGE_SIZE >= total:
                 break
     except Exception:
-        counts = cached[1] if cached else counts
-    _ONLINE_CACHE[shop_id] = (time.time(), counts)
+        return cached[1] if cached else Counter()
+    if fetched:
+        _ONLINE_CACHE[shop_id] = (time.time(), counts)
     return counts
 
 
@@ -265,15 +268,13 @@ def sidebar(
     recent = recent_picks(db, shop, user)
     online_fresh = _online_cache_fresh(shop.id)
     local_counts = _local_used_counts(db, shop)
-    # Use cached online counts when warm; otherwise pull one product.list page once.
-    use_cache_only = online_fresh and not refresh_online and not local_counts
     used = used_leaves(
         db,
         shop,
         api=api,
         include_online=True,
-        cache_only=use_cache_only,
-        online_pages=_SIDEBAR_ONLINE_PAGES if refresh_online or not online_fresh else 0,
+        cache_only=False,
+        online_pages=_SIDEBAR_ONLINE_PAGES if refresh_online or not online_fresh or not local_counts else 0,
     )
     payload = {"recent": recent, "used": used}
     if used or recent:
